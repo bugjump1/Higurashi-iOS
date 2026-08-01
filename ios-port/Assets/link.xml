@@ -1,0 +1,6 @@
+<linker>
+  <assembly fullname="Higurashi.Core" preserve="all" />
+  <assembly fullname="Higurashi.Runtime" preserve="all" />
+  <assembly fullname="System.IO.Compression" preserve="all" />
+  <assembly fullname="System.IO.Compression.FileSystem" preserve="all" />
+</linker>

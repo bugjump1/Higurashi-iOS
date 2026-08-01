@@ -1,0 +1,178 @@
+name: Build unsigned iOS IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      bundle_identifier:
+        description: Bundle identifier used before self-signing
+        required: false
+        default: com.local.higurashi01
+  push:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-unsigned-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core-tests:
+    name: Core smoke tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Test touch and traversal core
+        run: dotnet run --project tools/Higurashi.Core.SmokeTests/Higurashi.Core.SmokeTests.csproj
+
+      - name: Compile local data-pack tool
+        run: dotnet build tools/Higurashi.DataPack/Higurashi.DataPack.csproj --configuration Release
+
+      - name: Compile Buriko script-audit tool
+        run: dotnet build tools/Higurashi.ScriptAudit/Higurashi.ScriptAudit.csproj --configuration Release
+
+      - name: Compile Buriko runtime probe
+        run: dotnet build tools/Higurashi.RuntimeProbe/Higurashi.RuntimeProbe.csproj --configuration Release
+
+  export-xcode:
+    name: Export Xcode project
+    needs: core-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Restore original HigurashiEp01 app icon
+        shell: bash
+        env:
+          APP_ICON_BASE64_1: ${{ secrets.HIGURASHI_APP_ICON_BASE64_1 }}
+          APP_ICON_BASE64_2: ${{ secrets.HIGURASHI_APP_ICON_BASE64_2 }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$APP_ICON_BASE64_1" || -z "$APP_ICON_BASE64_2" ]]; then
+            echo "HIGURASHI_APP_ICON_BASE64_1/2 secrets are required." >&2
+            exit 1
+          fi
+          mkdir -p ios-port/Assets/Branding
+          printf '%s%s' "$APP_ICON_BASE64_1" "$APP_ICON_BASE64_2" | base64 --decode \
+            > ios-port/Assets/Branding/AppIcon.png
+
+      - name: Cache Unity Library
+        uses: actions/cache@v4
+        with:
+          path: ios-port/Library
+          key: unity-library-ios-${{ hashFiles('ios-port/ProjectSettings/ProjectVersion.txt', 'ios-port/Packages/manifest.json', 'ios-port/Assets/**') }}
+          restore-keys: |
+            unity-library-ios-
+
+      - name: Export iOS Xcode project
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: ios-port
+          unityVersion: auto
+          targetPlatform: iOS
+          buildMethod: Higurashi.IOS.Editor.IOSBuild.Build
+          buildsPath: build
+          buildName: iOS
+          versioning: None
+          allowDirtyBuild: true
+          customParameters: >-
+            -customBuildPath /github/workspace/build/iOS
+            -bundleIdentifier ${{ inputs.bundle_identifier || 'com.local.higurashi01' }}
+            -buildNumber ${{ github.run_number }}
+
+      - name: Upload Xcode project for compile job
+        uses: actions/upload-artifact@v4
+        with:
+          name: Higurashi-01-XcodeProject-intermediate
+          path: build/iOS
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 6
+
+  compile-unsigned:
+    name: Compile unsigned IPA
+    needs: export-xcode
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Download Xcode project
+        uses: actions/download-artifact@v4
+        with:
+          name: Higurashi-01-XcodeProject-intermediate
+          path: build/iOS
+
+      - name: Show build environment
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks
+
+      - name: Compile without code signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project build/iOS/Unity-iPhone.xcodeproj \
+            -scheme Unity-iPhone \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            IPHONEOS_DEPLOYMENT_TARGET=15.0 \
+            TARGETED_DEVICE_FAMILY="1,2" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            clean build
+
+      - name: Package unsigned IPA and Xcode project
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="$(find "$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          if [[ -z "$APP_PATH" ]]; then
+            echo "No .app product was generated." >&2
+            exit 1
+          fi
+
+          mkdir -p artifacts/Payload
+          ditto "$APP_PATH" "artifacts/Payload/$(basename "$APP_PATH")"
+          (
+            cd artifacts
+            ditto -c -k --sequesterRsrc --keepParent Payload Higurashi-01-iOS-unsigned.ipa
+          )
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/iOS \
+            artifacts/Higurashi-01-iOS-unsigned-XcodeProject.zip
+
+      - name: Upload final unsigned artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Higurashi-01-iOS-unsigned
+          path: |
+            artifacts/Higurashi-01-iOS-unsigned.ipa
+            artifacts/Higurashi-01-iOS-unsigned-XcodeProject.zip
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

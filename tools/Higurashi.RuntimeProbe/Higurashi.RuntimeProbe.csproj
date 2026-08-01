@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Buriko\CompiledScriptContainer.cs" Link="Core\CompiledScriptContainer.cs" />
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Buriko\BurikoOperationCatalog.Generated.cs" Link="Core\BurikoOperationCatalog.Generated.cs" />
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Buriko\BurikoValue.cs" Link="Core\BurikoValue.cs" />
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Buriko\BurikoMemory.cs" Link="Core\BurikoMemory.cs" />
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Buriko\BurikoRuntimeContracts.cs" Link="Core\BurikoRuntimeContracts.cs" />
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Buriko\BurikoRuntime.cs" Link="Core\BurikoRuntime.cs" />
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Buriko\DirectoryBurikoScriptRepository.cs" Link="Core\DirectoryBurikoScriptRepository.cs" />
+  </ItemGroup>
+</Project>
+

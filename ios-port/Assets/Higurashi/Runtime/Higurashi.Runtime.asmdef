@@ -1,0 +1,17 @@
+{
+  "name": "Higurashi.Runtime",
+  "rootNamespace": "Higurashi.IOS",
+  "references": [
+    "Higurashi.Core"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}
+

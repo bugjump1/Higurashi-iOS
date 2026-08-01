@@ -1,0 +1,1101 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.IO;
+using Higurashi.IOS.Buriko;
+using Higurashi.IOS.Compatibility;
+using Higurashi.IOS.Data;
+using UnityEngine;
+using UnityEngine.Networking;
+using UnityEngine.Video;
+
+namespace Higurashi.IOS.Runtime.Buriko
+{
+    public sealed class UnityBurikoHost : MonoBehaviour, IBurikoHost
+    {
+        private readonly List<RuntimePathCascade> _artSets = new List<RuntimePathCascade>();
+        private readonly List<RuntimePathCascade> _bgmSets = new List<RuntimePathCascade>();
+        private readonly List<RuntimePathCascade> _seSets = new List<RuntimePathCascade>();
+        private readonly List<RuntimeAudioSet> _audioSets = new List<RuntimeAudioSet>();
+        private readonly SortedDictionary<int, PresentationLayer> _layers =
+            new SortedDictionary<int, PresentationLayer>();
+        private readonly List<string> _history = new List<string>();
+        private readonly HashSet<short> _reportedOperations = new HashSet<short>();
+        private UnityAssetLoader _assets;
+        private UnityAudioService _audio;
+        private HigurashiUserSettings _settings;
+        private string _streamingAssetsRoot;
+        private string _backgroundName;
+        private Texture2D _backgroundTexture;
+        private VideoPlayer _videoPlayer;
+
+        public string Speaker { get; private set; } = string.Empty;
+        public string Dialogue { get; private set; } = string.Empty;
+        public bool WindowVisible { get; private set; } = true;
+        public bool TitleVisible { get; private set; }
+        public bool HistoryVisible { get; set; }
+        public bool ChoiceVisible => Choices.Count > 0;
+        public List<string> Choices { get; } = new List<string>();
+        public int DialogueSerial { get; private set; }
+        public Texture2D BackgroundTexture => _backgroundTexture;
+        public Texture MovieTexture => _videoPlayer != null ? _videoPlayer.texture : null;
+        public bool MovieVisible { get; private set; }
+        public IReadOnlyDictionary<int, PresentationLayer> Layers => _layers;
+        public IReadOnlyList<string> History => _history;
+        public IReadOnlyList<RuntimePathCascade> ArtSets => _artSets;
+        public IReadOnlyList<RuntimeAudioSet> AudioSets => _audioSets;
+        public int FontSize { get; private set; } = 30;
+        public int WindowX { get; private set; }
+        public int WindowY { get; private set; }
+        public int WindowWidth { get; private set; } = 1200;
+        public int WindowHeight { get; private set; } = 250;
+        public string ScreenAspect { get; private set; } = "1.7777778";
+        public event Action MovieFinished;
+
+        public void Initialize(string installedGameDataRoot, HigurashiUserSettings settings)
+        {
+            _settings = settings ?? new HigurashiUserSettings();
+            _streamingAssetsRoot = Path.Combine(installedGameDataRoot, "StreamingAssets");
+            _assets = new UnityAssetLoader(installedGameDataRoot);
+            _audio = gameObject.AddComponent<UnityAudioService>();
+            _audio.Initialize(installedGameDataRoot, this);
+            _videoPlayer = gameObject.AddComponent<VideoPlayer>();
+            _videoPlayer.playOnAwake = false;
+            _videoPlayer.isLooping = false;
+            _videoPlayer.renderMode = VideoRenderMode.APIOnly;
+            _videoPlayer.audioOutputMode = VideoAudioOutputMode.Direct;
+            _videoPlayer.loopPointReached += OnMovieEnded;
+            _videoPlayer.errorReceived += OnMovieError;
+        }
+
+        public void ApplySettings(BurikoMemory memory)
+        {
+            if (_settings == null)
+            {
+                return;
+            }
+
+            var artIndex = ClampIndex(_settings.artSetIndex, _artSets.Count);
+            _settings.artSetIndex = artIndex;
+            memory.SetGlobalFlag("GArtStyle", artIndex);
+            memory.SetGlobalFlag("GLipSync", _settings.lipSync ? 1 : 0);
+            memory.SetGlobalFlag("GCensor", _settings.censorshipLevel);
+
+            if (_audioSets.Count > 0)
+            {
+                var audioIndex = ClampIndex(_settings.audioPresetIndex, _audioSets.Count);
+                _settings.audioPresetIndex = audioIndex;
+                var audioSet = _audioSets[audioIndex];
+                memory.SetGlobalFlag("GAudioSet", audioIndex + 1);
+                memory.SetGlobalFlag("GAltBGM", audioSet.AltBgm);
+                memory.SetGlobalFlag("GAltBGMflow", audioSet.AltBgmFlow);
+                memory.SetGlobalFlag("GAltSE", audioSet.AltSe);
+                memory.SetGlobalFlag("GAltSEflow", audioSet.AltSeFlow);
+            }
+
+            ReloadVisualAssets(memory);
+        }
+
+        public BurikoHostResponse Execute(BurikoOperationInvocation invocation, BurikoMemory memory)
+        {
+            switch (invocation.Specification.Code)
+            {
+                case 15:
+                case 19:
+                case 20:
+                case 22:
+                case 23:
+                case 36:
+                case 37:
+                case 38:
+                case 39:
+                case 40:
+                case 41:
+                case 42:
+                case 43:
+                case 44:
+                case 45:
+                case 46:
+                case 61:
+                case 68:
+                case 70:
+                case 71:
+                case 72:
+                case 73:
+                case 74:
+                case 75:
+                case 76:
+                case 77:
+                case 78:
+                case 81:
+                case 82:
+                case 83:
+                case 84:
+                case 85:
+                case 106:
+                case 107:
+                case 110:
+                case 111:
+                case 112:
+                case 113:
+                case 114:
+                case 121:
+                case 122:
+                case 123:
+                case 124:
+                case 125:
+                case 126:
+                case 132:
+                case 133:
+                case 134:
+                case 136:
+                case 137:
+                case 140:
+                case 141:
+                case 147:
+                    ReportApproximated(invocation);
+                    return BurikoHostResponse.Continue;
+                case 16:
+                    return SetDialogue(
+                        Text(invocation, 0, memory),
+                        Text(invocation, 1, memory),
+                        Text(invocation, 2, memory),
+                        Text(invocation, 3, memory),
+                        Int(invocation, 4, memory));
+                case 17:
+                    return SetDialogue(
+                        Text(invocation, 0, memory),
+                        Text(invocation, 1, memory),
+                        string.Empty,
+                        string.Empty,
+                        Int(invocation, 2, memory));
+                case 18:
+                    Speaker = string.Empty;
+                    Dialogue = string.Empty;
+                    return BurikoHostResponse.Continue;
+                case 21:
+                    WindowVisible = false;
+                    return BurikoHostResponse.Continue;
+                case 24:
+                    ShowChoices(invocation, memory);
+                    return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Choice);
+                case 25:
+                    PlayBgm(invocation, memory, false);
+                    return BurikoHostResponse.Continue;
+                case 26:
+                    _audio.StopBgm(Int(invocation, 0, memory));
+                    return BurikoHostResponse.Continue;
+                case 27:
+                    _audio.SetBgmVolume(
+                        Int(invocation, 0, memory),
+                        Int(invocation, 1, memory) / 128f);
+                    return BurikoHostResponse.Continue;
+                case 28:
+                    _audio.StopBgm(Int(invocation, 0, memory));
+                    return BurikoHostResponse.Continue;
+                case 29:
+                    for (var channel = Int(invocation, 0, memory);
+                         channel <= Int(invocation, 1, memory);
+                         channel++)
+                    {
+                        _audio.StopBgm(channel);
+                    }
+                    return BurikoHostResponse.Continue;
+                case 30:
+                    _audio.PlaySe(
+                        Int(invocation, 0, memory),
+                        AddOgg(Text(invocation, 1, memory)),
+                        Int(invocation, 2, memory) / 128f,
+                        memory);
+                    return BurikoHostResponse.Continue;
+                case 31:
+                case 32:
+                    _audio.StopSe(Int(invocation, 0, memory));
+                    return BurikoHostResponse.Continue;
+                case 33:
+                case 35:
+                    return BurikoValueResponse(_audio.IsChannelPlaying(
+                        invocation.Specification.Code == 33 ? RuntimeAudioKind.Se : RuntimeAudioKind.Voice,
+                        Int(invocation, 0, memory)));
+                case 34:
+                    _audio.PlayVoice(
+                        Int(invocation, 0, memory),
+                        AddOgg(Text(invocation, 1, memory)),
+                        VoiceVolume(Int(invocation, 2, memory) / 128f),
+                        memory);
+                    return BurikoHostResponse.Continue;
+                case 47:
+                    SetBackground(Text(invocation, 0, memory), memory, false);
+                    return BurikoHostResponse.Continue;
+                case 50:
+                case 51:
+                case 52:
+                    SetBackground(Text(invocation, 0, memory), memory);
+                    return BurikoHostResponse.Continue;
+                case 48:
+                    SetBackground("black", memory, false);
+                    return BurikoHostResponse.Continue;
+                case 53:
+                case 54:
+                    SetBackground("black", memory);
+                    return BurikoHostResponse.Continue;
+                case 49:
+                    SetBackground(Text(invocation, 0, memory), memory, false);
+                    return BurikoHostResponse.Continue;
+                case 55:
+                    DrawLayer(
+                        Int(invocation, 0, memory),
+                        Text(invocation, 1, memory),
+                        Int(invocation, 2, memory),
+                        Int(invocation, 3, memory),
+                        Int(invocation, 4, memory),
+                        Int(invocation, 13, memory),
+                        memory);
+                    return BurikoHostResponse.Continue;
+                case 56:
+                    DrawLayer(
+                        Int(invocation, 0, memory),
+                        Text(invocation, 1, memory),
+                        Int(invocation, 2, memory),
+                        Int(invocation, 3, memory),
+                        Int(invocation, 4, memory),
+                        Int(invocation, 0, memory),
+                        memory);
+                    return BurikoHostResponse.Continue;
+                case 57:
+                case 64:
+                case 65:
+                    _layers.Remove(Int(invocation, 0, memory));
+                    return BurikoHostResponse.Continue;
+                case 58:
+                    DrawLayer(
+                        Int(invocation, 0, memory),
+                        Text(invocation, 1, memory),
+                        Int(invocation, 4, memory),
+                        Int(invocation, 5, memory),
+                        Int(invocation, 10, memory),
+                        Int(invocation, 12, memory),
+                        memory);
+                    return BurikoHostResponse.Continue;
+                case 59:
+                    DrawLayer(1000, Text(invocation, 0, memory), 0, 0, 0, 1000, memory);
+                    return BurikoHostResponse.Continue;
+                case 60:
+                    _layers.Remove(1000);
+                    return BurikoHostResponse.Continue;
+                case 62:
+                    DrawLayer(
+                        Int(invocation, 0, memory),
+                        Text(invocation, 1, memory),
+                        Int(invocation, 3, memory),
+                        Int(invocation, 4, memory),
+                        Int(invocation, 5, memory),
+                        Int(invocation, 13, memory),
+                        memory,
+                        Int(invocation, 12, memory) / 256f);
+                    return BurikoHostResponse.Continue;
+                case 63:
+                    DrawLayer(
+                        Int(invocation, 0, memory),
+                        Text(invocation, 1, memory),
+                        Int(invocation, 4, memory),
+                        Int(invocation, 5, memory),
+                        0,
+                        Int(invocation, 10, memory),
+                        memory);
+                    return BurikoHostResponse.Continue;
+                case 66:
+                    MoveLayer(invocation, memory);
+                    return BurikoHostResponse.Continue;
+                case 67:
+                    ReportApproximated(invocation);
+                    return BurikoHostResponse.Continue;
+                case 69:
+                    ReportApproximated(invocation);
+                    return BurikoHostResponse.Continue;
+                case 79:
+                case 98:
+                case 99:
+                    _layers.Clear();
+                    return BurikoHostResponse.Continue;
+                case 89:
+                    // The PC chapter-preview UI writes 1 when its Start button is accepted.
+                    // On mobile, the title's Start action is the confirmation.
+                    memory.SetLocalFlag("LOCALWORK_NO_RESULT", 1);
+                    return BurikoHostResponse.Continue;
+                case 101:
+                    TitleVisible = true;
+                    WindowVisible = false;
+                    SetBackground(memory.GetGlobalFlag("GFlag_GameClear") != 0 ? "title02" : "title", memory);
+                    return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
+                case 109:
+                    // The imported script set is Chinese-first. Keep the original Japanese/Asian text slot.
+                    memory.SetGlobalFlag("GLanguage", 0);
+                    return BurikoHostResponse.Continue;
+                case 115:
+                    FontSize = Math.Max(12, Int(invocation, 0, memory));
+                    return BurikoHostResponse.Continue;
+                case 116:
+                    WindowX = Int(invocation, 0, memory);
+                    WindowY = Int(invocation, 1, memory);
+                    return BurikoHostResponse.Continue;
+                case 117:
+                    WindowWidth = Int(invocation, 0, memory);
+                    WindowHeight = Int(invocation, 1, memory);
+                    return BurikoHostResponse.Continue;
+                case 118:
+                    return BurikoHostResponse.Continue;
+                case 119:
+                    return BurikoHostResponse.Continue;
+                case 120:
+                    ScreenAspect = Text(invocation, 0, memory);
+                    return BurikoHostResponse.Continue;
+                case 127:
+                    ReportApproximated(invocation);
+                    return BurikoHostResponse.Continue;
+                case 128:
+                    DrawModCharacter(invocation, memory, false);
+                    return BurikoHostResponse.Continue;
+                case 129:
+                    DrawModCharacter(invocation, memory, true);
+                    return BurikoHostResponse.Continue;
+                case 130:
+                    _audio.PlayVoice(
+                        Int(invocation, 0, memory),
+                        AddOgg(Text(invocation, 2, memory)),
+                        VoiceVolume(Int(invocation, 3, memory) / 128f),
+                        memory);
+                    return BurikoHostResponse.Continue;
+                case 131:
+                    return StartMovie(Text(invocation, 0, memory));
+                case 135:
+                    return BurikoValueResponse(memory.GetGlobalFlag(
+                        "GHighestChapter" + Int(invocation, 0, memory)));
+                case 138:
+                    AddCascade(_artSets, invocation, memory);
+                    return BurikoHostResponse.Continue;
+                case 139:
+                    _artSets.Clear();
+                    return BurikoHostResponse.Continue;
+                case 142:
+                    PlayBgm(invocation, memory, true);
+                    return BurikoHostResponse.Continue;
+                case 143:
+                    if (memory.GetGlobalFlag("GAltBGMflow") == Int(invocation, 3, memory))
+                    {
+                        _audio.StopBgm(Int(invocation, 0, memory));
+                    }
+                    return BurikoHostResponse.Continue;
+                case 144:
+                    AddCascade(_bgmSets, invocation, memory);
+                    return BurikoHostResponse.Continue;
+                case 145:
+                    AddCascade(_seSets, invocation, memory);
+                    return BurikoHostResponse.Continue;
+                case 146:
+                    _audioSets.Add(new RuntimeAudioSet(
+                        Text(invocation, 0, memory),
+                        Text(invocation, 2, memory),
+                        Int(invocation, 4, memory),
+                        Int(invocation, 5, memory),
+                        Int(invocation, 6, memory),
+                        Int(invocation, 7, memory)));
+                    return BurikoHostResponse.Continue;
+                default:
+                    ReportApproximated(invocation);
+                    return BurikoHostResponse.Continue;
+            }
+        }
+
+        public bool StartFromTitle(BurikoMemory memory)
+        {
+            if (!TitleVisible)
+            {
+                return false;
+            }
+
+            memory.SetLocalFlag("LOCALWORK_NO_RESULT", 0);
+            TitleVisible = false;
+            WindowVisible = true;
+            return true;
+        }
+
+        public bool Choose(int index, BurikoMemory memory)
+        {
+            if (index < 0 || index >= Choices.Count)
+            {
+                return false;
+            }
+
+            memory.SetLocalFlag("SelectResult", index);
+            Choices.Clear();
+            return true;
+        }
+
+        public void ToggleWindow()
+        {
+            WindowVisible = !WindowVisible;
+        }
+
+        public bool CompleteMovie()
+        {
+            if (!MovieVisible)
+            {
+                return false;
+            }
+
+            _videoPlayer.Stop();
+            FinishMovie();
+            return true;
+        }
+
+        public UnityBurikoHostSnapshot CaptureSnapshot()
+        {
+            var layers = new PresentationLayer[_layers.Count];
+            var index = 0;
+            foreach (var pair in _layers)
+            {
+                layers[index++] = pair.Value.CloneWithoutTexture();
+            }
+
+            return new UnityBurikoHostSnapshot(
+                _backgroundName,
+                layers,
+                Speaker,
+                Dialogue,
+                WindowVisible,
+                TitleVisible,
+                DialogueSerial);
+        }
+
+        public void RestoreSnapshot(UnityBurikoHostSnapshot snapshot, BurikoMemory memory)
+        {
+            if (snapshot == null)
+            {
+                throw new ArgumentNullException(nameof(snapshot));
+            }
+
+            Speaker = snapshot.Speaker;
+            Dialogue = snapshot.Dialogue;
+            WindowVisible = snapshot.WindowVisible;
+            TitleVisible = snapshot.TitleVisible;
+            DialogueSerial = snapshot.DialogueSerial;
+            _backgroundName = snapshot.BackgroundName;
+            _backgroundTexture = LoadTexture(_backgroundName, memory);
+            _layers.Clear();
+            for (var i = 0; i < snapshot.Layers.Length; i++)
+            {
+                var layer = snapshot.Layers[i].CloneWithoutTexture();
+                layer.Texture = LoadTexture(layer.TextureName, memory);
+                _layers[layer.Id] = layer;
+            }
+        }
+
+        public void ReloadVisualAssets(BurikoMemory memory)
+        {
+            _backgroundTexture = LoadTexture(_backgroundName, memory);
+            foreach (var pair in _layers)
+            {
+                pair.Value.Texture = LoadTexture(pair.Value.TextureName, memory);
+            }
+        }
+
+        internal IReadOnlyList<string> CurrentBgmFolders(BurikoMemory memory)
+        {
+            return CascadeFolders(_bgmSets, memory.GetGlobalFlag("GAltBGM"), "BGM");
+        }
+
+        internal IReadOnlyList<string> CurrentSeFolders(BurikoMemory memory)
+        {
+            return CascadeFolders(_seSets, memory.GetGlobalFlag("GAltSE"), "SE");
+        }
+
+        private BurikoHostResponse SetDialogue(
+            string primaryName,
+            string primaryText,
+            string fallbackName,
+            string fallbackText,
+            int textMode)
+        {
+            // CompiledChineseScripts stores its translated line in the second language slot.
+            var name = string.IsNullOrEmpty(fallbackName) ? primaryName : fallbackName;
+            var text = (string.IsNullOrEmpty(fallbackText) ? primaryText : fallbackText)
+                .Replace("\\n", "\n");
+            var append = textMode == 1 || textMode == 3 || textMode == 4;
+            if (append)
+            {
+                if (!string.IsNullOrEmpty(name))
+                {
+                    Speaker = name;
+                }
+                Dialogue += text;
+            }
+            else
+            {
+                Speaker = name;
+                Dialogue = text;
+            }
+            WindowVisible = true;
+            DialogueSerial++;
+            var waitsForInput = textMode == 0 || textMode == 2;
+            if (waitsForInput)
+            {
+                var historyLine = string.IsNullOrEmpty(Speaker) ? Dialogue : Speaker + "\n" + Dialogue;
+                if (!string.IsNullOrEmpty(historyLine))
+                {
+                    _history.Add(historyLine);
+                    if (_history.Count > 500)
+                    {
+                        _history.RemoveAt(0);
+                    }
+                }
+            }
+
+            return waitsForInput
+                ? new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.WaitForInput)
+                : BurikoHostResponse.Continue;
+        }
+
+        private void ShowChoices(BurikoOperationInvocation invocation, BurikoMemory memory)
+        {
+            Choices.Clear();
+            var count = Math.Max(0, Int(invocation, 0, memory));
+            var reference = invocation.Arguments[1].Reference;
+            if (reference == null)
+            {
+                return;
+            }
+
+            for (var i = 0; i < count; i++)
+            {
+                Choices.Add(memory.Get(new BurikoReference(reference.Name, i)).AsString(memory));
+            }
+        }
+
+        private void PlayBgm(BurikoOperationInvocation invocation, BurikoMemory memory, bool modVariant)
+        {
+            if (modVariant && memory.GetGlobalFlag("GAltBGMflow") != Int(invocation, 4, memory))
+            {
+                return;
+            }
+
+            _audio.PlayBgm(
+                Int(invocation, 0, memory),
+                AddOgg(Text(invocation, 1, memory)),
+                Int(invocation, 2, memory) / 128f,
+                memory);
+        }
+
+        private BurikoHostResponse StartMovie(string movieName)
+        {
+            var safeName = Path.GetFileNameWithoutExtension(movieName);
+            if (string.IsNullOrWhiteSpace(safeName))
+            {
+                return BurikoHostResponse.Continue;
+            }
+
+            var path = SafePath.ResolveUnderRoot(
+                _streamingAssetsRoot,
+                "movies/" + safeName.ToLowerInvariant() + ".mp4");
+            if (!File.Exists(path))
+            {
+                Debug.LogWarning("Movie asset was not found: " + path);
+                return BurikoHostResponse.Continue;
+            }
+
+            MovieVisible = true;
+            _videoPlayer.url = new Uri(path).AbsoluteUri;
+            _videoPlayer.Play();
+            return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
+        }
+
+        private void OnMovieEnded(VideoPlayer player)
+        {
+            FinishMovie();
+        }
+
+        private void OnMovieError(VideoPlayer player, string message)
+        {
+            Debug.LogWarning("Movie playback failed: " + message);
+            FinishMovie();
+        }
+
+        private void FinishMovie()
+        {
+            if (!MovieVisible)
+            {
+                return;
+            }
+
+            MovieVisible = false;
+            MovieFinished?.Invoke();
+        }
+
+        private void SetBackground(string textureName, BurikoMemory memory, bool clearLayers = true)
+        {
+            _backgroundName = textureName;
+            _backgroundTexture = LoadTexture(textureName, memory);
+            if (clearLayers)
+            {
+                _layers.Clear();
+            }
+        }
+
+        private void DrawLayer(
+            int id,
+            string textureName,
+            int x,
+            int y,
+            int z,
+            int priority,
+            BurikoMemory memory,
+            float alpha = 1f)
+        {
+            _layers[id] = new PresentationLayer
+            {
+                Id = id,
+                TextureName = textureName,
+                Texture = LoadTexture(textureName, memory),
+                X = x,
+                Y = y,
+                Z = z,
+                Priority = priority == 0 ? id : priority,
+                Alpha = Mathf.Clamp01(alpha)
+            };
+        }
+
+        private void DrawModCharacter(
+            BurikoOperationInvocation invocation,
+            BurikoMemory memory,
+            bool filtered)
+        {
+            var texture = Text(invocation, 2, memory);
+            var expression = Text(invocation, 3, memory);
+            var renderedTexture = _settings != null && _settings.lipSync
+                ? texture + "0"
+                : texture + expression;
+            var xIndex = filtered ? 6 : 4;
+            var yIndex = filtered ? 7 : 5;
+            var zIndex = filtered ? 12 : 6;
+            var priorityIndex = filtered ? 14 : 15;
+            DrawLayer(
+                Int(invocation, 0, memory),
+                renderedTexture,
+                Int(invocation, xIndex, memory),
+                Int(invocation, yIndex, memory),
+                Int(invocation, zIndex, memory),
+                Int(invocation, priorityIndex, memory),
+                memory);
+        }
+
+        private void MoveLayer(BurikoOperationInvocation invocation, BurikoMemory memory)
+        {
+            var id = Int(invocation, 0, memory);
+            if (!_layers.TryGetValue(id, out var layer))
+            {
+                return;
+            }
+
+            // Both MoveSprite variants begin with layer and target x/y after optional texture data.
+            var offset = invocation.Specification.Code == 67 ? 3 : 1;
+            layer.X = Int(invocation, offset, memory);
+            layer.Y = Int(invocation, offset + 1, memory);
+            if (invocation.Specification.Code == 67)
+            {
+                var textureName = Text(invocation, 1, memory);
+                if (!string.IsNullOrEmpty(textureName))
+                {
+                    layer.TextureName = textureName;
+                    layer.Texture = LoadTexture(textureName, memory);
+                }
+            }
+        }
+
+        private Texture2D LoadTexture(string textureName, BurikoMemory memory)
+        {
+            if (string.IsNullOrWhiteSpace(textureName) || _assets == null)
+            {
+                return null;
+            }
+
+            var index = ClampIndex(memory.GetGlobalFlag("GArtStyle"), _artSets.Count);
+            var folders = _artSets.Count == 0
+                ? new[] { "CG" }
+                : _artSets[index].Folders;
+            return _assets.LoadTexture(textureName, folders, preferAsianVariant: true);
+        }
+
+        private static void AddCascade(
+            List<RuntimePathCascade> target,
+            BurikoOperationInvocation invocation,
+            BurikoMemory memory)
+        {
+            target.Add(new RuntimePathCascade(
+                Text(invocation, 0, memory),
+                Text(invocation, 1, memory),
+                Text(invocation, 2, memory).Split(new[] { ':' }, StringSplitOptions.RemoveEmptyEntries)));
+        }
+
+        private static IReadOnlyList<string> CascadeFolders(
+            List<RuntimePathCascade> cascades,
+            int index,
+            string fallback)
+        {
+            return cascades.Count == 0
+                ? new[] { fallback }
+                : cascades[ClampIndex(index, cascades.Count)].Folders;
+        }
+
+        private static int ClampIndex(int index, int count)
+        {
+            return count <= 0 ? 0 : Math.Max(0, Math.Min(count - 1, index));
+        }
+
+        private float VoiceVolume(float scriptVolume)
+        {
+            return scriptVolume * ((_settings?.voiceVolume ?? 75) / 100f);
+        }
+
+        private static string Text(BurikoOperationInvocation invocation, int index, BurikoMemory memory)
+        {
+            return invocation.Arguments[index].AsString(memory);
+        }
+
+        private static int Int(BurikoOperationInvocation invocation, int index, BurikoMemory memory)
+        {
+            return invocation.Arguments[index].AsInt(memory);
+        }
+
+        private static string AddOgg(string name)
+        {
+            return name.EndsWith(".ogg", StringComparison.OrdinalIgnoreCase) ? name : name + ".ogg";
+        }
+
+        private static BurikoHostResponse BurikoValueResponse(int value)
+        {
+            return new BurikoHostResponse(BurikoValue.FromInt(value));
+        }
+
+        private static BurikoHostResponse BurikoValueResponse(bool value)
+        {
+            return new BurikoHostResponse(BurikoValue.FromInt(value ? 1 : 0));
+        }
+
+        private void ReportApproximated(BurikoOperationInvocation invocation)
+        {
+            if (_reportedOperations.Add(invocation.Specification.Code))
+            {
+                Debug.LogWarning(
+                    "Buriko operation currently uses a mobile approximation: " +
+                    invocation.Specification.Name + " (" + invocation.Specification.Code + ")");
+            }
+        }
+
+    }
+
+    public sealed class PresentationLayer
+    {
+        public int Id;
+        public string TextureName;
+        public Texture2D Texture;
+        public int X;
+        public int Y;
+        public int Z;
+        public int Priority;
+        public float Alpha = 1f;
+
+        public PresentationLayer CloneWithoutTexture()
+        {
+            return new PresentationLayer
+            {
+                Id = Id,
+                TextureName = TextureName,
+                X = X,
+                Y = Y,
+                Z = Z,
+                Priority = Priority,
+                Alpha = Alpha
+            };
+        }
+    }
+
+    public sealed class RuntimePathCascade
+    {
+        public RuntimePathCascade(string nameEnglish, string nameAsian, string[] folders)
+        {
+            NameEnglish = nameEnglish ?? string.Empty;
+            NameAsian = nameAsian ?? string.Empty;
+            Folders = folders ?? Array.Empty<string>();
+        }
+
+        public string NameEnglish { get; }
+        public string NameAsian { get; }
+        public string[] Folders { get; }
+        public string DisplayName => string.IsNullOrEmpty(NameEnglish) ? NameAsian : NameEnglish;
+    }
+
+    public sealed class RuntimeAudioSet
+    {
+        public RuntimeAudioSet(
+            string nameEnglish,
+            string nameAsian,
+            int altBgm,
+            int altBgmFlow,
+            int altSe,
+            int altSeFlow)
+        {
+            NameEnglish = nameEnglish ?? string.Empty;
+            NameAsian = nameAsian ?? string.Empty;
+            AltBgm = altBgm;
+            AltBgmFlow = altBgmFlow;
+            AltSe = altSe;
+            AltSeFlow = altSeFlow;
+        }
+
+        public string NameEnglish { get; }
+        public string NameAsian { get; }
+        public int AltBgm { get; }
+        public int AltBgmFlow { get; }
+        public int AltSe { get; }
+        public int AltSeFlow { get; }
+        public string DisplayName => string.IsNullOrEmpty(NameEnglish) ? NameAsian : NameEnglish;
+    }
+
+    public sealed class UnityBurikoHostSnapshot
+    {
+        public UnityBurikoHostSnapshot(
+            string backgroundName,
+            PresentationLayer[] layers,
+            string speaker,
+            string dialogue,
+            bool windowVisible,
+            bool titleVisible,
+            int dialogueSerial)
+        {
+            BackgroundName = backgroundName;
+            Layers = layers;
+            Speaker = speaker;
+            Dialogue = dialogue;
+            WindowVisible = windowVisible;
+            TitleVisible = titleVisible;
+            DialogueSerial = dialogueSerial;
+        }
+
+        public string BackgroundName { get; }
+        public PresentationLayer[] Layers { get; }
+        public string Speaker { get; }
+        public string Dialogue { get; }
+        public bool WindowVisible { get; }
+        public bool TitleVisible { get; }
+        public int DialogueSerial { get; }
+    }
+
+    internal sealed class UnityAssetLoader
+    {
+        private readonly AssetCascadeResolver _resolver;
+        private readonly Dictionary<string, Texture2D> _textures =
+            new Dictionary<string, Texture2D>(StringComparer.OrdinalIgnoreCase);
+
+        public UnityAssetLoader(string installedGameDataRoot)
+        {
+            _resolver = new AssetCascadeResolver(installedGameDataRoot);
+        }
+
+        public Texture2D LoadTexture(
+            string textureName,
+            IReadOnlyList<string> folders,
+            bool preferAsianVariant)
+        {
+            var normalized = textureName.Replace('\\', '/').TrimStart('/').ToLowerInvariant();
+            var extension = Path.GetExtension(normalized);
+            string path;
+            if (!string.IsNullOrEmpty(extension))
+            {
+                if (!_resolver.TryResolve(normalized, folders, out path, true))
+                {
+                    return null;
+                }
+            }
+            else if (preferAsianVariant && _resolver.TryResolve(normalized + "_j.png", folders, out path, true))
+            {
+            }
+            else if (!_resolver.TryResolve(normalized + ".png", folders, out path, true))
+            {
+                return null;
+            }
+
+            if (_textures.TryGetValue(path, out var cached))
+            {
+                return cached;
+            }
+
+            try
+            {
+                var texture = new Texture2D(2, 2, TextureFormat.RGBA32, true);
+                if (!ImageConversion.LoadImage(texture, File.ReadAllBytes(path), false))
+                {
+                    UnityEngine.Object.Destroy(texture);
+                    return null;
+                }
+
+                texture.name = textureName;
+                texture.filterMode = FilterMode.Bilinear;
+                texture.wrapMode = TextureWrapMode.Clamp;
+                _textures.Add(path, texture);
+                return texture;
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("Unable to load texture " + path + ": " + exception.Message);
+                return null;
+            }
+        }
+    }
+
+    internal enum RuntimeAudioKind
+    {
+        Bgm,
+        Se,
+        Voice
+    }
+
+    internal sealed class UnityAudioService : MonoBehaviour
+    {
+        private readonly Dictionary<string, int> _generations = new Dictionary<string, int>();
+        private readonly Dictionary<string, AudioSource> _sources = new Dictionary<string, AudioSource>();
+        private AssetCascadeResolver _resolver;
+        private UnityBurikoHost _host;
+
+        public void Initialize(string installedGameDataRoot, UnityBurikoHost host)
+        {
+            _resolver = new AssetCascadeResolver(installedGameDataRoot);
+            _host = host;
+        }
+
+        public void PlayBgm(int channel, string filename, float volume, BurikoMemory memory)
+        {
+            Play(RuntimeAudioKind.Bgm, channel, filename, volume, _host.CurrentBgmFolders(memory), true);
+        }
+
+        public void PlaySe(int channel, string filename, float volume, BurikoMemory memory)
+        {
+            Play(RuntimeAudioKind.Se, channel, filename, volume, _host.CurrentSeFolders(memory), false);
+        }
+
+        public void PlayVoice(int channel, string filename, float volume, BurikoMemory memory)
+        {
+            Play(RuntimeAudioKind.Voice, channel, filename, volume, new[] { "voice" }, false);
+        }
+
+        public void StopBgm(int channel) => Stop(RuntimeAudioKind.Bgm, channel);
+        public void StopSe(int channel) => Stop(RuntimeAudioKind.Se, channel);
+
+        public void SetBgmVolume(int channel, float volume)
+        {
+            if (_sources.TryGetValue(Key(RuntimeAudioKind.Bgm, channel), out var source))
+            {
+                source.volume = Mathf.Clamp01(volume);
+            }
+        }
+
+        public bool IsChannelPlaying(RuntimeAudioKind kind, int channel)
+        {
+            return _sources.TryGetValue(Key(kind, channel), out var source) && source.isPlaying;
+        }
+
+        private void Play(
+            RuntimeAudioKind kind,
+            int channel,
+            string filename,
+            float volume,
+            IReadOnlyList<string> folders,
+            bool loop)
+        {
+            if (_resolver == null || !_resolver.TryResolve(filename.ToLowerInvariant(), folders, out var path))
+            {
+                Debug.LogWarning("Audio asset was not found: " + filename);
+                return;
+            }
+
+            var key = Key(kind, channel);
+            var generation = NextGeneration(key);
+            StartCoroutine(LoadAndPlay(key, generation, path, volume, loop));
+        }
+
+        private IEnumerator LoadAndPlay(
+            string key,
+            int generation,
+            string path,
+            float volume,
+            bool loop)
+        {
+            using (var request = UnityWebRequestMultimedia.GetAudioClip(new Uri(path).AbsoluteUri, AudioType.OGGVORBIS))
+            {
+                yield return request.SendWebRequest();
+                if (request.result != UnityWebRequest.Result.Success)
+                {
+                    Debug.LogWarning("Unable to load audio " + path + ": " + request.error);
+                    yield break;
+                }
+
+                var clip = DownloadHandlerAudioClip.GetContent(request);
+                if (!_generations.TryGetValue(key, out var currentGeneration) || currentGeneration != generation)
+                {
+                    Destroy(clip);
+                    yield break;
+                }
+
+                var source = GetOrCreateSource(key);
+                if (source.clip != null)
+                {
+                    Destroy(source.clip);
+                }
+                source.clip = clip;
+                source.volume = Mathf.Clamp01(volume);
+                source.loop = loop;
+                source.Play();
+            }
+        }
+
+        private void Stop(RuntimeAudioKind kind, int channel)
+        {
+            var key = Key(kind, channel);
+            NextGeneration(key);
+            if (_sources.TryGetValue(key, out var source))
+            {
+                source.Stop();
+                if (source.clip != null)
+                {
+                    Destroy(source.clip);
+                    source.clip = null;
+                }
+            }
+        }
+
+        private AudioSource GetOrCreateSource(string key)
+        {
+            if (_sources.TryGetValue(key, out var source))
+            {
+                return source;
+            }
+
+            source = gameObject.AddComponent<AudioSource>();
+            source.playOnAwake = false;
+            source.spatialBlend = 0;
+            _sources.Add(key, source);
+            return source;
+        }
+
+        private int NextGeneration(string key)
+        {
+            var generation = _generations.TryGetValue(key, out var current) ? current + 1 : 1;
+            _generations[key] = generation;
+            return generation;
+        }
+
+        private static string Key(RuntimeAudioKind kind, int channel)
+        {
+            return kind + ":" + channel;
+        }
+    }
+}

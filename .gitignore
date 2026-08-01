@@ -1,0 +1,44 @@
+# Original game data must never be committed.
+Higurashi When They Cry 01/
+ios-port/Assets/Branding/AppIcon.png
+
+# Local-only tools and reference source.
+.tools/
+.reference/
+
+# Generated data packs and build artifacts.
+*.ipa
+*.xcarchive
+*.mobileprovision
+*.p12
+*.zip
+build/
+artifacts/
+
+# Unity generated folders.
+ios-port/[Ll]ibrary/
+ios-port/[Tt]emp/
+ios-port/[Oo]bj/
+ios-port/[Bb]uild/
+ios-port/[Bb]uilds/
+ios-port/[Ll]ogs/
+ios-port/[Uu]ser[Ss]ettings/
+ios-port/MemoryCaptures/
+
+# IDE files.
+.vs/
+.vscode/
+.idea/
+*.csproj
+*.sln
+*.user
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+
+# Keep the hand-written tooling projects.
+!tools/**/*.csproj
+tools/**/bin/
+tools/**/obj/

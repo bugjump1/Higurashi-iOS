@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Input\NovelInputAction.cs" Link="Core\NovelInputAction.cs" />
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Input\PointerSample.cs" Link="Core\PointerSample.cs" />
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Input\TouchGestureInterpreter.cs" Link="Core\TouchGestureInterpreter.cs" />
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Playback\FastTraversalController.cs" Link="Core\FastTraversalController.cs" />
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Playback\CheckpointTimeline.cs" Link="Core\CheckpointTimeline.cs" />
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Data\SafePath.cs" Link="Core\SafePath.cs" />
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Data\AssetCascadeResolver.cs" Link="Core\AssetCascadeResolver.cs" />
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Buriko\CompiledScriptContainer.cs" Link="Core\CompiledScriptContainer.cs" />
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Buriko\BurikoOperationCatalog.Generated.cs" Link="Core\BurikoOperationCatalog.Generated.cs" />
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Buriko\BurikoValue.cs" Link="Core\BurikoValue.cs" />
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Buriko\BurikoMemory.cs" Link="Core\BurikoMemory.cs" />
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Buriko\BurikoRuntimeContracts.cs" Link="Core\BurikoRuntimeContracts.cs" />
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Buriko\BurikoRuntime.cs" Link="Core\BurikoRuntime.cs" />
+  </ItemGroup>
+</Project>
