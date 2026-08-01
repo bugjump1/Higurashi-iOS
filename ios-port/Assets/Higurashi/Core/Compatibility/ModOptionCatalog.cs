@@ -18,6 +18,7 @@ namespace Higurashi.IOS.Compatibility
         public int censorshipLevel = 2;
         public int voiceVolume = 75;
         public int windowOpacity = 50;
+        public int textScale = 100;
         public int textSpeed = 50;
         public int autoSpeed = 50;
         public int renderQuality = 2;

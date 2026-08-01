@@ -8,6 +8,7 @@ namespace Higurashi.IOS.Buriko
 {
     public sealed class BurikoRuntime
     {
+        private const int PersistentStateMagic = 0x31524248; // HBR1
         private const int DefaultCommandBudget = 100_000;
         private readonly IBurikoScriptRepository _scripts;
         private readonly IBurikoHost _host;
@@ -83,6 +84,92 @@ namespace Higurashi.IOS.Buriko
             BlockReason = snapshot.BlockReason;
             _remainingWaitMilliseconds = snapshot.RemainingWaitMilliseconds;
             LastError = null;
+        }
+
+        public void WritePersistentState(Stream output)
+        {
+            if (output == null)
+            {
+                throw new ArgumentNullException(nameof(output));
+            }
+            if (_current == null)
+            {
+                throw new InvalidOperationException("Buriko runtime has not been started.");
+            }
+
+            using (var writer = new BinaryWriter(output, Encoding.UTF8, true))
+            {
+                writer.Write(PersistentStateMagic);
+                WriteFrame(writer, new BurikoFrameSnapshot(
+                    _current.Name,
+                    _current.Reader.BaseStream.Position,
+                    _current.LineNumber));
+                writer.Write(_callStack.Count);
+                foreach (var frame in _callStack)
+                {
+                    WriteFrame(writer, new BurikoFrameSnapshot(
+                        frame.Name,
+                        frame.Reader.BaseStream.Position,
+                        frame.LineNumber));
+                }
+                Memory.WritePersistentState(writer);
+                writer.Write((int)BlockReason);
+                writer.Write(_remainingWaitMilliseconds);
+            }
+        }
+
+        public void ReadPersistentState(Stream input)
+        {
+            if (input == null)
+            {
+                throw new ArgumentNullException(nameof(input));
+            }
+
+            BurikoRuntimeSnapshot snapshot;
+            using (var reader = new BinaryReader(input, Encoding.UTF8, true))
+            {
+                if (reader.ReadInt32() != PersistentStateMagic)
+                {
+                    throw new InvalidDataException("This is not a Higurashi iOS Buriko save state.");
+                }
+                var current = ReadFrame(reader);
+                var callerCount = reader.ReadInt32();
+                if (callerCount < 0 || callerCount > 1024)
+                {
+                    throw new InvalidDataException("Invalid Buriko caller count: " + callerCount);
+                }
+                var callers = new BurikoFrameSnapshot[callerCount];
+                for (var i = 0; i < callers.Length; i++)
+                {
+                    callers[i] = ReadFrame(reader);
+                }
+                var memory = Memory.ReadPersistentState(reader);
+                var blockReason = (BurikoBlockReason)reader.ReadInt32();
+                var remainingWaitMilliseconds = reader.ReadInt32();
+                snapshot = new BurikoRuntimeSnapshot(
+                    current,
+                    callers,
+                    memory,
+                    blockReason,
+                    remainingWaitMilliseconds);
+            }
+
+            RestoreSnapshot(snapshot);
+        }
+
+        private static void WriteFrame(BinaryWriter writer, BurikoFrameSnapshot frame)
+        {
+            writer.Write(frame.ScriptName);
+            writer.Write(frame.Position);
+            writer.Write(frame.LineNumber);
+        }
+
+        private static BurikoFrameSnapshot ReadFrame(BinaryReader reader)
+        {
+            return new BurikoFrameSnapshot(
+                reader.ReadString(),
+                reader.ReadInt64(),
+                reader.ReadInt32());
         }
 
         public BurikoBlockReason RunUntilBlocked(int commandBudget = DefaultCommandBudget)

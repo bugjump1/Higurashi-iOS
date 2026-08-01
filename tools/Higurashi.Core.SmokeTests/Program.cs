@@ -24,6 +24,7 @@ internal static class Program
             BurikoRuntimeExecutesDialogueAndFlags,
             BurikoRuntimeCallsAndReturnsFromScript,
             BurikoRuntimeSnapshotRestoresExecutionAndMemory,
+            BurikoRuntimePersistentStateRoundTrips,
             BurikoRuntimeHandlesModCrossScriptSectionCall
         };
 
@@ -328,6 +329,44 @@ internal static class Program
 
         Equal(BurikoBlockReason.Completed, runtime.RunUntilBlocked());
         Equal(1, runtime.Memory.GetGlobalFlag("GModSectionReached"));
+    }
+
+    private static void BurikoRuntimePersistentStateRoundTrips()
+    {
+        var data = BuildBytecode(writer =>
+        {
+            WriteOperation(writer, 3, () =>
+            {
+                WriteReferenceValue(writer, "GPersistent");
+                WriteIntValue(writer, 7);
+            });
+            WriteOperation(writer, 11, null);
+            WriteOperation(writer, 3, () =>
+            {
+                WriteReferenceValue(writer, "GPersistent");
+                WriteIntValue(writer, 9);
+            });
+            writer.Write((short)0);
+        });
+        var runtime = new BurikoRuntime(
+            new DictionaryScriptRepository(("init", WrapScript(data))),
+            new CapturingHost());
+        runtime.Start();
+        Equal(BurikoBlockReason.WaitForInput, runtime.RunUntilBlocked());
+
+        using var state = new MemoryStream();
+        runtime.WritePersistentState(state);
+        runtime.ResumeInput();
+        Equal(BurikoBlockReason.Completed, runtime.RunUntilBlocked());
+        Equal(9, runtime.Memory.GetGlobalFlag("GPersistent"));
+
+        state.Position = 0;
+        runtime.ReadPersistentState(state);
+        Equal(BurikoBlockReason.WaitForInput, runtime.BlockReason);
+        Equal(7, runtime.Memory.GetGlobalFlag("GPersistent"));
+        runtime.ResumeInput();
+        Equal(BurikoBlockReason.Completed, runtime.RunUntilBlocked());
+        Equal(9, runtime.Memory.GetGlobalFlag("GPersistent"));
     }
 
     private static byte[] BuildBytecode(Action<BinaryWriter> write)

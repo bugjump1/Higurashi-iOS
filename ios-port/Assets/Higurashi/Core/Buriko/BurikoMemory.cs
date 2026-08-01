@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 
 namespace Higurashi.IOS.Buriko
 {
@@ -75,6 +76,137 @@ namespace Higurashi.IOS.Buriko
             {
                 _scopes.Add(NewScope());
             }
+        }
+
+        internal void WritePersistentState(BinaryWriter writer)
+        {
+            WriteIntegerDictionary(writer, _globalFlags);
+            WriteIntegerDictionary(writer, _localFlags);
+            writer.Write(_scopes.Count);
+            for (var i = 0; i < _scopes.Count; i++)
+            {
+                writer.Write(_scopes[i].Count);
+                foreach (var pair in _scopes[i])
+                {
+                    writer.Write(pair.Key);
+                    pair.Value.WritePersistentState(writer);
+                }
+            }
+        }
+
+        internal BurikoMemorySnapshot ReadPersistentState(BinaryReader reader)
+        {
+            var globalFlags = ReadIntegerDictionary(reader);
+            var localFlags = ReadIntegerDictionary(reader);
+            var scopeCount = ReadCount(reader, 1024, "scope");
+            var scopes = new Dictionary<string, MemoryObjectSnapshot>[scopeCount];
+            for (var i = 0; i < scopeCount; i++)
+            {
+                var itemCount = ReadCount(reader, 100000, "scope item");
+                scopes[i] = new Dictionary<string, MemoryObjectSnapshot>(StringComparer.Ordinal);
+                for (var j = 0; j < itemCount; j++)
+                {
+                    scopes[i].Add(reader.ReadString(), MemoryObject.ReadPersistentState(reader));
+                }
+            }
+
+            return new BurikoMemorySnapshot(globalFlags, localFlags, scopes);
+        }
+
+        private static void WriteIntegerDictionary(
+            BinaryWriter writer,
+            IReadOnlyDictionary<string, int> dictionary)
+        {
+            writer.Write(dictionary.Count);
+            foreach (var pair in dictionary)
+            {
+                writer.Write(pair.Key);
+                writer.Write(pair.Value);
+            }
+        }
+
+        private static Dictionary<string, int> ReadIntegerDictionary(BinaryReader reader)
+        {
+            var count = ReadCount(reader, 100000, "flag");
+            var result = new Dictionary<string, int>(count, StringComparer.Ordinal);
+            for (var i = 0; i < count; i++)
+            {
+                result.Add(reader.ReadString(), reader.ReadInt32());
+            }
+            return result;
+        }
+
+        private static int ReadCount(BinaryReader reader, int maximum, string description)
+        {
+            var count = reader.ReadInt32();
+            if (count < 0 || count > maximum)
+            {
+                throw new InvalidDataException("Invalid Buriko " + description + " count: " + count);
+            }
+            return count;
+        }
+
+        private static void WriteValue(BinaryWriter writer, BurikoValue value)
+        {
+            writer.Write((short)value.Kind);
+            switch (value.Kind)
+            {
+                case BurikoValueKind.Int:
+                case BurikoValueKind.Bool:
+                    writer.Write(value.Integer);
+                    break;
+                case BurikoValueKind.String:
+                    writer.Write(value.Text ?? string.Empty);
+                    break;
+                case BurikoValueKind.Variable:
+                    WriteReference(writer, value.Reference);
+                    break;
+            }
+        }
+
+        private static BurikoValue ReadValue(BinaryReader reader)
+        {
+            var kind = (BurikoValueKind)reader.ReadInt16();
+            switch (kind)
+            {
+                case BurikoValueKind.Null:
+                    return BurikoValue.Null;
+                case BurikoValueKind.Int:
+                    return BurikoValue.FromInt(reader.ReadInt32());
+                case BurikoValueKind.Bool:
+                    return BurikoValue.FromBool(reader.ReadInt32() != 0);
+                case BurikoValueKind.String:
+                    return BurikoValue.FromString(reader.ReadString());
+                case BurikoValueKind.Variable:
+                    return BurikoValue.FromReference(ReadReference(reader));
+                case BurikoValueKind.None:
+                    return default;
+                default:
+                    throw new InvalidDataException("Invalid Buriko value kind: " + kind);
+            }
+        }
+
+        private static void WriteReference(BinaryWriter writer, BurikoReference reference)
+        {
+            if (reference == null)
+            {
+                throw new InvalidDataException("A Buriko variable value has no reference.");
+            }
+            writer.Write(reference.Name);
+            writer.Write(reference.Index);
+            writer.Write(reference.Member != null);
+            if (reference.Member != null)
+            {
+                WriteReference(writer, reference.Member);
+            }
+        }
+
+        private static BurikoReference ReadReference(BinaryReader reader)
+        {
+            var name = reader.ReadString();
+            var index = reader.ReadInt32();
+            var member = reader.ReadBoolean() ? ReadReference(reader) : null;
+            return new BurikoReference(name, index, member);
         }
 
         public void ResetScope()
@@ -236,6 +368,36 @@ namespace Higurashi.IOS.Buriko
                 }
 
                 return result;
+            }
+
+            public void WritePersistentState(BinaryWriter writer)
+            {
+                writer.Write(_type ?? string.Empty);
+                writer.Write(_values.Length);
+                for (var i = 0; i < _values.Length; i++)
+                {
+                    WriteValue(writer, _values[i]);
+                    writer.Write(_members[i].Count);
+                    foreach (var pair in _members[i])
+                    {
+                        writer.Write(pair.Key);
+                        writer.Write(pair.Value);
+                    }
+                }
+            }
+
+            public static MemoryObjectSnapshot ReadPersistentState(BinaryReader reader)
+            {
+                var type = reader.ReadString();
+                var count = ReadCount(reader, 100000, "memory value");
+                var values = new BurikoValue[count];
+                var members = new Dictionary<string, int>[count];
+                for (var i = 0; i < count; i++)
+                {
+                    values[i] = ReadValue(reader);
+                    members[i] = ReadIntegerDictionary(reader);
+                }
+                return new MemoryObjectSnapshot(type, values, members);
             }
 
             private int NormalizeIndex(int index)

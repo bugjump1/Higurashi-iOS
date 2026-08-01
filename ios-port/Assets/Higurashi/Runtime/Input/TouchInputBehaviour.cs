@@ -9,11 +9,13 @@ namespace Higurashi.IOS.Runtime.Input
     {
         private readonly TouchGestureInterpreter _interpreter = new TouchGestureInterpreter();
         private readonly List<PointerSample> _samples = new List<PointerSample>(5);
+        private readonly HashSet<int> _uiPointerIds = new HashSet<int>();
         private bool _mouseIsDown;
 
         public event Action<NovelInputAction> ActionRaised;
 
         public bool FastTraversalActive { get; set; }
+        public Func<Vector2, bool> UiHitTest { get; set; }
 
         private void Update()
         {
@@ -24,6 +26,22 @@ namespace Higurashi.IOS.Runtime.Input
                 for (var i = 0; i < UnityEngine.Input.touchCount; i++)
                 {
                     var touch = UnityEngine.Input.GetTouch(i);
+                    var guiPoint = new Vector2(touch.position.x, Screen.height - touch.position.y);
+                    if (touch.phase == UnityEngine.TouchPhase.Began &&
+                        UnityEngine.Input.touchCount == 1 &&
+                        UiHitTest != null && UiHitTest(guiPoint))
+                    {
+                        _uiPointerIds.Add(touch.fingerId);
+                    }
+                    if (_uiPointerIds.Contains(touch.fingerId))
+                    {
+                        if (touch.phase == UnityEngine.TouchPhase.Ended ||
+                            touch.phase == UnityEngine.TouchPhase.Canceled)
+                        {
+                            _uiPointerIds.Remove(touch.fingerId);
+                        }
+                        continue;
+                    }
                     _samples.Add(new PointerSample(
                         touch.fingerId,
                         touch.position.x,
@@ -58,15 +76,31 @@ namespace Higurashi.IOS.Runtime.Input
             if (UnityEngine.Input.GetMouseButtonDown(0))
             {
                 _mouseIsDown = true;
+                if (UiHitTest != null && UiHitTest(new Vector2(position.x, Screen.height - position.y)))
+                {
+                    _uiPointerIds.Add(0);
+                }
+                if (_uiPointerIds.Contains(0))
+                {
+                    return;
+                }
                 _samples.Add(new PointerSample(0, position.x, position.y, PointerPhase.Began));
             }
             else if (UnityEngine.Input.GetMouseButtonUp(0))
             {
                 _mouseIsDown = false;
+                if (_uiPointerIds.Remove(0))
+                {
+                    return;
+                }
                 _samples.Add(new PointerSample(0, position.x, position.y, PointerPhase.Ended));
             }
             else if (_mouseIsDown)
             {
+                if (_uiPointerIds.Contains(0))
+                {
+                    return;
+                }
                 _samples.Add(new PointerSample(0, position.x, position.y, PointerPhase.Stationary));
             }
         }
@@ -90,4 +124,3 @@ namespace Higurashi.IOS.Runtime.Input
         }
     }
 }
-

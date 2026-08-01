@@ -13,6 +13,7 @@ namespace Higurashi.IOS.Runtime.Buriko
 {
     public sealed class UnityBurikoHost : MonoBehaviour, IBurikoHost
     {
+        private const int PersistentStateMagic = 0x31504848; // HHP1
         private readonly List<RuntimePathCascade> _artSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _bgmSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _seSets = new List<RuntimePathCascade>();
@@ -33,6 +34,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         public string Dialogue { get; private set; } = string.Empty;
         public bool WindowVisible { get; private set; } = true;
         public bool TitleVisible { get; private set; }
+        public bool CreditsVisible { get; private set; }
         public bool HistoryVisible { get; set; }
         public bool ChoiceVisible => Choices.Count > 0;
         public List<string> Choices { get; } = new List<string>();
@@ -243,24 +245,10 @@ namespace Higurashi.IOS.Runtime.Buriko
                     SetBackground(Text(invocation, 0, memory), memory, false);
                     return BurikoHostResponse.Continue;
                 case 55:
-                    DrawLayer(
-                        Int(invocation, 0, memory),
-                        Text(invocation, 1, memory),
-                        Int(invocation, 2, memory),
-                        Int(invocation, 3, memory),
-                        Int(invocation, 4, memory),
-                        Int(invocation, 13, memory),
-                        memory);
+                    DrawAnimatedLayer(invocation, memory, true, 0, 1, 2, 3, 4, 5, 6, 7, 8, 13, 14);
                     return BurikoHostResponse.Continue;
                 case 56:
-                    DrawLayer(
-                        Int(invocation, 0, memory),
-                        Text(invocation, 1, memory),
-                        Int(invocation, 2, memory),
-                        Int(invocation, 3, memory),
-                        Int(invocation, 4, memory),
-                        Int(invocation, 0, memory),
-                        memory);
+                    MoveBustshot(invocation, memory);
                     return BurikoHostResponse.Continue;
                 case 57:
                 case 64:
@@ -268,17 +256,11 @@ namespace Higurashi.IOS.Runtime.Buriko
                     _layers.Remove(Int(invocation, 0, memory));
                     return BurikoHostResponse.Continue;
                 case 58:
-                    DrawLayer(
-                        Int(invocation, 0, memory),
-                        Text(invocation, 1, memory),
-                        Int(invocation, 4, memory),
-                        Int(invocation, 5, memory),
-                        Int(invocation, 10, memory),
-                        Int(invocation, 12, memory),
-                        memory);
+                    DrawAnimatedLayer(invocation, memory, true, 0, 1, 4, 5, 10, 6, 7, 8, 9, 12, 13);
                     return BurikoHostResponse.Continue;
                 case 59:
-                    DrawLayer(1000, Text(invocation, 0, memory), 0, 0, 0, 1000, memory);
+                    DrawLayer(1000, Text(invocation, 0, memory), 213, 131, 0, 1000, memory,
+                        false, 1f, Int(invocation, 1, memory) / 1000f);
                     return BurikoHostResponse.Continue;
                 case 60:
                     _layers.Remove(1000);
@@ -292,7 +274,9 @@ namespace Higurashi.IOS.Runtime.Buriko
                         Int(invocation, 5, memory),
                         Int(invocation, 13, memory),
                         memory,
-                        Int(invocation, 12, memory) / 256f);
+                        false,
+                        1f - Int(invocation, 12, memory) / 256f,
+                        Int(invocation, 14, memory) / 1000f);
                     return BurikoHostResponse.Continue;
                 case 63:
                     DrawLayer(
@@ -302,7 +286,10 @@ namespace Higurashi.IOS.Runtime.Buriko
                         Int(invocation, 5, memory),
                         0,
                         Int(invocation, 10, memory),
-                        memory);
+                        memory,
+                        false,
+                        1f,
+                        Int(invocation, 11, memory) / 1000f);
                     return BurikoHostResponse.Continue;
                 case 66:
                     MoveLayer(invocation, memory);
@@ -329,9 +316,10 @@ namespace Higurashi.IOS.Runtime.Buriko
                     SetBackground(memory.GetGlobalFlag("GFlag_GameClear") != 0 ? "title02" : "title", memory);
                     return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
                 case 109:
-                    // The imported script set is Chinese-first. Keep the original Japanese/Asian text slot.
                     memory.SetGlobalFlag("GLanguage", 0);
-                    return BurikoHostResponse.Continue;
+                    CreditsVisible = true;
+                    WindowVisible = false;
+                    return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
                 case 115:
                     FontSize = Math.Max(12, Int(invocation, 0, memory));
                     return BurikoHostResponse.Continue;
@@ -420,6 +408,17 @@ namespace Higurashi.IOS.Runtime.Buriko
             return true;
         }
 
+        public bool CompleteCredits()
+        {
+            if (!CreditsVisible)
+            {
+                return false;
+            }
+
+            CreditsVisible = false;
+            return true;
+        }
+
         public bool Choose(int index, BurikoMemory memory)
         {
             if (index < 0 || index >= Choices.Count)
@@ -466,6 +465,122 @@ namespace Higurashi.IOS.Runtime.Buriko
                 WindowVisible,
                 TitleVisible,
                 DialogueSerial);
+        }
+
+        public void WritePersistentState(Stream output)
+        {
+            using (var writer = new BinaryWriter(output, System.Text.Encoding.UTF8, true))
+            {
+                writer.Write(PersistentStateMagic);
+                writer.Write(_backgroundName ?? string.Empty);
+                writer.Write(Speaker ?? string.Empty);
+                writer.Write(Dialogue ?? string.Empty);
+                writer.Write(WindowVisible);
+                writer.Write(TitleVisible);
+                writer.Write(DialogueSerial);
+                writer.Write(FontSize);
+                writer.Write(WindowX);
+                writer.Write(WindowY);
+                writer.Write(WindowWidth);
+                writer.Write(WindowHeight);
+                writer.Write(ScreenAspect ?? string.Empty);
+                WriteStrings(writer, _history);
+                WriteStrings(writer, Choices);
+                writer.Write(_layers.Count);
+                foreach (var pair in _layers)
+                {
+                    var layer = pair.Value;
+                    writer.Write(layer.Id);
+                    writer.Write(layer.TextureName ?? string.Empty);
+                    writer.Write(layer.X);
+                    writer.Write(layer.Y);
+                    writer.Write(layer.Z);
+                    writer.Write(layer.Priority);
+                    writer.Write(layer.Alpha);
+                    writer.Write(layer.IsBustshot);
+                }
+            }
+        }
+
+        public void ReadPersistentState(Stream input, BurikoMemory memory)
+        {
+            using (var reader = new BinaryReader(input, System.Text.Encoding.UTF8, true))
+            {
+                if (reader.ReadInt32() != PersistentStateMagic)
+                {
+                    throw new InvalidDataException("This is not a Higurashi iOS presentation state.");
+                }
+                _backgroundName = reader.ReadString();
+                Speaker = reader.ReadString();
+                Dialogue = reader.ReadString();
+                WindowVisible = reader.ReadBoolean();
+                TitleVisible = reader.ReadBoolean();
+                DialogueSerial = reader.ReadInt32();
+                FontSize = reader.ReadInt32();
+                WindowX = reader.ReadInt32();
+                WindowY = reader.ReadInt32();
+                WindowWidth = reader.ReadInt32();
+                WindowHeight = reader.ReadInt32();
+                ScreenAspect = reader.ReadString();
+                ReadStrings(reader, _history, 500);
+                ReadStrings(reader, Choices, 100);
+                var layerCount = ReadCount(reader, 10000, "presentation layer");
+                _layers.Clear();
+                for (var i = 0; i < layerCount; i++)
+                {
+                    var layer = new PresentationLayer
+                    {
+                        Id = reader.ReadInt32(),
+                        TextureName = reader.ReadString(),
+                        X = reader.ReadInt32(),
+                        Y = reader.ReadInt32(),
+                        Z = reader.ReadInt32(),
+                        Priority = reader.ReadInt32(),
+                        Alpha = reader.ReadSingle(),
+                        IsBustshot = reader.ReadBoolean()
+                    };
+                    layer.FromX = layer.X;
+                    layer.FromY = layer.Y;
+                    layer.FromZ = layer.Z;
+                    layer.FromAlpha = layer.Alpha;
+                    layer.Texture = LoadTexture(layer.TextureName, memory);
+                    _layers[layer.Id] = layer;
+                }
+            }
+
+            CreditsVisible = false;
+            HistoryVisible = false;
+            MovieVisible = false;
+            _backgroundTexture = LoadTexture(_backgroundName, memory);
+        }
+
+        private static void WriteStrings(BinaryWriter writer, IReadOnlyList<string> values)
+        {
+            writer.Write(values.Count);
+            for (var i = 0; i < values.Count; i++)
+            {
+                writer.Write(values[i] ?? string.Empty);
+            }
+        }
+
+        private static void ReadStrings(BinaryReader reader, List<string> target, int maximum)
+        {
+            var count = ReadCount(reader, maximum, "string");
+            target.Clear();
+            for (var i = 0; i < count; i++)
+            {
+                target.Add(reader.ReadString());
+            }
+        }
+
+        private static int ReadCount(BinaryReader reader, int maximum, string description)
+        {
+            var count = reader.ReadInt32();
+            if (count < 0 || count > maximum)
+            {
+                throw new InvalidDataException("Invalid " + description + " count: " + count);
+            }
+            return count;
         }
 
         public void RestoreSnapshot(UnityBurikoHostSnapshot snapshot, BurikoMemory memory)
@@ -649,8 +764,23 @@ namespace Higurashi.IOS.Runtime.Buriko
             int z,
             int priority,
             BurikoMemory memory,
-            float alpha = 1f)
+            bool isBustshot,
+            float alpha = 1f,
+            float duration = 0f)
         {
+            Texture2D previousTexture = null;
+            float previousX = x;
+            float previousY = y;
+            float previousZ = z;
+            float previousAlpha = 0f;
+            var previousIsBustshot = isBustshot;
+            if (duration > 0f && _layers.TryGetValue(id, out var previous))
+            {
+                previousTexture = previous.Texture;
+                previous.GetRenderState(out previousX, out previousY, out previousZ, out previousAlpha);
+                previousIsBustshot = previous.IsBustshot;
+            }
+
             _layers[id] = new PresentationLayer
             {
                 Id = id,
@@ -660,8 +790,95 @@ namespace Higurashi.IOS.Runtime.Buriko
                 Y = y,
                 Z = z,
                 Priority = priority == 0 ? id : priority,
-                Alpha = Mathf.Clamp01(alpha)
+                Alpha = Mathf.Clamp01(alpha),
+                IsBustshot = isBustshot,
+                FromX = x,
+                FromY = y,
+                FromZ = z,
+                FromAlpha = duration > 0f ? 0f : Mathf.Clamp01(alpha),
+                TransitionStartedAt = Time.unscaledTime,
+                TransitionDuration = Mathf.Max(0f, duration),
+                PreviousTexture = previousTexture,
+                PreviousX = previousX,
+                PreviousY = previousY,
+                PreviousZ = previousZ,
+                PreviousAlpha = previousAlpha,
+                PreviousIsBustshot = previousIsBustshot
             };
+        }
+
+        private void DrawAnimatedLayer(
+            BurikoOperationInvocation invocation,
+            BurikoMemory memory,
+            bool isBustshot,
+            int idIndex,
+            int textureIndex,
+            int xIndex,
+            int yIndex,
+            int zIndex,
+            int moveIndex,
+            int oldXIndex,
+            int oldYIndex,
+            int oldZIndex,
+            int priorityIndex,
+            int durationIndex)
+        {
+            var id = Int(invocation, idIndex, memory);
+            var x = Int(invocation, xIndex, memory);
+            var y = Int(invocation, yIndex, memory);
+            var z = Int(invocation, zIndex, memory);
+            DrawLayer(
+                id,
+                Text(invocation, textureIndex, memory),
+                x,
+                y,
+                z,
+                Int(invocation, priorityIndex, memory),
+                memory,
+                isBustshot,
+                1f,
+                Int(invocation, durationIndex, memory) / 1000f);
+            if (invocation.Arguments[moveIndex].AsBool(memory))
+            {
+                var layer = _layers[id];
+                layer.FromX = Int(invocation, oldXIndex, memory);
+                layer.FromY = Int(invocation, oldYIndex, memory);
+                layer.FromZ = Int(invocation, oldZIndex, memory);
+            }
+        }
+
+        private void MoveBustshot(BurikoOperationInvocation invocation, BurikoMemory memory)
+        {
+            var id = Int(invocation, 0, memory);
+            var duration = Int(invocation, 6, memory) / 1000f;
+            if (!_layers.TryGetValue(id, out var layer))
+            {
+                DrawLayer(
+                    id,
+                    Text(invocation, 1, memory),
+                    Int(invocation, 2, memory),
+                    Int(invocation, 3, memory),
+                    Int(invocation, 4, memory),
+                    id,
+                    memory,
+                    true,
+                    1f,
+                    duration);
+                return;
+            }
+
+            layer.BeginTransition(
+                Int(invocation, 2, memory),
+                Int(invocation, 3, memory),
+                Int(invocation, 4, memory),
+                layer.Alpha,
+                duration);
+            var textureName = Text(invocation, 1, memory);
+            if (!string.IsNullOrEmpty(textureName))
+            {
+                layer.TextureName = textureName;
+                layer.Texture = LoadTexture(textureName, memory);
+            }
         }
 
         private void DrawModCharacter(
@@ -685,7 +902,18 @@ namespace Higurashi.IOS.Runtime.Buriko
                 Int(invocation, yIndex, memory),
                 Int(invocation, zIndex, memory),
                 Int(invocation, priorityIndex, memory),
-                memory);
+                memory,
+                true,
+                1f,
+                Int(invocation, filtered ? 15 : 16, memory) / 1000f);
+            var layer = _layers[Int(invocation, 0, memory)];
+            var moveIndex = filtered ? 8 : 7;
+            if (invocation.Arguments[moveIndex].AsBool(memory))
+            {
+                layer.FromX = Int(invocation, filtered ? 9 : 8, memory);
+                layer.FromY = Int(invocation, filtered ? 10 : 9, memory);
+                layer.FromZ = Int(invocation, filtered ? 11 : 10, memory);
+            }
         }
 
         private void MoveLayer(BurikoOperationInvocation invocation, BurikoMemory memory)
@@ -698,8 +926,20 @@ namespace Higurashi.IOS.Runtime.Buriko
 
             // Both MoveSprite variants begin with layer and target x/y after optional texture data.
             var offset = invocation.Specification.Code == 67 ? 3 : 1;
-            layer.X = Int(invocation, offset, memory);
-            layer.Y = Int(invocation, offset + 1, memory);
+            if (invocation.Specification.Code == 66)
+            {
+                layer.BeginTransition(
+                    Int(invocation, 1, memory),
+                    Int(invocation, 2, memory),
+                    Int(invocation, 3, memory),
+                    1f - Int(invocation, 5, memory) / 256f,
+                    Int(invocation, 8, memory) / 1000f);
+            }
+            else
+            {
+                layer.X = Int(invocation, offset, memory);
+                layer.Y = Int(invocation, offset + 1, memory);
+            }
             if (invocation.Specification.Code == 67)
             {
                 var textureName = Text(invocation, 1, memory);
@@ -803,6 +1043,52 @@ namespace Higurashi.IOS.Runtime.Buriko
         public int Z;
         public int Priority;
         public float Alpha = 1f;
+        public bool IsBustshot;
+        public float FromX;
+        public float FromY;
+        public float FromZ;
+        public float FromAlpha = 1f;
+        public float TransitionStartedAt;
+        public float TransitionDuration;
+        public Texture2D PreviousTexture;
+        public float PreviousX;
+        public float PreviousY;
+        public float PreviousZ;
+        public float PreviousAlpha;
+        public bool PreviousIsBustshot;
+
+        public float TransitionProgress
+        {
+            get
+            {
+                if (TransitionDuration <= 0f)
+                {
+                    return 1f;
+                }
+                var progress = Mathf.Clamp01((Time.unscaledTime - TransitionStartedAt) / TransitionDuration);
+                return progress * progress * (3f - 2f * progress);
+            }
+        }
+
+        public void BeginTransition(int x, int y, int z, float alpha, float duration)
+        {
+            GetRenderState(out FromX, out FromY, out FromZ, out FromAlpha);
+            X = x;
+            Y = y;
+            Z = z;
+            Alpha = Mathf.Clamp01(alpha);
+            TransitionStartedAt = Time.unscaledTime;
+            TransitionDuration = Mathf.Max(0f, duration);
+        }
+
+        public void GetRenderState(out float x, out float y, out float z, out float alpha)
+        {
+            var progress = TransitionProgress;
+            x = Mathf.Lerp(FromX, X, progress);
+            y = Mathf.Lerp(FromY, Y, progress);
+            z = Mathf.Lerp(FromZ, Z, progress);
+            alpha = Mathf.Lerp(FromAlpha, Alpha, progress);
+        }
 
         public PresentationLayer CloneWithoutTexture()
         {
@@ -814,7 +1100,12 @@ namespace Higurashi.IOS.Runtime.Buriko
                 Y = Y,
                 Z = Z,
                 Priority = Priority,
-                Alpha = Alpha
+                Alpha = Alpha,
+                IsBustshot = IsBustshot,
+                FromX = X,
+                FromY = Y,
+                FromZ = Z,
+                FromAlpha = Alpha
             };
         }
     }
