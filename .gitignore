@@ -5,6 +5,7 @@ ios-port/Assets/Branding/AppIcon.png
 # Local-only tools and reference source.
 .tools/
 .reference/
+UnityHub/
 
 # Generated data packs and build artifacts.
 *.ipa
