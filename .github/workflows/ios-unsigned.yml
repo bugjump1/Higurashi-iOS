@@ -130,8 +130,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          XCODE_PROJECT="$(find build/iOS -maxdepth 3 -type d -name 'Unity-iPhone.xcodeproj' -print -quit)"
+          if [[ -z "$XCODE_PROJECT" ]]; then
+            echo "Unity-iPhone.xcodeproj was not found under build/iOS." >&2
+            find build/iOS -maxdepth 3 -print >&2
+            exit 1
+          fi
+          echo "Using Xcode project: $XCODE_PROJECT"
           xcodebuild \
-            -project build/iOS/Unity-iPhone.xcodeproj \
+            -project "$XCODE_PROJECT" \
             -scheme Unity-iPhone \
             -configuration Release \
             -sdk iphoneos \
@@ -150,6 +157,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          XCODE_PROJECT="$(find build/iOS -maxdepth 3 -type d -name 'Unity-iPhone.xcodeproj' -print -quit)"
+          if [[ -z "$XCODE_PROJECT" ]]; then
+            echo "Unity-iPhone.xcodeproj was not found under build/iOS." >&2
+            exit 1
+          fi
+          XCODE_PROJECT_DIR="$(dirname "$XCODE_PROJECT")"
           APP_PATH="$(find "$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos" -maxdepth 1 -type d -name '*.app' -print -quit)"
           if [[ -z "$APP_PATH" ]]; then
             echo "No .app product was generated." >&2
@@ -163,7 +176,7 @@ jobs:
             ditto -c -k --sequesterRsrc --keepParent Payload Higurashi-01-iOS-unsigned.ipa
           )
           ditto -c -k --sequesterRsrc --keepParent \
-            build/iOS \
+            "$XCODE_PROJECT_DIR" \
             artifacts/Higurashi-01-iOS-unsigned-XcodeProject.zip
 
       - name: Upload final unsigned artifacts
