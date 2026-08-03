@@ -981,7 +981,18 @@ namespace Higurashi.IOS.Runtime
 
         private bool UiConsumesPoint(Vector2 guiPoint)
         {
-            if (_runtime == null || _host == null || _host.TitleVisible || IsModalVisible || _host.ChoiceVisible)
+            if (_runtime == null || _host == null)
+            {
+                return true;
+            }
+            if (_host.MovieVisible)
+            {
+                // A movie is a full-screen modal even when it is letterboxed.  Do not let
+                // stale title/gameplay controls consume taps in the black bars; every tap
+                // must reach HandleInput, where it can only skip the current movie.
+                return false;
+            }
+            if (_host.TitleVisible || IsModalVisible || _host.ChoiceVisible)
             {
                 return true;
             }

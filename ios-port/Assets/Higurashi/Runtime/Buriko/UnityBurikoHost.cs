@@ -14,6 +14,7 @@ namespace Higurashi.IOS.Runtime.Buriko
     public sealed class UnityBurikoHost : MonoBehaviour, IBurikoHost
     {
         private const int PersistentStateMagic = 0x31504848; // HHP1
+        private const int PersistentUiStateMagic = 0x32554948; // HIU2
         private readonly List<RuntimePathCascade> _artSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _bgmSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _seSets = new List<RuntimePathCascade>();
@@ -699,6 +700,13 @@ namespace Higurashi.IOS.Runtime.Buriko
             ResetLipSyncFrames();
         }
 
+        public void StopAllAudio()
+        {
+            _audio?.StopAll();
+            _currentVoiceCharacter = -1;
+            ResetLipSyncFrames();
+        }
+
         public void ToggleWindow()
         {
             WindowVisible = !WindowVisible;
@@ -732,7 +740,18 @@ namespace Higurashi.IOS.Runtime.Buriko
                 Dialogue,
                 WindowVisible,
                 TitleVisible,
-                DialogueSerial);
+                DialogueSerial,
+                SavingEnabled,
+                InterfaceEnabled,
+                GameplayUiVisible,
+                ChapterPreviewVisible,
+                _chapterPreviewAccepted,
+                FontSize,
+                WindowX,
+                WindowY,
+                WindowWidth,
+                WindowHeight,
+                ScreenAspect);
         }
 
         public void WritePersistentState(Stream output)
@@ -767,11 +786,20 @@ namespace Higurashi.IOS.Runtime.Buriko
                     writer.Write(layer.Alpha);
                     writer.Write(layer.IsBustshot);
                 }
+                // Optional tail keeps old save files readable while preserving the
+                // script-controlled UI mode in new saves.
+                writer.Write(PersistentUiStateMagic);
+                writer.Write(SavingEnabled);
+                writer.Write(InterfaceEnabled);
+                writer.Write(GameplayUiVisible);
+                writer.Write(ChapterPreviewVisible);
+                writer.Write(_chapterPreviewAccepted);
             }
         }
 
         public void ReadPersistentState(Stream input, BurikoMemory memory)
         {
+            var hasPersistedUiState = false;
             using (var reader = new BinaryReader(input, System.Text.Encoding.UTF8, true))
             {
                 if (reader.ReadInt32() != PersistentStateMagic)
@@ -815,15 +843,37 @@ namespace Higurashi.IOS.Runtime.Buriko
                     layer.Texture = LoadTexture(layer.TextureName, memory);
                     _layers[layer.Id] = layer;
                 }
+
+                if (input.CanSeek && input.Length - input.Position >= sizeof(int))
+                {
+                    var tailPosition = input.Position;
+                    if (reader.ReadInt32() == PersistentUiStateMagic &&
+                        input.Length - input.Position >= 5)
+                    {
+                        SavingEnabled = reader.ReadBoolean();
+                        InterfaceEnabled = reader.ReadBoolean();
+                        GameplayUiVisible = reader.ReadBoolean();
+                        ChapterPreviewVisible = reader.ReadBoolean();
+                        _chapterPreviewAccepted = reader.ReadBoolean();
+                        hasPersistedUiState = true;
+                    }
+                    else
+                    {
+                        input.Position = tailPosition;
+                    }
+                }
             }
 
             CreditsVisible = false;
             CreditsPage = 0;
-            ChapterPreviewVisible = false;
-            GameplayUiVisible = !TitleVisible;
-            _chapterPreviewAccepted = GameplayUiVisible;
-            SavingEnabled = !TitleVisible;
-            InterfaceEnabled = true;
+            if (!hasPersistedUiState)
+            {
+                ChapterPreviewVisible = false;
+                GameplayUiVisible = !TitleVisible;
+                _chapterPreviewAccepted = GameplayUiVisible;
+                SavingEnabled = !TitleVisible;
+                InterfaceEnabled = true;
+            }
             HistoryVisible = false;
             MovieVisible = false;
             _backgroundTexture = LoadTexture(_backgroundName, memory);
@@ -876,12 +926,18 @@ namespace Higurashi.IOS.Runtime.Buriko
             _dialogueRevealForced = true;
             WindowVisible = snapshot.WindowVisible;
             TitleVisible = snapshot.TitleVisible;
-            ChapterPreviewVisible = false;
-            GameplayUiVisible = !snapshot.TitleVisible;
-            _chapterPreviewAccepted = GameplayUiVisible;
-            SavingEnabled = !snapshot.TitleVisible;
-            InterfaceEnabled = true;
+            ChapterPreviewVisible = snapshot.ChapterPreviewVisible;
+            GameplayUiVisible = snapshot.GameplayUiVisible;
+            _chapterPreviewAccepted = snapshot.ChapterPreviewAccepted;
+            SavingEnabled = snapshot.SavingEnabled;
+            InterfaceEnabled = snapshot.InterfaceEnabled;
             DialogueSerial = snapshot.DialogueSerial;
+            FontSize = snapshot.FontSize;
+            WindowX = snapshot.WindowX;
+            WindowY = snapshot.WindowY;
+            WindowWidth = snapshot.WindowWidth;
+            WindowHeight = snapshot.WindowHeight;
+            ScreenAspect = snapshot.ScreenAspect;
             _backgroundName = snapshot.BackgroundName;
             _backgroundTexture = LoadTexture(_backgroundName, memory);
             _previousBackgroundTexture = null;
@@ -1759,7 +1815,18 @@ namespace Higurashi.IOS.Runtime.Buriko
             string dialogue,
             bool windowVisible,
             bool titleVisible,
-            int dialogueSerial)
+            int dialogueSerial,
+            bool savingEnabled,
+            bool interfaceEnabled,
+            bool gameplayUiVisible,
+            bool chapterPreviewVisible,
+            bool chapterPreviewAccepted,
+            int fontSize,
+            int windowX,
+            int windowY,
+            int windowWidth,
+            int windowHeight,
+            string screenAspect)
         {
             BackgroundName = backgroundName;
             Layers = layers;
@@ -1768,6 +1835,17 @@ namespace Higurashi.IOS.Runtime.Buriko
             WindowVisible = windowVisible;
             TitleVisible = titleVisible;
             DialogueSerial = dialogueSerial;
+            SavingEnabled = savingEnabled;
+            InterfaceEnabled = interfaceEnabled;
+            GameplayUiVisible = gameplayUiVisible;
+            ChapterPreviewVisible = chapterPreviewVisible;
+            ChapterPreviewAccepted = chapterPreviewAccepted;
+            FontSize = fontSize;
+            WindowX = windowX;
+            WindowY = windowY;
+            WindowWidth = windowWidth;
+            WindowHeight = windowHeight;
+            ScreenAspect = screenAspect;
         }
 
         public string BackgroundName { get; }
@@ -1777,6 +1855,17 @@ namespace Higurashi.IOS.Runtime.Buriko
         public bool WindowVisible { get; }
         public bool TitleVisible { get; }
         public int DialogueSerial { get; }
+        public bool SavingEnabled { get; }
+        public bool InterfaceEnabled { get; }
+        public bool GameplayUiVisible { get; }
+        public bool ChapterPreviewVisible { get; }
+        public bool ChapterPreviewAccepted { get; }
+        public int FontSize { get; }
+        public int WindowX { get; }
+        public int WindowY { get; }
+        public int WindowWidth { get; }
+        public int WindowHeight { get; }
+        public string ScreenAspect { get; }
     }
 
     internal sealed class UnityAssetLoader
@@ -1902,9 +1991,25 @@ namespace Higurashi.IOS.Runtime.Buriko
 
         public void StopAllVoices()
         {
-            var prefix = RuntimeAudioKind.Voice + ":";
+            StopAllWithPrefix(RuntimeAudioKind.Voice + ":");
+        }
+
+        public void StopAll()
+        {
+            StopAllWithPrefix(string.Empty);
+        }
+
+        private void StopAllWithPrefix(string prefix)
+        {
             var keys = new HashSet<string>();
             foreach (var pair in _generations)
+            {
+                if (pair.Key.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    keys.Add(pair.Key);
+                }
+            }
+            foreach (var pair in _pendingGenerations)
             {
                 if (pair.Key.StartsWith(prefix, StringComparison.Ordinal))
                 {

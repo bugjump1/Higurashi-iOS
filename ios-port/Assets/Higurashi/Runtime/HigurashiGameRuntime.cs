@@ -627,6 +627,10 @@ namespace Higurashi.IOS.Runtime
                 using (var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, true))
                 {
                     ReadSaveHeader(reader);
+                    // A save currently restores presentation/runtime state, not the
+                    // playing AudioSources.  Stop every old channel first so BGM/SE
+                    // from the pre-load scene cannot leak into the loaded scene.
+                    _host.StopAllAudio();
                     _runtime.ReadPersistentState(stream);
                     _host.ReadPersistentState(stream, _runtime.Memory);
                 }
