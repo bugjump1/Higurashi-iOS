@@ -37,9 +37,9 @@ namespace Higurashi.IOS.Runtime
         private bool _helpVisible;
         private bool _systemMenuVisible;
         private bool _saveLoadVisible;
-        private bool _saveMode = true;
         private bool _autoMode;
         private bool _autoWasVoicePlaying;
+        private bool _showHelpWhenGameplayStarts;
         private float _nextAutoAdvanceAt;
         private bool _initializationAttempted;
         private RuntimeCheckpoint _titleCheckpoint;
@@ -98,6 +98,14 @@ namespace Higurashi.IOS.Runtime
 
             _touchInput.FastTraversalActive = _fastTraversal.IsActive;
             _fastTraversal.Tick(Time.unscaledDeltaTime, this);
+            if (_showHelpWhenGameplayStarts && _host != null && _host.GameplayUiVisible &&
+                _host.SavingEnabled && _host.InterfaceEnabled &&
+                _runtime != null && _runtime.BlockReason == BurikoBlockReason.WaitForInput &&
+                !IsModalVisible)
+            {
+                _showHelpWhenGameplayStarts = false;
+                _helpVisible = true;
+            }
             if (_autoMode && _runtime != null && _host != null && !IsModalVisible &&
                 !_host.TitleVisible && !_host.CreditsVisible && !_host.ChoiceVisible &&
                 !_host.HistoryVisible && _runtime.BlockReason == BurikoBlockReason.WaitForInput &&
@@ -203,7 +211,8 @@ namespace Higurashi.IOS.Runtime
                 return;
             }
 
-            if (_host.TitleVisible || IsModalVisible || _host.ChoiceVisible)
+            if (_host.TitleVisible || _host.ChapterPreviewVisible ||
+                IsModalVisible || _host.ChoiceVisible)
             {
                 return;
             }
@@ -383,10 +392,7 @@ namespace Higurashi.IOS.Runtime
             _suppressInputUntilFrame = Time.frameCount + 2;
             DriveRuntime(false);
             CaptureDialogueCheckpoint();
-            if (PlayerPrefs.GetInt(HelpSeenKey, 0) == 0)
-            {
-                _helpVisible = true;
-            }
+            _showHelpWhenGameplayStarts = PlayerPrefs.GetInt(HelpSeenKey, 0) == 0;
         }
 
         private void SelectChoice(int index)
@@ -501,6 +507,7 @@ namespace Higurashi.IOS.Runtime
         {
             return _runtime != null && _host != null && !_host.TitleVisible &&
                    !_host.CreditsVisible && !_host.MovieVisible && !_host.ChoiceVisible &&
+                   _host.SavingEnabled && _host.InterfaceEnabled &&
                    _runtime.BlockReason != BurikoBlockReason.Faulted &&
                    _runtime.BlockReason != BurikoBlockReason.Completed;
         }
@@ -579,6 +586,7 @@ namespace Higurashi.IOS.Runtime
                     _runtime.CaptureSnapshot(),
                     _host.CaptureSnapshot()));
                 _fastTraversal.Stop();
+                _showHelpWhenGameplayStarts = false;
                 CloseAllModals();
                 _suppressInputUntilFrame = Time.frameCount + 2;
                 ShowToast(LoadCompletedMessage(slot));
@@ -733,6 +741,7 @@ namespace Higurashi.IOS.Runtime
             MaybeAutoSave(true);
             _host.StopVoices();
             _autoMode = false;
+            _showHelpWhenGameplayStarts = false;
             _fastTraversal.Stop();
             _timeline.Clear();
             RestoreCheckpoint(_titleCheckpoint);

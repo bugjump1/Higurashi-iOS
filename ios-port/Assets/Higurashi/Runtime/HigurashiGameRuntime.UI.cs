@@ -15,6 +15,8 @@ namespace Higurashi.IOS.Runtime
         private GUIStyle _slotStyle;
         private GUIStyle _sliderStyle;
         private GUIStyle _sliderThumbStyle;
+        private GUIStyle _sectionHeaderStyle;
+        private GUIStyle _toastStyle;
         private Texture2D _buttonNormal;
         private Texture2D _buttonHover;
         private Texture2D _buttonActive;
@@ -22,6 +24,7 @@ namespace Higurashi.IOS.Runtime
         private Texture2D _sliderTrack;
         private Texture2D _sliderFill;
         private Texture2D _sliderThumb;
+        private Texture2D _sectionHeader;
         private Texture2D _transparent;
         private Font _uiFont;
         private float _styledForHeight;
@@ -72,22 +75,36 @@ namespace Higurashi.IOS.Runtime
             {
                 DrawTitleScreen();
             }
+            else if (_host.ChapterPreviewVisible)
+            {
+                DrawChapterPreviewControls();
+            }
             else
             {
                 if (_host.ChoiceVisible)
                 {
                     DrawChoices();
                 }
-                else if (_host.HistoryVisible)
+                else if (_host.GameplayUiVisible && _host.HistoryVisible)
                 {
                     DrawHistory();
                 }
-                else if (_host.WindowVisible)
+                else if (_host.GameplayUiVisible && _host.WindowVisible)
                 {
-                    DrawMessageWindow();
+                    if (_host.SavingEnabled)
+                    {
+                        DrawMessageWindow();
+                    }
+                    else
+                    {
+                        DrawCinematicDialogue();
+                    }
                 }
 
-                DrawGameplayControls();
+                if (_host.GameplayUiVisible)
+                {
+                    DrawGameplayControls();
+                }
                 if (_systemMenuVisible)
                 {
                     DrawSystemMenu();
@@ -144,11 +161,11 @@ namespace Higurashi.IOS.Runtime
                     DrawPresentationTexture(content, layer.PreviousTexture,
                         layer.PreviousX, layer.PreviousY, layer.PreviousZ,
                         layer.PreviousAlpha * (1f - layer.TransitionProgress),
-                        layer.PreviousIsBustshot, screenScale);
+                        layer.PreviousIsCentered, screenScale);
                 }
                 layer.GetRenderState(out var layerX, out var layerY, out var layerZ, out var layerAlpha);
                 DrawPresentationTexture(content, layer.Texture, layerX, layerY, layerZ,
-                    layerAlpha, layer.IsBustshot, screenScale);
+                    layerAlpha, layer.IsCentered, screenScale);
             }
         }
 
@@ -165,7 +182,7 @@ namespace Higurashi.IOS.Runtime
         }
 
         private static void DrawPresentationTexture(Rect content, Texture2D texture,
-            float layerX, float layerY, float layerZ, float alpha, bool isBustshot, float screenScale)
+            float layerX, float layerY, float layerZ, float alpha, bool centered, float screenScale)
         {
             var canonicalHeight = Mathf.Min(texture.height, 480f);
             var canonicalWidth = texture.width * canonicalHeight / texture.height;
@@ -174,7 +191,7 @@ namespace Higurashi.IOS.Runtime
             var height = canonicalHeight * screenScale * depthScale;
             float x;
             float y;
-            if (isBustshot || (Mathf.Approximately(layerX, 0f) && Mathf.Approximately(layerY, 0f)))
+            if (centered)
             {
                 x = content.center.x + layerX * screenScale - width * 0.5f;
                 y = content.center.y + layerY * screenScale - height * 0.5f;
@@ -188,6 +205,38 @@ namespace Higurashi.IOS.Runtime
             GUI.color = new Color(1f, 1f, 1f, alpha);
             GUI.DrawTexture(new Rect(x, y, width, height), texture, ScaleMode.StretchToFill, true);
             GUI.color = previousColor;
+        }
+
+        private void DrawChapterPreviewControls()
+        {
+            // The localized scenario texture already contains the PC labels and
+            // artwork.  Keep those visuals untouched and place touch targets over
+            // its “开始” and “退出” rows.
+            var content = GetContentRect();
+            var start = new Rect(content.x + content.width * 0.07f,
+                content.y + content.height * 0.80f, content.width * 0.34f, content.height * 0.085f);
+            var exit = new Rect(content.x + content.width * 0.07f,
+                content.y + content.height * 0.885f, content.width * 0.34f, content.height * 0.085f);
+            if (GUI.Button(start, GUIContent.none, GUIStyle.none))
+            {
+                ResolveChapterPreview(true);
+            }
+            if (GUI.Button(exit, GUIContent.none, GUIStyle.none))
+            {
+                ResolveChapterPreview(false);
+            }
+        }
+
+        private void ResolveChapterPreview(bool start)
+        {
+            if (!_host.ResolveChapterPreview(start, _runtime.Memory))
+            {
+                return;
+            }
+            _runtime.ResumeInput();
+            SuppressInput();
+            DriveRuntime(false);
+            CaptureDialogueCheckpoint();
         }
 
         private void DrawMessageWindow()
@@ -213,6 +262,17 @@ namespace Higurashi.IOS.Runtime
                 new Rect(left, top, rect.width - 56f * scale - toolbarReserve, rect.yMax - top - 14f * scale),
                 _host.VisibleDialogue + (_host.IsDialogueRevealComplete ? "　▼" : string.Empty),
                 _dialogueStyle);
+        }
+
+        private void DrawCinematicDialogue()
+        {
+            var content = GetContentRect();
+            var scale = UiScale;
+            var rect = new Rect(content.x + content.width * 0.10f,
+                content.y + content.height * 0.72f,
+                content.width * 0.80f, content.height * 0.20f);
+            var text = _host.VisibleDialogue + (_host.IsDialogueRevealComplete ? "　▼" : string.Empty);
+            DrawShadowLabel(rect, text, _dialogueStyle);
         }
 
         private void DrawCreditsScreen()
@@ -292,7 +352,6 @@ namespace Higurashi.IOS.Runtime
             if (PcButton(new Rect(x, y, width, buttonHeight), "继续游戏"))
             {
                 _saveLoadVisible = true;
-                _saveMode = false;
                 SuppressInput();
             }
             y += buttonHeight + gap;
@@ -313,7 +372,9 @@ namespace Higurashi.IOS.Runtime
 
         private void DrawGameplayControls()
         {
-            if (IsModalVisible || _host.ChoiceVisible || _host.CreditsVisible)
+            if (!_host.GameplayUiVisible || !_host.SavingEnabled || !_host.InterfaceEnabled ||
+                IsModalVisible || _host.ChoiceVisible ||
+                _host.CreditsVisible || _host.ChapterPreviewVisible)
             {
                 return;
             }
@@ -388,7 +449,6 @@ namespace Higurashi.IOS.Runtime
             {
                 _systemMenuVisible = false;
                 _saveLoadVisible = true;
-                _saveMode = true;
                 SuppressInput();
             }
             y += h + 12f * scale;
@@ -451,24 +511,9 @@ namespace Higurashi.IOS.Runtime
             DrawPanel(panel, new Color(0.09f, 0f, 0f, 0.94f));
             DrawSectionHeader(panel, "保存与载入");
 
-            var tabWidth = 150f * scale;
-            using (new GuiEnabledScope(CanSaveGame()))
-            {
-                if (PcButton(new Rect(panel.xMax - tabWidth * 2f - 28f * scale, panel.y + 16f * scale,
-                        tabWidth, 43f * scale), "保存", true))
-                {
-                    _saveMode = true;
-                }
-            }
-            if (PcButton(new Rect(panel.xMax - tabWidth - 20f * scale, panel.y + 16f * scale,
-                    tabWidth, 43f * scale), "载入", true))
-            {
-                _saveMode = false;
-            }
-
             var margin = 24f * scale;
             var gap = 12f * scale;
-            var gridTop = panel.y + 76f * scale;
+            var gridTop = panel.y + 68f * scale;
             var footer = 164f * scale;
             var cellWidth = (panel.width - margin * 2f - gap) * 0.5f;
             var cellHeight = (panel.yMax - footer - gridTop - gap * 4f) / 5f;
@@ -524,8 +569,15 @@ namespace Higurashi.IOS.Runtime
             var scale = UiScale;
             GUI.Box(rect, GUIContent.none, _slotStyle);
             var info = ReadSaveSlotInfo(slot);
+            var canSave = CanSaveGame();
+            var buttonWidth = 82f * scale;
+            var buttonGap = 6f * scale;
+            var buttonCount = info == null ? (canSave ? 1 : 0) : (canSave ? 3 : 2);
+            var controlsWidth = buttonCount <= 0
+                ? 0f
+                : buttonCount * buttonWidth + (buttonCount - 1) * buttonGap;
             var textX = rect.x + 14f * scale;
-            var textWidth = rect.width - 150f * scale;
+            var textWidth = rect.width - 28f * scale - controlsWidth;
             GUI.Label(new Rect(textX, rect.y + 7f * scale, textWidth, 29f * scale),
                 "文件 " + slot.ToString("00", CultureInfo.InvariantCulture), _speakerStyle);
             GUI.Label(new Rect(textX, rect.y + 35f * scale, textWidth, rect.height - 40f * scale),
@@ -534,18 +586,30 @@ namespace Higurashi.IOS.Runtime
                     : info.Timestamp.ToString("yyyy-MM-dd HH:mm") + "\n" + info.Summary,
                 _statusStyle);
 
-            var buttonWidth = 116f * scale;
-            var buttonX = rect.xMax - buttonWidth - 10f * scale;
-            if (PcButton(new Rect(buttonX, rect.y + 10f * scale, buttonWidth, 38f * scale),
-                    _saveMode ? (info == null ? "保存" : "覆盖") : "载入", true))
+            var buttonX = rect.xMax - controlsWidth - 10f * scale;
+            if (canSave && PcButton(new Rect(buttonX, rect.center.y - 19f * scale,
+                    buttonWidth, 38f * scale), info == null ? "保存" : "覆盖", true))
             {
-                if (_saveMode) SaveGame(slot);
-                else LoadGame(slot);
+                SaveGame(slot);
                 SuppressInput();
             }
-            if (info != null && PcButton(new Rect(buttonX, rect.yMax - 45f * scale,
-                    buttonWidth, 34f * scale),
-                    _deleteConfirmSlot == slot ? "再次点击删除" : "删除", true))
+            if (canSave)
+            {
+                buttonX += buttonWidth + buttonGap;
+            }
+            if (info != null && PcButton(new Rect(buttonX, rect.center.y - 19f * scale,
+                    buttonWidth, 38f * scale), "载入", true))
+            {
+                LoadGame(slot);
+                SuppressInput();
+            }
+            if (info != null)
+            {
+                buttonX += buttonWidth + buttonGap;
+            }
+            if (info != null && PcButton(new Rect(buttonX, rect.center.y - 19f * scale,
+                    buttonWidth, 38f * scale),
+                    _deleteConfirmSlot == slot ? "确认" : "删除", true))
             {
                 if (_deleteConfirmSlot == slot)
                 {
@@ -608,7 +672,7 @@ namespace Higurashi.IOS.Runtime
             }
             y += buttonHeight + 9f * scale;
             if (PcButton(new Rect(x, y, width, buttonHeight),
-                    "口型同步：" + (_settings.lipSync ? "开" : "关"), true))
+                    "口型同步（仅主机版立绘）：" + (_settings.lipSync ? "开" : "关"), true))
             {
                 _settings.lipSync = !_settings.lipSync;
                 _host.ApplySettings(_runtime.Memory);
@@ -763,6 +827,14 @@ namespace Higurashi.IOS.Runtime
             {
                 return false;
             }
+            if (_host.ChapterPreviewVisible)
+            {
+                return true;
+            }
+            if (!_host.GameplayUiVisible || !_host.SavingEnabled || !_host.InterfaceEnabled)
+            {
+                return false;
+            }
             var safe = GetGuiSafeArea();
             var scale = UiScale;
             var rightRail = new Rect(safe.xMax - 125f * scale, safe.y + safe.height * 0.47f,
@@ -801,10 +873,11 @@ namespace Higurashi.IOS.Runtime
             }
             var safe = GetGuiSafeArea();
             var scale = UiScale;
-            var rect = new Rect(safe.center.x - 190f * scale, safe.y + 26f * scale,
-                380f * scale, 48f * scale);
+            var width = Mathf.Min(safe.width - 32f * scale, 760f * scale);
+            var rect = new Rect(safe.center.x - width * 0.5f, safe.y + 22f * scale,
+                width, 46f * scale);
             DrawPanel(rect, new Color(0.08f, 0f, 0f, 0.94f));
-            GUI.Label(rect, _toast, _panelTitleStyle);
+            GUI.Label(rect, _toast, _toastStyle);
         }
 
         private bool PcButton(Rect rect, string text, bool small = false)
@@ -832,13 +905,10 @@ namespace Higurashi.IOS.Runtime
         {
             var scale = UiScale;
             var rect = new Rect(panel.x + 18f * scale, panel.y + 14f * scale,
-                Mathf.Min(panel.width * 0.48f, 470f * scale), 46f * scale);
-            var previous = GUI.color;
-            GUI.color = new Color(0.82f, 0.04f, 0.03f, 0.88f);
-            GUI.DrawTexture(rect, _roundedPanel, ScaleMode.StretchToFill, true);
-            GUI.color = previous;
+                Mathf.Min(panel.width * 0.48f, 470f * scale), 40f * scale);
+            GUI.DrawTexture(rect, _sectionHeader, ScaleMode.StretchToFill, true);
             GUI.Label(new Rect(rect.x + 20f * scale, rect.y, rect.width - 30f * scale, rect.height),
-                title, _speakerStyle);
+                title, _sectionHeaderStyle);
         }
 
         private void DrawShadowLabel(Rect rect, string text, GUIStyle style)
@@ -891,6 +961,7 @@ namespace Higurashi.IOS.Runtime
                 _sliderTrack = NewRoundedTexture(new Color(0.015f, 0.015f, 0.018f, 1f), Color.white);
                 _sliderFill = NewRoundedTexture(new Color(0.8f, 0.025f, 0.015f, 1f), Color.white);
                 _sliderThumb = NewRoundedTexture(new Color(0.92f, 0.03f, 0.02f, 1f), Color.white);
+                _sectionHeader = NewSectionHeaderTexture();
                 _transparent = NewSolidTexture(Color.clear);
             }
             if (_uiFont == null)
@@ -913,6 +984,11 @@ namespace Higurashi.IOS.Runtime
             _statusStyle.wordWrap = true;
             _panelTitleStyle = MakeStyle(FontPixels(0.026f, 23, 43) * textScale,
                 TextAnchor.MiddleCenter, FontStyle.Bold, Color.white);
+            _sectionHeaderStyle = MakeStyle(FontPixels(0.027f, 24, 44) * textScale,
+                TextAnchor.MiddleLeft, FontStyle.Bold, Color.white);
+            _toastStyle = MakeStyle(FontPixels(0.021f, 18, 32) * textScale,
+                TextAnchor.MiddleCenter, FontStyle.Bold, Color.white);
+            _toastStyle.wordWrap = false;
 
             _pcButtonStyle = MakeButtonStyle(FontPixels(0.029f, 26, 48) * textScale);
             _pcSmallButtonStyle = MakeButtonStyle(FontPixels(0.020f, 18, 34) * textScale);
@@ -981,6 +1057,29 @@ namespace Higurashi.IOS.Runtime
         {
             var texture = new Texture2D(1, 1, TextureFormat.RGBA32, false);
             texture.SetPixel(0, 0, color);
+            texture.Apply();
+            return texture;
+        }
+
+        private static Texture2D NewSectionHeaderTexture()
+        {
+            const int width = 256;
+            const int height = 32;
+            var texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+            texture.wrapMode = TextureWrapMode.Clamp;
+            var pixels = new Color[width * height];
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    var t = x / (width - 1f);
+                    var fade = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.42f, 1f, t));
+                    pixels[y * width + x] = Color.Lerp(
+                        new Color(0.84f, 0.025f, 0.015f, 0.96f),
+                        new Color(0.015f, 0.008f, 0.01f, 0.96f), fade);
+                }
+            }
+            texture.SetPixels(pixels);
             texture.Apply();
             return texture;
         }
