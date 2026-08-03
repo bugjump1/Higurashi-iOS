@@ -17,6 +17,8 @@ namespace Higurashi.IOS.Runtime
         private GUIStyle _sliderThumbStyle;
         private GUIStyle _sectionHeaderStyle;
         private GUIStyle _toastStyle;
+        private GUIStyle _portTitleStyle;
+        private GUIStyle _portSubtitleStyle;
         private Texture2D _buttonNormal;
         private Texture2D _buttonHover;
         private Texture2D _buttonActive;
@@ -199,12 +201,13 @@ namespace Higurashi.IOS.Runtime
                         : layer.TransitionProgress;
                     DrawMaskedPresentationTexture(content, layer.Texture, layer.MaskTexture,
                         layerX, layerY, layerZ, layer.MaskReverse ? layer.FromAlpha : layer.Alpha,
-                        layer.IsCentered, screenScale, maskProgress, layer.MaskFuzziness);
+                        layer.IsCentered, screenScale, maskProgress, layer.MaskFuzziness,
+                        IsCinemaMatte(layer.TextureName));
                 }
                 else
                 {
                     DrawPresentationTexture(content, layer.Texture, layerX, layerY, layerZ,
-                        layerAlpha, layer.IsCentered, screenScale);
+                        layerAlpha, layer.IsCentered, screenScale, IsCinemaMatte(layer.TextureName));
                 }
             }
         }
@@ -251,7 +254,8 @@ namespace Higurashi.IOS.Runtime
         }
 
         private static void DrawPresentationTexture(Rect content, Texture2D texture,
-            float layerX, float layerY, float layerZ, float alpha, bool centered, float screenScale)
+            float layerX, float layerY, float layerZ, float alpha, bool centered, float screenScale,
+            bool cropTransparentEdges = false)
         {
             var canonicalHeight = Mathf.Min(texture.height, 480f);
             var canonicalWidth = texture.width * canonicalHeight / texture.height;
@@ -272,13 +276,23 @@ namespace Higurashi.IOS.Runtime
             }
             var previousColor = GUI.color;
             GUI.color = new Color(1f, 1f, 1f, alpha);
-            GUI.DrawTexture(new Rect(x, y, width, height), texture, ScaleMode.StretchToFill, true);
+            var destination = new Rect(x, y, width, height);
+            if (cropTransparentEdges)
+            {
+                var edgeInset = Mathf.Min(3f / Mathf.Max(1f, texture.height), 0.01f);
+                GUI.DrawTextureWithTexCoords(destination, texture,
+                    new Rect(0f, edgeInset, 1f, 1f - edgeInset * 2f), true);
+            }
+            else
+            {
+                GUI.DrawTexture(destination, texture, ScaleMode.StretchToFill, true);
+            }
             GUI.color = previousColor;
         }
 
         private void DrawMaskedPresentationTexture(Rect content, Texture2D texture, Texture2D mask,
             float layerX, float layerY, float layerZ, float alpha, bool centered,
-            float screenScale, float progress, float fuzziness)
+            float screenScale, float progress, float fuzziness, bool cropTransparentEdges = false)
         {
             var canonicalHeight = Mathf.Min(texture.height, 480f);
             var canonicalWidth = texture.width * canonicalHeight / texture.height;
@@ -291,8 +305,17 @@ namespace Higurashi.IOS.Runtime
             var y = centered
                 ? content.center.y + layerY * screenScale - height * 0.5f
                 : content.center.y + layerY * screenScale;
+            var edgeInset = cropTransparentEdges
+                ? Mathf.Min(3f / Mathf.Max(1f, texture.height), 0.01f)
+                : 0f;
             DrawMaskedTexture(new Rect(x, y, width, height), texture, mask,
-                new Rect(0f, 0f, 1f, 1f), progress, fuzziness, alpha);
+                new Rect(0f, edgeInset, 1f, 1f - edgeInset * 2f), progress, fuzziness, alpha);
+        }
+
+        private static bool IsCinemaMatte(string textureName)
+        {
+            return string.Equals(Path.GetFileNameWithoutExtension(textureName), "cinema",
+                StringComparison.OrdinalIgnoreCase);
         }
 
         private void DrawMaskedTexture(Rect destination, Texture texture, Texture mask, Rect source,
@@ -484,6 +507,12 @@ namespace Higurashi.IOS.Runtime
                 _helpVisible = true;
                 SuppressInput();
             }
+            var copyrightY = safe.yMax - 43f * scale;
+            var portY = Mathf.Min(y + buttonHeight + 8f * scale, copyrightY - 66f * scale);
+            GUI.Label(new Rect(safe.x, portY, safe.width, 34f * scale),
+                "iOS版移植", _portTitleStyle);
+            GUI.Label(new Rect(safe.x, portY + 31f * scale, safe.width, 27f * scale),
+                "贴吧@bugjump bilibili@Hyperion233", _portSubtitleStyle);
             GUI.Label(new Rect(safe.x, safe.yMax - 43f * scale, safe.width, 30f * scale),
                 "(C) 龙骑士07 / 07th Expansion", _panelTitleStyle);
         }
@@ -763,7 +792,7 @@ namespace Higurashi.IOS.Runtime
             var scale = UiScale;
             var panel = new Rect(safe.x + safe.width * 0.12f, safe.y + safe.height * 0.06f,
                 safe.width * 0.76f, safe.height * 0.88f);
-            DrawPanel(panel, new Color(0.09f, 0f, 0f, 0.95f));
+            DrawPcModalPanel(panel);
             DrawSectionHeader(panel, "系统设置");
 
             var x = panel.x + 34f * scale;
@@ -849,7 +878,7 @@ namespace Higurashi.IOS.Runtime
             var scale = UiScale;
             var panel = new Rect(safe.x + safe.width * 0.14f, safe.y + safe.height * 0.09f,
                 safe.width * 0.72f, safe.height * 0.82f);
-            DrawPanel(panel, new Color(0.08f, 0f, 0f, 0.96f));
+            DrawPcModalPanel(panel);
             DrawSectionHeader(panel, "操作说明");
             var text =
                 "单指轻触\n推进到下一句台词\n\n" +
@@ -1030,6 +1059,13 @@ namespace Higurashi.IOS.Runtime
             GUI.color = previous;
         }
 
+        private void DrawPcModalPanel(Rect rect)
+        {
+            var border = Mathf.Max(1f, 1.5f * UiScale);
+            FillRect(rect, new Color(0.88f, 0.88f, 0.88f, 0.72f));
+            FillRect(Inset(rect, border), new Color(0.005f, 0.005f, 0.008f, 0.91f));
+        }
+
         private void FillRect(Rect rect, Color color)
         {
             var previous = GUI.color;
@@ -1134,6 +1170,10 @@ namespace Higurashi.IOS.Runtime
             _toastStyle = MakeStyle(FontPixels(0.021f, 18, 32) * textScale,
                 TextAnchor.MiddleCenter, FontStyle.Bold, Color.white);
             _toastStyle.wordWrap = false;
+            _portTitleStyle = MakeStyle(FontPixels(0.026f, 23, 42) * textScale,
+                TextAnchor.MiddleCenter, FontStyle.Bold, Color.white);
+            _portSubtitleStyle = MakeStyle(FontPixels(0.017f, 16, 28) * textScale,
+                TextAnchor.MiddleCenter, FontStyle.Normal, new Color(0.96f, 0.96f, 0.96f));
 
             _pcButtonStyle = MakeButtonStyle(FontPixels(0.029f, 26, 48) * textScale);
             _pcSmallButtonStyle = MakeButtonStyle(FontPixels(0.020f, 18, 34) * textScale);

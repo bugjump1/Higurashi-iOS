@@ -230,10 +230,16 @@ namespace Higurashi.IOS.Runtime
             switch (action)
             {
                 case NovelInputAction.StartFastForward:
+                    _autoMode = false;
+                    _autoWasVoicePlaying = false;
+                    _host.StopVoices();
                     _host.HistoryVisible = false;
                     _fastTraversal.StartForward();
                     break;
                 case NovelInputAction.StartFastRewind:
+                    _autoMode = false;
+                    _autoWasVoicePlaying = false;
+                    _host.StopVoices();
                     _host.HistoryVisible = false;
                     _fastTraversal.StartRewind();
                     break;
@@ -332,8 +338,19 @@ namespace Higurashi.IOS.Runtime
             var previousSerial = _host.DialogueSerial;
             DriveRuntime(_fastTraversal.IsActive);
             CaptureDialogueCheckpoint();
-            return _host.DialogueSerial != previousSerial ||
-                   _runtime.BlockReason == BurikoBlockReason.Completed || skippedTimedWait;
+            var advanced = _host.DialogueSerial != previousSerial ||
+                           _runtime.BlockReason == BurikoBlockReason.Completed || skippedTimedWait;
+            if (!advanced && _fastTraversal.IsActive &&
+                _runtime.BlockReason != BurikoBlockReason.Completed &&
+                _runtime.BlockReason != BurikoBlockReason.Faulted &&
+                !_host.TitleVisible && !_host.ChoiceVisible)
+            {
+                // Voice-bearing lines can contain an intermediate non-dialogue boundary.
+                // Keep traversal alive and retry on the next rendered frame instead of
+                // treating that transient boundary as the end of fast traversal.
+                return true;
+            }
+            return advanced;
         }
 
         public bool StepBackward()
