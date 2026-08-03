@@ -23,6 +23,7 @@ namespace Higurashi.IOS.Compatibility
         public int autoSpeed = 50;
         public int renderQuality = 2;
         public bool lipSync = true;
+        public bool autoSave = true;
         public bool skipUnread;
         public MobilePresentationMode presentationMode = MobilePresentationMode.Fit;
     }

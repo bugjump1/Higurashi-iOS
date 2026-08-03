@@ -28,6 +28,14 @@ namespace Higurashi.IOS.Runtime.Buriko
         private string _streamingAssetsRoot;
         private string _backgroundName;
         private Texture2D _backgroundTexture;
+        private Texture2D _previousBackgroundTexture;
+        private float _backgroundTransitionStartedAt;
+        private float _backgroundTransitionDuration;
+        private float _dialogueRevealStartedAt;
+        private int _dialogueRevealStartIndex;
+        private bool _dialogueRevealForced;
+        private int _currentVoiceCharacter = -1;
+        private BurikoMemory _memory;
         private VideoPlayer _videoPlayer;
 
         public string Speaker { get; private set; } = string.Empty;
@@ -35,11 +43,17 @@ namespace Higurashi.IOS.Runtime.Buriko
         public bool WindowVisible { get; private set; } = true;
         public bool TitleVisible { get; private set; }
         public bool CreditsVisible { get; private set; }
+        public int CreditsPage { get; private set; }
         public bool HistoryVisible { get; set; }
         public bool ChoiceVisible => Choices.Count > 0;
         public List<string> Choices { get; } = new List<string>();
         public int DialogueSerial { get; private set; }
         public Texture2D BackgroundTexture => _backgroundTexture;
+        public Texture2D PreviousBackgroundTexture => _previousBackgroundTexture;
+        public float BackgroundTransitionProgress => _backgroundTransitionDuration <= 0f
+            ? 1f
+            : Mathf.Clamp01((Time.unscaledTime - _backgroundTransitionStartedAt) /
+                            _backgroundTransitionDuration);
         public Texture MovieTexture => _videoPlayer != null ? _videoPlayer.texture : null;
         public bool MovieVisible { get; private set; }
         public IReadOnlyDictionary<int, PresentationLayer> Layers => _layers;
@@ -53,6 +67,26 @@ namespace Higurashi.IOS.Runtime.Buriko
         public int WindowHeight { get; private set; } = 250;
         public string ScreenAspect { get; private set; } = "1.7777778";
         public event Action MovieFinished;
+
+        public bool IsVoicePlaying => _audio != null && _audio.AnyVoicePlaying();
+        public bool IsOpeningChoice => ChoiceVisible && Dialogue.IndexOf("OP 动画", StringComparison.OrdinalIgnoreCase) >= 0;
+        public bool IsDialogueRevealComplete => VisibleDialogueLength >= Dialogue.Length;
+        public string VisibleDialogue => Dialogue.Substring(0, VisibleDialogueLength);
+
+        private int VisibleDialogueLength
+        {
+            get
+            {
+                if (_dialogueRevealForced || string.IsNullOrEmpty(Dialogue))
+                {
+                    return Dialogue.Length;
+                }
+                var speed = _settings == null ? 50 : Mathf.Clamp(_settings.textSpeed, 0, 100);
+                var charactersPerSecond = Mathf.Lerp(18f, 90f, speed / 100f);
+                var animated = Mathf.FloorToInt((Time.unscaledTime - _dialogueRevealStartedAt) * charactersPerSecond);
+                return Mathf.Clamp(_dialogueRevealStartIndex + animated, 0, Dialogue.Length);
+            }
+        }
 
         public void Initialize(string installedGameDataRoot, HigurashiUserSettings settings)
         {
@@ -68,6 +102,11 @@ namespace Higurashi.IOS.Runtime.Buriko
             _videoPlayer.audioOutputMode = VideoAudioOutputMode.Direct;
             _videoPlayer.loopPointReached += OnMovieEnded;
             _videoPlayer.errorReceived += OnMovieError;
+        }
+
+        private void Update()
+        {
+            UpdateLipSync();
         }
 
         public void ApplySettings(BurikoMemory memory)
@@ -100,6 +139,7 @@ namespace Higurashi.IOS.Runtime.Buriko
 
         public BurikoHostResponse Execute(BurikoOperationInvocation invocation, BurikoMemory memory)
         {
+            _memory = memory;
             switch (invocation.Specification.Code)
             {
                 case 15:
@@ -220,6 +260,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                         invocation.Specification.Code == 33 ? RuntimeAudioKind.Se : RuntimeAudioKind.Voice,
                         Int(invocation, 0, memory)));
                 case 34:
+                    _currentVoiceCharacter = -1;
                     _audio.PlayVoice(
                         Int(invocation, 0, memory),
                         AddOgg(Text(invocation, 1, memory)),
@@ -227,22 +268,42 @@ namespace Higurashi.IOS.Runtime.Buriko
                         memory);
                     return BurikoHostResponse.Continue;
                 case 47:
-                    SetBackground(Text(invocation, 0, memory), memory, false);
+                    SetBackground(Text(invocation, 0, memory), memory, false,
+                        Int(invocation, 1, memory) / 1000f);
                     return BurikoHostResponse.Continue;
                 case 50:
+                    SetBackground(Text(invocation, 0, memory), memory, true,
+                        Int(invocation, 1, memory) / 1000f);
+                    return BurikoHostResponse.Continue;
                 case 51:
+                    if (string.Equals(Text(invocation, 0, memory), "black", StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(_backgroundName, "07th-mod", StringComparison.OrdinalIgnoreCase))
+                    {
+                        SetBackground("haikei", memory, true, 1f);
+                        CreditsVisible = true;
+                        CreditsPage = 1;
+                        WindowVisible = false;
+                        return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
+                    }
+                    SetBackground(Text(invocation, 0, memory), memory, true,
+                        Int(invocation, 4, memory) / 1000f);
+                    return BurikoHostResponse.Continue;
                 case 52:
-                    SetBackground(Text(invocation, 0, memory), memory);
+                    SetBackground(Text(invocation, 0, memory), memory, true,
+                        Int(invocation, 2, memory) / 1000f);
                     return BurikoHostResponse.Continue;
                 case 48:
-                    SetBackground("black", memory, false);
+                    SetBackground("black", memory, false, Int(invocation, 0, memory) / 1000f);
                     return BurikoHostResponse.Continue;
                 case 53:
+                    SetBackground("black", memory, true, Int(invocation, 0, memory) / 1000f);
+                    return BurikoHostResponse.Continue;
                 case 54:
-                    SetBackground("black", memory);
+                    SetBackground("black", memory, true, Int(invocation, 3, memory) / 1000f);
                     return BurikoHostResponse.Continue;
                 case 49:
-                    SetBackground(Text(invocation, 0, memory), memory, false);
+                    SetBackground(Text(invocation, 0, memory), memory, false,
+                        Int(invocation, 3, memory) / 1000f);
                     return BurikoHostResponse.Continue;
                 case 55:
                     DrawAnimatedLayer(invocation, memory, true, 0, 1, 2, 3, 4, 5, 6, 7, 8, 13, 14);
@@ -251,9 +312,13 @@ namespace Higurashi.IOS.Runtime.Buriko
                     MoveBustshot(invocation, memory);
                     return BurikoHostResponse.Continue;
                 case 57:
+                    FadeBustshot(invocation, memory);
+                    return BurikoHostResponse.Continue;
                 case 64:
+                    FadeLayer(Int(invocation, 0, memory), Int(invocation, 1, memory) / 1000f);
+                    return BurikoHostResponse.Continue;
                 case 65:
-                    _layers.Remove(Int(invocation, 0, memory));
+                    FadeLayer(Int(invocation, 0, memory), Int(invocation, 3, memory) / 1000f);
                     return BurikoHostResponse.Continue;
                 case 58:
                     DrawAnimatedLayer(invocation, memory, true, 0, 1, 4, 5, 10, 6, 7, 8, 9, 12, 13);
@@ -263,7 +328,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                         false, 1f, Int(invocation, 1, memory) / 1000f);
                     return BurikoHostResponse.Continue;
                 case 60:
-                    _layers.Remove(1000);
+                    FadeLayer(1000, Int(invocation, 0, memory) / 1000f);
                     return BurikoHostResponse.Continue;
                 case 62:
                     DrawLayer(
@@ -301,9 +366,16 @@ namespace Higurashi.IOS.Runtime.Buriko
                     ReportApproximated(invocation);
                     return BurikoHostResponse.Continue;
                 case 79:
+                    FadeLayerRange(1, 19, Int(invocation, 0, memory) / 1000f);
+                    return BurikoHostResponse.Continue;
+                case 80:
+                    FadeLayer(Int(invocation, 0, memory), Int(invocation, 3, memory) / 1000f);
+                    return BurikoHostResponse.Continue;
                 case 98:
+                    FadeLayerRange(2, 3, Int(invocation, 0, memory) / 1000f);
+                    return BurikoHostResponse.Continue;
                 case 99:
-                    _layers.Clear();
+                    FadeLayerRange(5, 8, Int(invocation, 0, memory) / 1000f);
                     return BurikoHostResponse.Continue;
                 case 89:
                     // The PC chapter-preview UI writes 1 when its Start button is accepted.
@@ -313,13 +385,10 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 101:
                     TitleVisible = true;
                     WindowVisible = false;
-                    SetBackground(memory.GetGlobalFlag("GFlag_GameClear") != 0 ? "title02" : "title", memory);
                     return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
                 case 109:
                     memory.SetGlobalFlag("GLanguage", 0);
-                    CreditsVisible = true;
-                    WindowVisible = false;
-                    return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
+                    return BurikoHostResponse.Continue;
                 case 115:
                     FontSize = Math.Max(12, Int(invocation, 0, memory));
                     return BurikoHostResponse.Continue;
@@ -348,6 +417,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                     DrawModCharacter(invocation, memory, true);
                     return BurikoHostResponse.Continue;
                 case 130:
+                    _currentVoiceCharacter = Int(invocation, 1, memory);
                     _audio.PlayVoice(
                         Int(invocation, 0, memory),
                         AddOgg(Text(invocation, 2, memory)),
@@ -415,7 +485,14 @@ namespace Higurashi.IOS.Runtime.Buriko
                 return false;
             }
 
+            if (CreditsPage == 1)
+            {
+                CreditsPage = 2;
+                return false;
+            }
+
             CreditsVisible = false;
+            CreditsPage = 0;
             return true;
         }
 
@@ -429,6 +506,18 @@ namespace Higurashi.IOS.Runtime.Buriko
             memory.SetLocalFlag("SelectResult", index);
             Choices.Clear();
             return true;
+        }
+
+        public void CompleteDialogueReveal()
+        {
+            _dialogueRevealForced = true;
+        }
+
+        public void StopVoices()
+        {
+            _audio?.StopAllVoices();
+            _currentVoiceCharacter = -1;
+            ResetLipSyncFrames();
         }
 
         public void ToggleWindow()
@@ -549,9 +638,13 @@ namespace Higurashi.IOS.Runtime.Buriko
             }
 
             CreditsVisible = false;
+            CreditsPage = 0;
             HistoryVisible = false;
             MovieVisible = false;
             _backgroundTexture = LoadTexture(_backgroundName, memory);
+            _previousBackgroundTexture = null;
+            _backgroundTransitionDuration = 0f;
+            _dialogueRevealForced = true;
         }
 
         private static void WriteStrings(BinaryWriter writer, IReadOnlyList<string> values)
@@ -592,11 +685,14 @@ namespace Higurashi.IOS.Runtime.Buriko
 
             Speaker = snapshot.Speaker;
             Dialogue = snapshot.Dialogue;
+            _dialogueRevealForced = true;
             WindowVisible = snapshot.WindowVisible;
             TitleVisible = snapshot.TitleVisible;
             DialogueSerial = snapshot.DialogueSerial;
             _backgroundName = snapshot.BackgroundName;
             _backgroundTexture = LoadTexture(_backgroundName, memory);
+            _previousBackgroundTexture = null;
+            _backgroundTransitionDuration = 0f;
             _layers.Clear();
             for (var i = 0; i < snapshot.Layers.Length; i++)
             {
@@ -637,6 +733,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             var text = (string.IsNullOrEmpty(fallbackText) ? primaryText : fallbackText)
                 .Replace("\\n", "\n");
             var append = textMode == 1 || textMode == 3 || textMode == 4;
+            var revealStart = append ? Dialogue.Length : 0;
             if (append)
             {
                 if (!string.IsNullOrEmpty(name))
@@ -651,6 +748,9 @@ namespace Higurashi.IOS.Runtime.Buriko
                 Dialogue = text;
             }
             WindowVisible = true;
+            _dialogueRevealStartIndex = revealStart;
+            _dialogueRevealStartedAt = Time.unscaledTime;
+            _dialogueRevealForced = false;
             DialogueSerial++;
             var waitsForInput = textMode == 0 || textMode == 2;
             if (waitsForInput)
@@ -684,6 +784,12 @@ namespace Higurashi.IOS.Runtime.Buriko
             for (var i = 0; i < count; i++)
             {
                 Choices.Add(memory.Get(new BurikoReference(reference.Name, i)).AsString(memory));
+            }
+
+            if (Dialogue.IndexOf("OP 动画", StringComparison.OrdinalIgnoreCase) >= 0 && Choices.Count >= 2)
+            {
+                Choices[0] = "启用 OP 动画";
+                Choices[1] = "禁用 OP 动画";
             }
         }
 
@@ -746,10 +852,15 @@ namespace Higurashi.IOS.Runtime.Buriko
             MovieFinished?.Invoke();
         }
 
-        private void SetBackground(string textureName, BurikoMemory memory, bool clearLayers = true)
+        private void SetBackground(string textureName, BurikoMemory memory, bool clearLayers = true,
+            float duration = 0f)
         {
+            var nextTexture = LoadTexture(textureName, memory);
+            _previousBackgroundTexture = duration > 0f ? _backgroundTexture : null;
             _backgroundName = textureName;
-            _backgroundTexture = LoadTexture(textureName, memory);
+            _backgroundTexture = nextTexture;
+            _backgroundTransitionStartedAt = Time.unscaledTime;
+            _backgroundTransitionDuration = Mathf.Max(0f, duration);
             if (clearLayers)
             {
                 _layers.Clear();
@@ -881,6 +992,48 @@ namespace Higurashi.IOS.Runtime.Buriko
             }
         }
 
+        private void FadeBustshot(BurikoOperationInvocation invocation, BurikoMemory memory)
+        {
+            var id = Int(invocation, 0, memory);
+            if (!_layers.TryGetValue(id, out var layer))
+            {
+                return;
+            }
+
+            var duration = Int(invocation, 6, memory) / 1000f;
+            if (invocation.Arguments[1].AsBool(memory))
+            {
+                layer.BeginTransition(
+                    Int(invocation, 2, memory),
+                    Int(invocation, 3, memory),
+                    Int(invocation, 4, memory),
+                    layer.Alpha,
+                    duration);
+            }
+            else
+            {
+                FadeLayer(id, duration);
+            }
+        }
+
+        private void FadeLayer(int id, float duration)
+        {
+            if (!_layers.TryGetValue(id, out var layer))
+            {
+                return;
+            }
+            layer.BeginTransition(layer.X, layer.Y, layer.Z, 0f, duration);
+            layer.LipSyncBaseName = null;
+        }
+
+        private void FadeLayerRange(int first, int last, float duration)
+        {
+            for (var id = first; id <= last; id++)
+            {
+                FadeLayer(id, duration);
+            }
+        }
+
         private void DrawModCharacter(
             BurikoOperationInvocation invocation,
             BurikoMemory memory,
@@ -907,6 +1060,9 @@ namespace Higurashi.IOS.Runtime.Buriko
                 1f,
                 Int(invocation, filtered ? 15 : 16, memory) / 1000f);
             var layer = _layers[Int(invocation, 0, memory)];
+            layer.CharacterId = Int(invocation, 1, memory);
+            layer.LipSyncBaseName = texture;
+            layer.LipSyncRestName = renderedTexture;
             var moveIndex = filtered ? 8 : 7;
             if (invocation.Arguments[moveIndex].AsBool(memory))
             {
@@ -963,6 +1119,73 @@ namespace Higurashi.IOS.Runtime.Buriko
                 ? new[] { "CG" }
                 : _artSets[index].Folders;
             return _assets.LoadTexture(textureName, folders, preferAsianVariant: true);
+        }
+
+        private void UpdateLipSync()
+        {
+            if (_memory == null || _settings == null || !_settings.lipSync)
+            {
+                return;
+            }
+
+            var voicePlaying = _audio != null && _audio.AnyVoicePlaying();
+            var framePattern = new[] { 0, 1, 0, 2 };
+            var frame = voicePlaying
+                ? framePattern[Mathf.FloorToInt(Time.unscaledTime * 10f) % framePattern.Length]
+                : 0;
+            foreach (var pair in _layers)
+            {
+                var layer = pair.Value;
+                if (string.IsNullOrEmpty(layer.LipSyncBaseName))
+                {
+                    continue;
+                }
+                var shouldAnimate = voicePlaying &&
+                    (_currentVoiceCharacter < 0 || layer.CharacterId == _currentVoiceCharacter);
+                var targetFrame = shouldAnimate ? frame : 0;
+                if (layer.LipSyncFrame == targetFrame)
+                {
+                    continue;
+                }
+
+                var textureName = layer.LipSyncBaseName + targetFrame;
+                var texture = LoadTexture(textureName, _memory);
+                if (texture == null && targetFrame != 0)
+                {
+                    textureName = layer.LipSyncBaseName + "0";
+                    texture = LoadTexture(textureName, _memory);
+                }
+                if (texture != null)
+                {
+                    layer.TextureName = textureName;
+                    layer.Texture = texture;
+                    layer.LipSyncFrame = targetFrame;
+                }
+            }
+        }
+
+        private void ResetLipSyncFrames()
+        {
+            if (_memory == null)
+            {
+                return;
+            }
+            foreach (var pair in _layers)
+            {
+                var layer = pair.Value;
+                if (string.IsNullOrEmpty(layer.LipSyncBaseName))
+                {
+                    continue;
+                }
+                var textureName = layer.LipSyncBaseName + "0";
+                var texture = LoadTexture(textureName, _memory);
+                if (texture != null)
+                {
+                    layer.TextureName = textureName;
+                    layer.Texture = texture;
+                }
+                layer.LipSyncFrame = 0;
+            }
         }
 
         private static void AddCascade(
@@ -1056,6 +1279,10 @@ namespace Higurashi.IOS.Runtime.Buriko
         public float PreviousZ;
         public float PreviousAlpha;
         public bool PreviousIsBustshot;
+        public int CharacterId = -1;
+        public string LipSyncBaseName;
+        public string LipSyncRestName;
+        public int LipSyncFrame;
 
         public float TransitionProgress
         {
@@ -1102,6 +1329,10 @@ namespace Higurashi.IOS.Runtime.Buriko
                 Priority = Priority,
                 Alpha = Alpha,
                 IsBustshot = IsBustshot,
+                CharacterId = CharacterId,
+                LipSyncBaseName = LipSyncBaseName,
+                LipSyncRestName = LipSyncRestName,
+                LipSyncFrame = LipSyncFrame,
                 FromX = X,
                 FromY = Y,
                 FromZ = Z,
@@ -1253,6 +1484,7 @@ namespace Higurashi.IOS.Runtime.Buriko
     internal sealed class UnityAudioService : MonoBehaviour
     {
         private readonly Dictionary<string, int> _generations = new Dictionary<string, int>();
+        private readonly Dictionary<string, int> _pendingGenerations = new Dictionary<string, int>();
         private readonly Dictionary<string, AudioSource> _sources = new Dictionary<string, AudioSource>();
         private AssetCascadeResolver _resolver;
         private UnityBurikoHost _host;
@@ -1280,6 +1512,60 @@ namespace Higurashi.IOS.Runtime.Buriko
 
         public void StopBgm(int channel) => Stop(RuntimeAudioKind.Bgm, channel);
         public void StopSe(int channel) => Stop(RuntimeAudioKind.Se, channel);
+
+        public bool AnyVoicePlaying()
+        {
+            var prefix = RuntimeAudioKind.Voice + ":";
+            foreach (var pair in _pendingGenerations)
+            {
+                if (pair.Key.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+            foreach (var pair in _sources)
+            {
+                if (pair.Key.StartsWith(prefix, StringComparison.Ordinal) && pair.Value.isPlaying)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public void StopAllVoices()
+        {
+            var prefix = RuntimeAudioKind.Voice + ":";
+            var keys = new HashSet<string>();
+            foreach (var pair in _generations)
+            {
+                if (pair.Key.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    keys.Add(pair.Key);
+                }
+            }
+            foreach (var pair in _sources)
+            {
+                if (pair.Key.StartsWith(prefix, StringComparison.Ordinal))
+                {
+                    keys.Add(pair.Key);
+                }
+            }
+            foreach (var key in keys)
+            {
+                NextGeneration(key);
+                _pendingGenerations.Remove(key);
+                if (_sources.TryGetValue(key, out var source))
+                {
+                    source.Stop();
+                    if (source.clip != null)
+                    {
+                        Destroy(source.clip);
+                        source.clip = null;
+                    }
+                }
+            }
+        }
 
         public void SetBgmVolume(int channel, float volume)
         {
@@ -1310,6 +1596,7 @@ namespace Higurashi.IOS.Runtime.Buriko
 
             var key = Key(kind, channel);
             var generation = NextGeneration(key);
+            _pendingGenerations[key] = generation;
             StartCoroutine(LoadAndPlay(key, generation, path, volume, loop));
         }
 
@@ -1325,6 +1612,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 yield return request.SendWebRequest();
                 if (request.result != UnityWebRequest.Result.Success)
                 {
+                    ClearPending(key, generation);
                     Debug.LogWarning("Unable to load audio " + path + ": " + request.error);
                     yield break;
                 }
@@ -1332,11 +1620,13 @@ namespace Higurashi.IOS.Runtime.Buriko
                 var clip = DownloadHandlerAudioClip.GetContent(request);
                 if (!_generations.TryGetValue(key, out var currentGeneration) || currentGeneration != generation)
                 {
+                    ClearPending(key, generation);
                     Destroy(clip);
                     yield break;
                 }
 
                 var source = GetOrCreateSource(key);
+                ClearPending(key, generation);
                 if (source.clip != null)
                 {
                     Destroy(source.clip);
@@ -1352,6 +1642,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         {
             var key = Key(kind, channel);
             NextGeneration(key);
+            _pendingGenerations.Remove(key);
             if (_sources.TryGetValue(key, out var source))
             {
                 source.Stop();
@@ -1382,6 +1673,14 @@ namespace Higurashi.IOS.Runtime.Buriko
             var generation = _generations.TryGetValue(key, out var current) ? current + 1 : 1;
             _generations[key] = generation;
             return generation;
+        }
+
+        private void ClearPending(string key, int generation)
+        {
+            if (_pendingGenerations.TryGetValue(key, out var pending) && pending == generation)
+            {
+                _pendingGenerations.Remove(key);
+            }
         }
 
         private static string Key(RuntimeAudioKind kind, int channel)

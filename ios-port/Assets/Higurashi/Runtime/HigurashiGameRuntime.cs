@@ -16,6 +16,7 @@ namespace Higurashi.IOS.Runtime
     {
         private const string SettingsKey = "higurashi-ios-settings-v1";
         private const string HelpSeenKey = "higurashi-ios-help-seen-v1";
+        private const string OpeningPreferenceKey = "higurashi-ios-opening-preference-v1";
         private const int SaveFileMagic = 0x31534748; // HGS1
         private const int SaveFileVersion = 1;
         private readonly FastTraversalController _fastTraversal = new FastTraversalController(10f);
@@ -29,6 +30,8 @@ namespace Higurashi.IOS.Runtime
         private HigurashiUserSettings _settings;
         private string _runtimeStatus = "Waiting for game data";
         private int _capturedDialogueSerial;
+        private int _dialoguesSinceAutoSave;
+        private float _lastAutoSaveAt;
         private int _suppressInputUntilFrame;
         private bool _settingsVisible;
         private bool _helpVisible;
@@ -36,8 +39,10 @@ namespace Higurashi.IOS.Runtime
         private bool _saveLoadVisible;
         private bool _saveMode = true;
         private bool _autoMode;
+        private bool _autoWasVoicePlaying;
         private float _nextAutoAdvanceAt;
         private bool _initializationAttempted;
+        private RuntimeCheckpoint _titleCheckpoint;
         private Vector2 _historyScroll;
         private GUIStyle _dialogueStyle;
         private GUIStyle _speakerStyle;
@@ -71,6 +76,7 @@ namespace Higurashi.IOS.Runtime
             {
                 _host.MovieFinished -= HandleMovieFinished;
             }
+            SaveOpeningPreference();
         }
 
         private void Update()
@@ -95,10 +101,25 @@ namespace Higurashi.IOS.Runtime
             if (_autoMode && _runtime != null && _host != null && !IsModalVisible &&
                 !_host.TitleVisible && !_host.CreditsVisible && !_host.ChoiceVisible &&
                 !_host.HistoryVisible && _runtime.BlockReason == BurikoBlockReason.WaitForInput &&
-                Time.unscaledTime >= _nextAutoAdvanceAt)
+                _host.IsDialogueRevealComplete)
             {
-                StepForward();
-                ScheduleNextAutoAdvance();
+                if (_host.IsVoicePlaying)
+                {
+                    _autoWasVoicePlaying = true;
+                }
+                else
+                {
+                    if (_autoWasVoicePlaying)
+                    {
+                        _autoWasVoicePlaying = false;
+                        _nextAutoAdvanceAt = Mathf.Max(_nextAutoAdvanceAt, Time.unscaledTime + 0.7f);
+                    }
+                    if (Time.unscaledTime >= _nextAutoAdvanceAt)
+                    {
+                        StepForward();
+                        ScheduleNextAutoAdvance();
+                    }
+                }
             }
         }
 
@@ -107,7 +128,9 @@ namespace Higurashi.IOS.Runtime
             if (paused)
             {
                 _fastTraversal.Stop();
+                MaybeAutoSave(true);
                 SaveSettings();
+                SaveOpeningPreference();
             }
         }
 
@@ -128,7 +151,12 @@ namespace Higurashi.IOS.Runtime
                 _host.MovieFinished += HandleMovieFinished;
                 _runtime = new BurikoRuntime(repository, _host);
                 _runtime.Start("init");
-                DriveRuntime(true);
+                var openingPreference = PlayerPrefs.GetInt(OpeningPreferenceKey, 0);
+                if (openingPreference > 0)
+                {
+                    _runtime.Memory.SetGlobalFlag("GVideoOpening", openingPreference);
+                }
+                DriveRuntime(false);
 
                 if (_runtime.BlockReason == BurikoBlockReason.Faulted)
                 {
@@ -138,6 +166,7 @@ namespace Higurashi.IOS.Runtime
 
                 _host.ApplySettings(_runtime.Memory);
                 _capturedDialogueSerial = _host.DialogueSerial;
+                _lastAutoSaveAt = Time.unscaledTime;
                 _runtimeStatus = "Ready";
             }
             catch (Exception exception)
@@ -200,7 +229,15 @@ namespace Higurashi.IOS.Runtime
                     }
                     else
                     {
-                        StepForward();
+                        if (!_host.IsDialogueRevealComplete &&
+                            _runtime.BlockReason == BurikoBlockReason.WaitForInput)
+                        {
+                            _host.CompleteDialogueReveal();
+                        }
+                        else
+                        {
+                            StepForward();
+                        }
                     }
                     break;
                 case NovelInputAction.OpenHistory:
@@ -224,9 +261,21 @@ namespace Higurashi.IOS.Runtime
 
             if (_timeline.TryMoveNext(out var existing))
             {
+                _host.StopVoices();
                 RestoreCheckpoint(existing);
                 return true;
             }
+
+            if (!_fastTraversal.IsActive &&
+                _runtime.BlockReason == BurikoBlockReason.WaitForInput &&
+                !_host.IsDialogueRevealComplete)
+            {
+                _host.CompleteDialogueReveal();
+                return true;
+            }
+
+            _host.StopVoices();
+            var skippedTimedWait = _runtime.BlockReason == BurikoBlockReason.WaitForTime;
 
             if (_runtime.BlockReason == BurikoBlockReason.WaitForInput ||
                 _runtime.BlockReason == BurikoBlockReason.Host)
@@ -239,10 +288,10 @@ namespace Higurashi.IOS.Runtime
             }
 
             var previousSerial = _host.DialogueSerial;
-            DriveRuntime(true);
+            DriveRuntime(_fastTraversal.IsActive);
             CaptureDialogueCheckpoint();
             return _host.DialogueSerial != previousSerial ||
-                   _runtime.BlockReason == BurikoBlockReason.Completed;
+                   _runtime.BlockReason == BurikoBlockReason.Completed || skippedTimedWait;
         }
 
         public bool StepBackward()
@@ -252,6 +301,7 @@ namespace Higurashi.IOS.Runtime
                 return false;
             }
 
+            _host.StopVoices();
             RestoreCheckpoint(checkpoint);
             return true;
         }
@@ -272,6 +322,7 @@ namespace Higurashi.IOS.Runtime
                 }
 
                 CaptureDialogueCheckpoint();
+                CaptureTitleCheckpointIfNeeded();
                 if (_runtime.BlockReason == BurikoBlockReason.Faulted)
                 {
                     _runtimeStatus = FormatRuntimeFault();
@@ -297,6 +348,20 @@ namespace Higurashi.IOS.Runtime
                 _runtime.CaptureSnapshot(),
                 _host.CaptureSnapshot()));
             _capturedDialogueSerial = _host.DialogueSerial;
+            _dialoguesSinceAutoSave++;
+            MaybeAutoSave(false);
+        }
+
+        private void CaptureTitleCheckpointIfNeeded()
+        {
+            if (_runtime == null || _host == null || !_host.TitleVisible ||
+                _runtime.BlockReason != BurikoBlockReason.Host)
+            {
+                return;
+            }
+            _titleCheckpoint = new RuntimeCheckpoint(
+                _runtime.CaptureSnapshot(),
+                _host.CaptureSnapshot());
         }
 
         private void RestoreCheckpoint(RuntimeCheckpoint checkpoint)
@@ -316,7 +381,7 @@ namespace Higurashi.IOS.Runtime
 
             _runtime.ResumeInput();
             _suppressInputUntilFrame = Time.frameCount + 2;
-            DriveRuntime(true);
+            DriveRuntime(false);
             CaptureDialogueCheckpoint();
             if (PlayerPrefs.GetInt(HelpSeenKey, 0) == 0)
             {
@@ -326,6 +391,7 @@ namespace Higurashi.IOS.Runtime
 
         private void SelectChoice(int index)
         {
+            var openingChoice = _host.IsOpeningChoice;
             if (!_host.Choose(index, _runtime.Memory))
             {
                 return;
@@ -333,7 +399,11 @@ namespace Higurashi.IOS.Runtime
 
             _runtime.ResumeInput();
             _suppressInputUntilFrame = Time.frameCount + 2;
-            DriveRuntime(true);
+            DriveRuntime(false);
+            if (openingChoice)
+            {
+                SaveOpeningPreference();
+            }
             CaptureDialogueCheckpoint();
         }
 
@@ -347,6 +417,7 @@ namespace Higurashi.IOS.Runtime
             _runtime.ResumeInput();
             _suppressInputUntilFrame = Time.frameCount + 2;
             DriveRuntime(false);
+            SaveOpeningPreference();
         }
 
         private HigurashiUserSettings LoadSettings()
@@ -360,6 +431,10 @@ namespace Higurashi.IOS.Runtime
                     if (loaded.textScale < 50)
                     {
                         loaded.textScale = 100;
+                    }
+                    if (json.IndexOf("\"autoSave\"", StringComparison.Ordinal) < 0)
+                    {
+                        loaded.autoSave = true;
                     }
                     return loaded;
                 }
@@ -390,11 +465,13 @@ namespace Higurashi.IOS.Runtime
             _fastTraversal.Stop();
             if (_autoMode)
             {
+                _autoWasVoicePlaying = _host != null && _host.IsVoicePlaying;
                 ScheduleNextAutoAdvance();
                 ShowToast("自动播放：开");
             }
             else
             {
+                _autoWasVoicePlaying = false;
                 ShowToast("自动播放：关");
             }
         }
@@ -405,6 +482,21 @@ namespace Higurashi.IOS.Runtime
             _nextAutoAdvanceAt = Time.unscaledTime + Mathf.Lerp(6f, 1.2f, normalized);
         }
 
+        private void SaveOpeningPreference()
+        {
+            if (_runtime == null)
+            {
+                return;
+            }
+            var preference = _runtime.Memory.GetGlobalFlag("GVideoOpening");
+            if (preference <= 0)
+            {
+                return;
+            }
+            PlayerPrefs.SetInt(OpeningPreferenceKey, preference);
+            PlayerPrefs.Save();
+        }
+
         private bool CanSaveGame()
         {
             return _runtime != null && _host != null && !_host.TitleVisible &&
@@ -413,11 +505,14 @@ namespace Higurashi.IOS.Runtime
                    _runtime.BlockReason != BurikoBlockReason.Completed;
         }
 
-        private void SaveGame(int slot)
+        private void SaveGame(int slot, bool showToast = true)
         {
             if (!CanSaveGame())
             {
-                ShowToast("当前画面不能保存");
+                if (showToast)
+                {
+                    ShowToast("当前画面不能保存");
+                }
                 return;
             }
 
@@ -445,12 +540,18 @@ namespace Higurashi.IOS.Runtime
                     File.Delete(path);
                 }
                 File.Move(temporaryPath, path);
-                ShowToast(slot == 0 ? "快速保存完成" : "已保存到槽位 " + slot);
+                if (showToast)
+                {
+                    ShowToast(SaveCompletedMessage(slot));
+                }
             }
             catch (Exception exception)
             {
                 Debug.LogWarning("Unable to save game: " + exception);
-                ShowToast("保存失败");
+                if (showToast)
+                {
+                    ShowToast("保存失败");
+                }
             }
         }
 
@@ -480,7 +581,7 @@ namespace Higurashi.IOS.Runtime
                 _fastTraversal.Stop();
                 CloseAllModals();
                 _suppressInputUntilFrame = Time.frameCount + 2;
-                ShowToast(slot == 0 ? "快速读取完成" : "已读取槽位 " + slot);
+                ShowToast(LoadCompletedMessage(slot));
             }
             catch (Exception exception)
             {
@@ -537,7 +638,122 @@ namespace Higurashi.IOS.Runtime
                     result = slot;
                 }
             }
+            var quick = FindLatestSlot(101, 103);
+            var quickInfo = quick >= 0 ? ReadSaveSlotInfo(quick) : null;
+            if (quickInfo != null && quickInfo.Timestamp > newest)
+            {
+                newest = quickInfo.Timestamp;
+                result = quick;
+            }
+            var automatic = FindLatestSlot(201, 203);
+            var automaticInfo = automatic >= 0 ? ReadSaveSlotInfo(automatic) : null;
+            if (automaticInfo != null && automaticInfo.Timestamp > newest)
+            {
+                result = automatic;
+            }
             return result;
+        }
+
+        private int FindLatestSlot(int first, int last)
+        {
+            var result = -1;
+            var newest = DateTime.MinValue;
+            for (var slot = first; slot <= last; slot++)
+            {
+                var info = ReadSaveSlotInfo(slot);
+                if (info != null && info.Timestamp > newest)
+                {
+                    newest = info.Timestamp;
+                    result = slot;
+                }
+            }
+            return result;
+        }
+
+        private int FindOldestOrEmptySlot(int first, int last)
+        {
+            var result = first;
+            var oldest = DateTime.MaxValue;
+            for (var slot = first; slot <= last; slot++)
+            {
+                var info = ReadSaveSlotInfo(slot);
+                if (info == null)
+                {
+                    return slot;
+                }
+                if (info.Timestamp < oldest)
+                {
+                    oldest = info.Timestamp;
+                    result = slot;
+                }
+            }
+            return result;
+        }
+
+        private void SaveQuickGame()
+        {
+            SaveGame(FindOldestOrEmptySlot(101, 103));
+        }
+
+        private void LoadLatestQuickGame()
+        {
+            var slot = FindLatestSlot(101, 103);
+            if (slot < 0 && ReadSaveSlotInfo(0) != null)
+            {
+                slot = 0;
+            }
+            if (slot < 0)
+            {
+                ShowToast("没有快速存档");
+                return;
+            }
+            LoadGame(slot);
+        }
+
+        private void MaybeAutoSave(bool force)
+        {
+            if (_settings == null || !_settings.autoSave || !CanSaveGame() ||
+                (!force && _dialoguesSinceAutoSave < 12 &&
+                Time.unscaledTime - _lastAutoSaveAt < 45f))
+            {
+                return;
+            }
+            SaveGame(FindOldestOrEmptySlot(201, 203), false);
+            _dialoguesSinceAutoSave = 0;
+            _lastAutoSaveAt = Time.unscaledTime;
+        }
+
+        private void ReturnToTitle()
+        {
+            if (_titleCheckpoint == null)
+            {
+                ShowToast("主菜单状态尚未准备完成");
+                return;
+            }
+            MaybeAutoSave(true);
+            _host.StopVoices();
+            _autoMode = false;
+            _fastTraversal.Stop();
+            _timeline.Clear();
+            RestoreCheckpoint(_titleCheckpoint);
+            CloseAllModals();
+            _suppressInputUntilFrame = Time.frameCount + 2;
+        }
+
+        private static string SaveCompletedMessage(int slot)
+        {
+            if (slot >= 201) return "自动保存完成";
+            if (slot >= 101) return "快速保存完成";
+            if (slot == 0) return "快速保存完成";
+            return "已保存到槽位 " + slot;
+        }
+
+        private static string LoadCompletedMessage(int slot)
+        {
+            if (slot >= 201) return "已读取自动存档 " + (slot - 200);
+            if (slot >= 101) return "已读取快速存档 " + (slot - 100);
+            if (slot == 0) return "快速读取完成";
+            return "已读取槽位 " + slot;
         }
 
         private string SaveSlotPath(int slot)
