@@ -46,6 +46,10 @@ namespace Higurashi.IOS.Editor
             SetCommonBuildProperties(project, mainTarget);
             SetCommonBuildProperties(project, frameworkTarget);
             project.SetBuildProperty(mainTarget, "TARGETED_DEVICE_FAMILY", "1,2");
+            project.AddFrameworkToProject(
+                frameworkTarget,
+                "UniformTypeIdentifiers.framework",
+                false);
 
             project.WriteToFile(projectPath);
         }

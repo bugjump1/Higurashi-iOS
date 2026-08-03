@@ -12,7 +12,8 @@ static UIViewController *HigurashiTopViewController(void)
         if (scene.activationState != UISceneActivationStateUnattached &&
             [scene isKindOfClass:[UIWindowScene class]])
         {
-            for (UIWindow *candidate in ((UIWindowScene *)scene).windows)
+            NSArray<UIWindow *> *windows = ((UIWindowScene *)scene).windows;
+            for (UIWindow *candidate in windows)
             {
                 if (candidate.isKeyWindow)
                 {
@@ -20,10 +21,10 @@ static UIViewController *HigurashiTopViewController(void)
                     break;
                 }
             }
+            if (window == nil) window = windows.firstObject;
         }
         if (window != nil) break;
     }
-    if (window == nil) window = UIApplication.sharedApplication.windows.firstObject;
 
     UIViewController *controller = window.rootViewController;
     while (controller.presentedViewController != nil)
