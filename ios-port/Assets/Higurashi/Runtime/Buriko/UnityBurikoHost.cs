@@ -35,6 +35,8 @@ namespace Higurashi.IOS.Runtime.Buriko
         private int _dialogueRevealStartIndex;
         private bool _dialogueRevealForced;
         private int _currentVoiceCharacter = -1;
+        private float _creditsPageChangedAt;
+        private bool _chapterPreviewAccepted;
         private BurikoMemory _memory;
         private VideoPlayer _videoPlayer;
 
@@ -44,6 +46,10 @@ namespace Higurashi.IOS.Runtime.Buriko
         public bool TitleVisible { get; private set; }
         public bool CreditsVisible { get; private set; }
         public int CreditsPage { get; private set; }
+        public bool ChapterPreviewVisible { get; private set; }
+        public bool GameplayUiVisible { get; private set; }
+        public bool SavingEnabled { get; private set; } = true;
+        public bool InterfaceEnabled { get; private set; } = true;
         public bool HistoryVisible { get; set; }
         public bool ChoiceVisible => Choices.Count > 0;
         public List<string> Choices { get; } = new List<string>();
@@ -142,6 +148,12 @@ namespace Higurashi.IOS.Runtime.Buriko
             _memory = memory;
             switch (invocation.Specification.Code)
             {
+                case 13:
+                    SavingEnabled = invocation.Arguments[0].AsBool(memory);
+                    return BurikoHostResponse.Continue;
+                case 85:
+                    InterfaceEnabled = invocation.Arguments[0].AsBool(memory);
+                    return BurikoHostResponse.Continue;
                 case 15:
                 case 19:
                 case 20:
@@ -173,7 +185,6 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 82:
                 case 83:
                 case 84:
-                case 85:
                 case 106:
                 case 107:
                 case 110:
@@ -282,6 +293,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                         SetBackground("haikei", memory, true, 1f);
                         CreditsVisible = true;
                         CreditsPage = 1;
+                        _creditsPageChangedAt = Time.unscaledTime;
                         WindowVisible = false;
                         return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
                     }
@@ -378,12 +390,15 @@ namespace Higurashi.IOS.Runtime.Buriko
                     FadeLayerRange(5, 8, Int(invocation, 0, memory) / 1000f);
                     return BurikoHostResponse.Continue;
                 case 89:
-                    // The PC chapter-preview UI writes 1 when its Start button is accepted.
-                    // On mobile, the title's Start action is the confirmation.
-                    memory.SetLocalFlag("LOCALWORK_NO_RESULT", 1);
-                    return BurikoHostResponse.Continue;
+                    ChapterPreviewVisible = true;
+                    _chapterPreviewAccepted = false;
+                    GameplayUiVisible = false;
+                    WindowVisible = false;
+                    return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
                 case 101:
                     TitleVisible = true;
+                    ChapterPreviewVisible = false;
+                    GameplayUiVisible = false;
                     WindowVisible = false;
                     return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
                 case 109:
@@ -474,7 +489,23 @@ namespace Higurashi.IOS.Runtime.Buriko
 
             memory.SetLocalFlag("LOCALWORK_NO_RESULT", 0);
             TitleVisible = false;
-            WindowVisible = true;
+            ChapterPreviewVisible = false;
+            GameplayUiVisible = false;
+            WindowVisible = false;
+            return true;
+        }
+
+        public bool ResolveChapterPreview(bool start, BurikoMemory memory)
+        {
+            if (!ChapterPreviewVisible)
+            {
+                return false;
+            }
+
+            memory.SetLocalFlag("LOCALWORK_NO_RESULT", start ? 1 : 0);
+            ChapterPreviewVisible = false;
+            _chapterPreviewAccepted = start;
+            WindowVisible = false;
             return true;
         }
 
@@ -485,9 +516,17 @@ namespace Higurashi.IOS.Runtime.Buriko
                 return false;
             }
 
+            // A fast tap used to skip the preceding logo must not also skip a
+            // whole credits page on touch-up or on the next rendered frame.
+            if (Time.unscaledTime - _creditsPageChangedAt < 0.4f)
+            {
+                return false;
+            }
+
             if (CreditsPage == 1)
             {
                 CreditsPage = 2;
+                _creditsPageChangedAt = Time.unscaledTime;
                 return false;
             }
 
@@ -632,6 +671,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                     layer.FromY = layer.Y;
                     layer.FromZ = layer.Z;
                     layer.FromAlpha = layer.Alpha;
+                    layer.IsCentered = layer.IsBustshot || (layer.X == 0 && layer.Y == 0);
                     layer.Texture = LoadTexture(layer.TextureName, memory);
                     _layers[layer.Id] = layer;
                 }
@@ -639,6 +679,11 @@ namespace Higurashi.IOS.Runtime.Buriko
 
             CreditsVisible = false;
             CreditsPage = 0;
+            ChapterPreviewVisible = false;
+            GameplayUiVisible = !TitleVisible;
+            _chapterPreviewAccepted = GameplayUiVisible;
+            SavingEnabled = !TitleVisible;
+            InterfaceEnabled = true;
             HistoryVisible = false;
             MovieVisible = false;
             _backgroundTexture = LoadTexture(_backgroundName, memory);
@@ -688,6 +733,11 @@ namespace Higurashi.IOS.Runtime.Buriko
             _dialogueRevealForced = true;
             WindowVisible = snapshot.WindowVisible;
             TitleVisible = snapshot.TitleVisible;
+            ChapterPreviewVisible = false;
+            GameplayUiVisible = !snapshot.TitleVisible;
+            _chapterPreviewAccepted = GameplayUiVisible;
+            SavingEnabled = !snapshot.TitleVisible;
+            InterfaceEnabled = true;
             DialogueSerial = snapshot.DialogueSerial;
             _backgroundName = snapshot.BackgroundName;
             _backgroundTexture = LoadTexture(_backgroundName, memory);
@@ -753,6 +803,10 @@ namespace Higurashi.IOS.Runtime.Buriko
             _dialogueRevealForced = false;
             DialogueSerial++;
             var waitsForInput = textMode == 0 || textMode == 2;
+            if (waitsForInput && _chapterPreviewAccepted)
+            {
+                GameplayUiVisible = true;
+            }
             if (waitsForInput)
             {
                 var historyLine = string.IsNullOrEmpty(Speaker) ? Dialogue : Speaker + "\n" + Dialogue;
@@ -885,11 +939,13 @@ namespace Higurashi.IOS.Runtime.Buriko
             float previousZ = z;
             float previousAlpha = 0f;
             var previousIsBustshot = isBustshot;
+            var previousIsCentered = isBustshot || (x == 0 && y == 0);
             if (duration > 0f && _layers.TryGetValue(id, out var previous))
             {
                 previousTexture = previous.Texture;
                 previous.GetRenderState(out previousX, out previousY, out previousZ, out previousAlpha);
                 previousIsBustshot = previous.IsBustshot;
+                previousIsCentered = previous.IsCentered;
             }
 
             _layers[id] = new PresentationLayer
@@ -903,6 +959,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 Priority = priority == 0 ? id : priority,
                 Alpha = Mathf.Clamp01(alpha),
                 IsBustshot = isBustshot,
+                IsCentered = isBustshot || (x == 0 && y == 0),
                 FromX = x,
                 FromY = y,
                 FromZ = z,
@@ -914,7 +971,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                 PreviousY = previousY,
                 PreviousZ = previousZ,
                 PreviousAlpha = previousAlpha,
-                PreviousIsBustshot = previousIsBustshot
+                PreviousIsBustshot = previousIsBustshot,
+                PreviousIsCentered = previousIsCentered
             };
         }
 
@@ -1118,7 +1176,9 @@ namespace Higurashi.IOS.Runtime.Buriko
             var folders = _artSets.Count == 0
                 ? new[] { "CG" }
                 : _artSets[index].Folders;
-            return _assets.LoadTexture(textureName, folders, preferAsianVariant: true);
+            // GLanguage 0 is the installed Chinese script set.  The un-suffixed
+            // textures are localized; the optional _j files are Japanese.
+            return _assets.LoadTexture(textureName, folders, preferAsianVariant: false);
         }
 
         private void UpdateLipSync()
@@ -1267,6 +1327,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         public int Priority;
         public float Alpha = 1f;
         public bool IsBustshot;
+        public bool IsCentered;
         public float FromX;
         public float FromY;
         public float FromZ;
@@ -1279,6 +1340,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         public float PreviousZ;
         public float PreviousAlpha;
         public bool PreviousIsBustshot;
+        public bool PreviousIsCentered;
         public int CharacterId = -1;
         public string LipSyncBaseName;
         public string LipSyncRestName;
@@ -1329,6 +1391,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 Priority = Priority,
                 Alpha = Alpha,
                 IsBustshot = IsBustshot,
+                IsCentered = IsCentered,
                 CharacterId = CharacterId,
                 LipSyncBaseName = LipSyncBaseName,
                 LipSyncRestName = LipSyncRestName,
