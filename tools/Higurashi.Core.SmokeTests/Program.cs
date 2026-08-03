@@ -27,6 +27,7 @@ internal static class Program
             Episode02OperationCatalogNormalizesShiftedModCodes,
             Episode03OperationCatalogNormalizesShiftedModCodes,
             Episode04OperationCatalogNormalizesShiftedCodes,
+            Episode05OperationCatalogNormalizesShiftedCodes,
             BurikoRuntimeExecutesDialogueAndFlags,
             BurikoRuntimeCallsAndReturnsFromScript,
             BurikoRuntimeSnapshotRestoresExecutionAndMemory,
@@ -102,6 +103,28 @@ internal static class Program
         BurikoOperationCatalog.ConfigureForEpisode(1);
     }
 
+    private static void Episode05OperationCatalogNormalizesShiftedCodes()
+    {
+        BurikoOperationCatalog.ConfigureForEpisode(5);
+        Equal((short)150, BurikoOperationCatalog.Get(10).Code);
+        Equal("Return", BurikoOperationCatalog.Get(10).Name);
+        Equal((short)10, BurikoOperationCatalog.Get(11).Code);
+        Equal("Wait", BurikoOperationCatalog.Get(11).Name);
+        Equal((short)151, BurikoOperationCatalog.Get(23).Code);
+        Equal("DisplayWindow", BurikoOperationCatalog.Get(23).Name);
+        Equal((short)55, BurikoOperationCatalog.Get(57).Code);
+        Equal("DrawBustshot", BurikoOperationCatalog.Get(57).Name);
+        Equal((short)152, BurikoOperationCatalog.Get(60).Code);
+        Equal("ChangeBustshot", BurikoOperationCatalog.Get(60).Name);
+        Equal((short)148, BurikoOperationCatalog.Get(125).Code);
+        Equal("SetValidityOfLoading", BurikoOperationCatalog.Get(125).Name);
+        Equal((short)130, BurikoOperationCatalog.Get(135).Code);
+        Equal("ModPlayVoiceLS", BurikoOperationCatalog.Get(135).Name);
+        Equal((short)147, BurikoOperationCatalog.Get(152).Code);
+        Equal("ModGenericCall", BurikoOperationCatalog.Get(152).Name);
+        BurikoOperationCatalog.ConfigureForEpisode(1);
+    }
+
     private static void ChapterProfilesHaveWholeZipFingerprints()
     {
         var episode01 = HigurashiChapterProfiles.ForEpisode(1);
@@ -135,6 +158,16 @@ internal static class Program
         Equal(1416754682L, episode04.ExpectedDataPackSize);
         Equal("473DA280F2F4D98BE3B961FAD4D871D369CB71CF4DA51DCF395A2D542AC557ED",
             episode04.ExpectedDataPackSha256);
+
+        var episode05 = HigurashiChapterProfiles.ForEpisode(5);
+        Equal("HigurashiEp05", episode05.ProductName);
+        Equal("com.bugjump.higurashi.ep05", episode05.BundleIdentifier);
+        Equal("Higurashi-05-data.zip", episode05.DataPackFileName);
+        Equal("higurashi-05", episode05.GameId);
+        Equal("meakashi", episode05.ChapterSlug);
+        Equal(1961020275L, episode05.ExpectedDataPackSize);
+        Equal("AFAAD2CCBF45C9BC6729C020DE6E86A58CB741EFD889280681181B243644A302",
+            episode05.ExpectedDataPackSha256);
     }
 
     private static void BurikoTextContinuationFollowsPreviousMode()

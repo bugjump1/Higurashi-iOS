@@ -13,6 +13,7 @@ on:
           - '02'
           - '03'
           - '04'
+          - '05'
       bundle_identifier:
         description: Optional Bundle ID override before self-signing
         required: false
@@ -70,8 +71,8 @@ jobs:
       - name: Restore chapter app icon
         shell: bash
         env:
-          APP_ICON_BASE64_1: ${{ inputs.chapter_number == '04' && secrets.HIGURASHI_EP04_APP_ICON_BASE64_1 || inputs.chapter_number == '03' && secrets.HIGURASHI_EP03_APP_ICON_BASE64_1 || inputs.chapter_number == '02' && secrets.HIGURASHI_EP02_APP_ICON_BASE64_1 || secrets.HIGURASHI_APP_ICON_BASE64_1 }}
-          APP_ICON_BASE64_2: ${{ inputs.chapter_number == '04' && secrets.HIGURASHI_EP04_APP_ICON_BASE64_2 || inputs.chapter_number == '03' && secrets.HIGURASHI_EP03_APP_ICON_BASE64_2 || inputs.chapter_number == '02' && secrets.HIGURASHI_EP02_APP_ICON_BASE64_2 || secrets.HIGURASHI_APP_ICON_BASE64_2 }}
+          APP_ICON_BASE64_1: ${{ inputs.chapter_number == '05' && secrets.HIGURASHI_EP05_APP_ICON_BASE64_1 || inputs.chapter_number == '04' && secrets.HIGURASHI_EP04_APP_ICON_BASE64_1 || inputs.chapter_number == '03' && secrets.HIGURASHI_EP03_APP_ICON_BASE64_1 || inputs.chapter_number == '02' && secrets.HIGURASHI_EP02_APP_ICON_BASE64_1 || secrets.HIGURASHI_APP_ICON_BASE64_1 }}
+          APP_ICON_BASE64_2: ${{ inputs.chapter_number == '05' && secrets.HIGURASHI_EP05_APP_ICON_BASE64_2 || inputs.chapter_number == '04' && secrets.HIGURASHI_EP04_APP_ICON_BASE64_2 || inputs.chapter_number == '03' && secrets.HIGURASHI_EP03_APP_ICON_BASE64_2 || inputs.chapter_number == '02' && secrets.HIGURASHI_EP02_APP_ICON_BASE64_2 || secrets.HIGURASHI_APP_ICON_BASE64_2 }}
         run: |
           set -euo pipefail
           if [[ -z "$APP_ICON_BASE64_1" || -z "$APP_ICON_BASE64_2" ]]; then

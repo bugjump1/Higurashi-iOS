@@ -318,6 +318,9 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 21:
                     WindowVisible = false;
                     return BurikoHostResponse.Continue;
+                case 151:
+                    WindowVisible = true;
+                    return AnimationResponse(0.5f, true);
                 case 24:
                     ShowChoices(invocation, memory);
                     return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Choice);
@@ -472,6 +475,10 @@ namespace Higurashi.IOS.Runtime.Buriko
                         0, false, memory);
                     return AnimationResponse(Int(invocation, 13, memory) / 1000f,
                         invocation.Arguments[14].AsBool(memory));
+                case 152:
+                    ChangeBustshot(invocation, memory);
+                    return AnimationResponse(Int(invocation, 2, memory) / 1000f,
+                        invocation.Arguments[3].AsBool(memory));
                 case 59:
                     DrawLayer(1000, Text(invocation, 0, memory), 213, 131, 0, 1000, memory,
                         false, 1f, Int(invocation, 1, memory) / 1000f);
@@ -1350,6 +1357,35 @@ namespace Higurashi.IOS.Runtime.Buriko
                 layer.TextureName = textureName;
                 layer.Texture = LoadTexture(textureName, memory);
             }
+        }
+
+        private void ChangeBustshot(BurikoOperationInvocation invocation, BurikoMemory memory)
+        {
+            var id = Int(invocation, 0, memory);
+            var textureName = Text(invocation, 1, memory);
+            var duration = Int(invocation, 2, memory) / 1000f;
+            if (!_layers.TryGetValue(id, out var previous))
+            {
+                DrawLayer(id, textureName, 0, 0, 0, id, memory, true, 1f, duration);
+                return;
+            }
+
+            DrawLayer(
+                id,
+                textureName,
+                previous.X,
+                previous.Y,
+                previous.Z,
+                previous.Priority,
+                memory,
+                previous.IsBustshot,
+                previous.Alpha,
+                duration);
+            var changed = _layers[id];
+            changed.CharacterId = previous.CharacterId;
+            changed.LipSyncBaseName = previous.LipSyncBaseName;
+            changed.LipSyncRestName = previous.LipSyncRestName;
+            changed.LipSyncFrame = previous.LipSyncFrame;
         }
 
         private void FadeBustshot(BurikoOperationInvocation invocation, BurikoMemory memory)
