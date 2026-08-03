@@ -22,6 +22,7 @@ namespace Higurashi.IOS.Buriko
         private static readonly BurikoOperationSpecification?[] Episode01Items = Create();
         private static readonly BurikoOperationSpecification?[] Episode02Items = CreateEpisode02();
         private static readonly BurikoOperationSpecification?[] Episode03Items = CreateEpisode03();
+        private static readonly BurikoOperationSpecification?[] Episode04Items = CreateEpisode04();
         private static BurikoOperationSpecification?[] Items = Episode01Items;
 
         public static void ConfigureForEpisode(int episodeNumber)
@@ -33,6 +34,9 @@ namespace Higurashi.IOS.Buriko
                     break;
                 case 3:
                     Items = Episode03Items;
+                    break;
+                case 4:
+                    Items = Episode04Items;
                     break;
                 default:
                     Items = Episode01Items;
@@ -229,6 +233,30 @@ namespace Higurashi.IOS.Buriko
             // Episode 3 has the same raw operation layout as episode 2. Keep a
             // chapter-specific catalog entry so later chapters can diverge safely.
             return CreateEpisode02();
+        }
+
+        private static BurikoOperationSpecification?[] CreateEpisode04()
+        {
+            var result = new BurikoOperationSpecification?[256];
+            for (var rawCode = 0; rawCode <= 9; rawCode++)
+            {
+                result[rawCode] = Episode01Items[rawCode];
+            }
+
+            // Episode 4 added Return before Wait, then retained the two engine
+            // operations introduced in episode 2 before the 07th-Mod range.
+            result[10] = new BurikoOperationSpecification(150, "Return", "");
+            for (var rawCode = 11; rawCode <= 122; rawCode++)
+            {
+                result[rawCode] = Episode01Items[rawCode - 1];
+            }
+            result[123] = new BurikoOperationSpecification(148, "SetValidityOfLoading", "b");
+            result[124] = new BurikoOperationSpecification(149, "ActivateScreenEffectForcedly", "b");
+            for (var rawCode = 125; rawCode <= 150; rawCode++)
+            {
+                result[rawCode] = Episode01Items[rawCode - 3];
+            }
+            return result;
         }
     }
 }

@@ -335,6 +335,9 @@ namespace Higurashi.IOS.Buriko
                 case 14:
                     Memory.SetLocalFlag("__CanInput", arguments[0].AsBool(Memory) ? 1 : 0);
                     return BurikoValue.Null;
+                case 150:
+                    Return();
+                    return BurikoValue.Null;
                 case 127:
                     CallScript(arguments[0].AsString(Memory), arguments[1].AsString(Memory));
                     return BurikoValue.Null;

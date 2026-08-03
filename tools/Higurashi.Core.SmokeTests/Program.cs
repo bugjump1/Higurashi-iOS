@@ -26,11 +26,13 @@ internal static class Program
             BurikoTextContinuationFollowsPreviousMode,
             Episode02OperationCatalogNormalizesShiftedModCodes,
             Episode03OperationCatalogNormalizesShiftedModCodes,
+            Episode04OperationCatalogNormalizesShiftedCodes,
             BurikoRuntimeExecutesDialogueAndFlags,
             BurikoRuntimeCallsAndReturnsFromScript,
             BurikoRuntimeSnapshotRestoresExecutionAndMemory,
             BurikoRuntimePersistentStateRoundTrips,
-            BurikoRuntimeHandlesModCrossScriptSectionCall
+            BurikoRuntimeHandlesModCrossScriptSectionCall,
+            BurikoRuntimeHandlesEpisode04ReturnOperation
         };
 
         foreach (var test in tests)
@@ -82,6 +84,24 @@ internal static class Program
         BurikoOperationCatalog.ConfigureForEpisode(1);
     }
 
+    private static void Episode04OperationCatalogNormalizesShiftedCodes()
+    {
+        BurikoOperationCatalog.ConfigureForEpisode(4);
+        Equal((short)150, BurikoOperationCatalog.Get(10).Code);
+        Equal("Return", BurikoOperationCatalog.Get(10).Name);
+        Equal((short)10, BurikoOperationCatalog.Get(11).Code);
+        Equal("Wait", BurikoOperationCatalog.Get(11).Name);
+        Equal((short)16, BurikoOperationCatalog.Get(17).Code);
+        Equal("OutputLine", BurikoOperationCatalog.Get(17).Name);
+        Equal((short)148, BurikoOperationCatalog.Get(123).Code);
+        Equal("SetValidityOfLoading", BurikoOperationCatalog.Get(123).Name);
+        Equal((short)130, BurikoOperationCatalog.Get(133).Code);
+        Equal("ModPlayVoiceLS", BurikoOperationCatalog.Get(133).Name);
+        Equal((short)147, BurikoOperationCatalog.Get(150).Code);
+        Equal("ModGenericCall", BurikoOperationCatalog.Get(150).Name);
+        BurikoOperationCatalog.ConfigureForEpisode(1);
+    }
+
     private static void ChapterProfilesHaveWholeZipFingerprints()
     {
         var episode01 = HigurashiChapterProfiles.ForEpisode(1);
@@ -105,6 +125,16 @@ internal static class Program
         Equal(2079546842L, episode03.ExpectedDataPackSize);
         Equal("13F2957DC7D6F2A6A7A9DAE737E3C4029D30A20F4E34B200AE5499C79C3A5FEF",
             episode03.ExpectedDataPackSha256);
+
+        var episode04 = HigurashiChapterProfiles.ForEpisode(4);
+        Equal("HigurashiEp04", episode04.ProductName);
+        Equal("com.bugjump.higurashi.ep04", episode04.BundleIdentifier);
+        Equal("Higurashi-04-data.zip", episode04.DataPackFileName);
+        Equal("higurashi-04", episode04.GameId);
+        Equal("himatsubushi", episode04.ChapterSlug);
+        Equal(1416754682L, episode04.ExpectedDataPackSize);
+        Equal("473DA280F2F4D98BE3B961FAD4D871D369CB71CF4DA51DCF395A2D542AC557ED",
+            episode04.ExpectedDataPackSha256);
     }
 
     private static void BurikoTextContinuationFollowsPreviousMode()
@@ -447,6 +477,46 @@ internal static class Program
         runtime.ResumeInput();
         Equal(BurikoBlockReason.Completed, runtime.RunUntilBlocked());
         Equal(9, runtime.Memory.GetGlobalFlag("GPersistent"));
+    }
+
+    private static void BurikoRuntimeHandlesEpisode04ReturnOperation()
+    {
+        BurikoOperationCatalog.ConfigureForEpisode(4);
+        var init = BuildBytecode(writer =>
+        {
+            WriteOperation(writer, 6, () => WriteStringValue(writer, "flow"));
+            WriteOperation(writer, 3, () =>
+            {
+                WriteReferenceValue(writer, "GAfterReturn");
+                WriteIntValue(writer, 2);
+            });
+            writer.Write((short)0);
+        });
+        var flow = BuildBytecode(writer =>
+        {
+            WriteOperation(writer, 3, () =>
+            {
+                WriteReferenceValue(writer, "GAfterReturn");
+                WriteIntValue(writer, 1);
+            });
+            WriteOperation(writer, 10, null);
+            WriteOperation(writer, 3, () =>
+            {
+                WriteReferenceValue(writer, "GAfterReturn");
+                WriteIntValue(writer, 99);
+            });
+            writer.Write((short)0);
+        });
+
+        var runtime = new BurikoRuntime(
+            new DictionaryScriptRepository(
+                ("init", WrapScript(init)),
+                ("flow", WrapScript(flow))),
+            new CapturingHost());
+        runtime.Start();
+        Equal(BurikoBlockReason.Completed, runtime.RunUntilBlocked());
+        Equal(2, runtime.Memory.GetGlobalFlag("GAfterReturn"));
+        BurikoOperationCatalog.ConfigureForEpisode(1);
     }
 
     private static byte[] BuildBytecode(Action<BinaryWriter> write)
