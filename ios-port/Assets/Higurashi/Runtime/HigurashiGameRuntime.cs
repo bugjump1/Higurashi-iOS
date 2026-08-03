@@ -44,6 +44,7 @@ namespace Higurashi.IOS.Runtime
         private bool _initializationAttempted;
         private RuntimeCheckpoint _titleCheckpoint;
         private Vector2 _historyScroll;
+        private bool _historyAutoScrollPending;
         private GUIStyle _dialogueStyle;
         private GUIStyle _speakerStyle;
         private GUIStyle _titleStyle;
@@ -96,7 +97,16 @@ namespace Higurashi.IOS.Runtime
                 }
             }
 
+            if (_runtime != null && _host != null &&
+                _runtime.BlockReason == BurikoBlockReason.Host &&
+                _host.ConsumeCompletedBlockingAnimation())
+            {
+                _runtime.ResumeInput();
+                DriveRuntime(false);
+            }
+
             _touchInput.FastTraversalActive = _fastTraversal.IsActive;
+            UpdateHistoryTouchScroll();
             _fastTraversal.Tick(Time.unscaledDeltaTime, this);
             if (_showHelpWhenGameplayStarts && _host != null && _host.GameplayUiVisible &&
                 _host.SavingEnabled && _host.InterfaceEnabled &&
@@ -252,11 +262,26 @@ namespace Higurashi.IOS.Runtime
                 case NovelInputAction.OpenHistory:
                     _fastTraversal.Stop();
                     _host.HistoryVisible = true;
+                    _historyAutoScrollPending = true;
                     break;
                 case NovelInputAction.ToggleTextWindow:
                     _fastTraversal.Stop();
                     _host.ToggleWindow();
                     break;
+            }
+        }
+
+        private void UpdateHistoryTouchScroll()
+        {
+            if (_host == null || !_host.HistoryVisible || UnityEngine.Input.touchCount != 1)
+            {
+                return;
+            }
+
+            var touch = UnityEngine.Input.GetTouch(0);
+            if (touch.phase == UnityEngine.TouchPhase.Moved)
+            {
+                _historyScroll.y = Mathf.Max(0f, _historyScroll.y + touch.deltaPosition.y);
             }
         }
 
@@ -285,6 +310,14 @@ namespace Higurashi.IOS.Runtime
 
             _host.StopVoices();
             var skippedTimedWait = _runtime.BlockReason == BurikoBlockReason.WaitForTime;
+
+            if (_runtime.BlockReason == BurikoBlockReason.Host && _host.SkipBlockingAnimation())
+            {
+                _runtime.ResumeInput();
+                DriveRuntime(_fastTraversal.IsActive);
+                CaptureDialogueCheckpoint();
+                return true;
+            }
 
             if (_runtime.BlockReason == BurikoBlockReason.WaitForInput ||
                 _runtime.BlockReason == BurikoBlockReason.Host)

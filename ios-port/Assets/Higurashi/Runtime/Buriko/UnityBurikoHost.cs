@@ -20,6 +20,8 @@ namespace Higurashi.IOS.Runtime.Buriko
         private readonly List<RuntimeAudioSet> _audioSets = new List<RuntimeAudioSet>();
         private readonly SortedDictionary<int, PresentationLayer> _layers =
             new SortedDictionary<int, PresentationLayer>();
+        private readonly List<PresentationLayer> _previousSceneLayers =
+            new List<PresentationLayer>();
         private readonly List<string> _history = new List<string>();
         private readonly HashSet<short> _reportedOperations = new HashSet<short>();
         private UnityAssetLoader _assets;
@@ -29,8 +31,16 @@ namespace Higurashi.IOS.Runtime.Buriko
         private string _backgroundName;
         private Texture2D _backgroundTexture;
         private Texture2D _previousBackgroundTexture;
+        private Texture2D _backgroundTransitionMask;
         private float _backgroundTransitionStartedAt;
         private float _backgroundTransitionDuration;
+        private float _blockingAnimationUntil;
+        private float _shakeStartedAt;
+        private float _shakeSwingDuration;
+        private float _shakeIntensity;
+        private float _shakeAttenuation;
+        private float _shakeDuration;
+        private int _shakeVector;
         private float _dialogueRevealStartedAt;
         private int _dialogueRevealStartIndex;
         private bool _dialogueRevealForced;
@@ -56,13 +66,24 @@ namespace Higurashi.IOS.Runtime.Buriko
         public int DialogueSerial { get; private set; }
         public Texture2D BackgroundTexture => _backgroundTexture;
         public Texture2D PreviousBackgroundTexture => _previousBackgroundTexture;
-        public float BackgroundTransitionProgress => _backgroundTransitionDuration <= 0f
-            ? 1f
-            : Mathf.Clamp01((Time.unscaledTime - _backgroundTransitionStartedAt) /
-                            _backgroundTransitionDuration);
+        public Texture2D BackgroundTransitionMask => _backgroundTransitionMask;
+        public float BackgroundTransitionProgress
+        {
+            get
+            {
+                if (_backgroundTransitionDuration <= 0f)
+                {
+                    return 1f;
+                }
+                var progress = Mathf.Clamp01((Time.unscaledTime - _backgroundTransitionStartedAt) /
+                                             _backgroundTransitionDuration);
+                return progress >= 1f ? 1f : 1f - Mathf.Pow(2f, -10f * progress);
+            }
+        }
         public Texture MovieTexture => _videoPlayer != null ? _videoPlayer.texture : null;
         public bool MovieVisible { get; private set; }
         public IReadOnlyDictionary<int, PresentationLayer> Layers => _layers;
+        public IReadOnlyList<PresentationLayer> PreviousSceneLayers => _previousSceneLayers;
         public IReadOnlyList<string> History => _history;
         public IReadOnlyList<RuntimePathCascade> ArtSets => _artSets;
         public IReadOnlyList<RuntimeAudioSet> AudioSets => _audioSets;
@@ -75,6 +96,40 @@ namespace Higurashi.IOS.Runtime.Buriko
         public event Action MovieFinished;
 
         public bool IsVoicePlaying => _audio != null && _audio.AnyVoicePlaying();
+        public bool HasBlockingAnimation => _blockingAnimationUntil > 0f;
+        public Vector2 PresentationOffset
+        {
+            get
+            {
+                if (_shakeDuration <= 0f)
+                {
+                    return Vector2.zero;
+                }
+                var elapsed = Time.unscaledTime - _shakeStartedAt;
+                if (elapsed < 0f || elapsed >= _shakeDuration)
+                {
+                    return Vector2.zero;
+                }
+                var swing = Mathf.Max(0.01f, _shakeSwingDuration);
+                var index = Mathf.FloorToInt(elapsed / swing);
+                var phase = Mathf.Clamp01((elapsed - index * swing) / swing);
+                var eased = -(Mathf.Cos(Mathf.PI * phase) - 1f) * 0.5f;
+                var fromSign = index == 0 ? 0f : ((index & 1) == 0 ? -1f : 1f);
+                var toSign = (index & 1) == 0 ? 1f : -1f;
+                var sign = Mathf.Lerp(fromSign, toSign, eased);
+                var intensity = _shakeIntensity * Mathf.Pow(1f - _shakeAttenuation,
+                    Mathf.Max(0, index));
+                switch (_shakeVector)
+                {
+                    case 0: return new Vector2(intensity * sign, 0f);
+                    case 1: return new Vector2(intensity * sign, -intensity * sign);
+                    case 2: return new Vector2(0f, intensity * sign);
+                    case 3: return new Vector2(-intensity * sign, intensity * sign);
+                    default:
+                        return new Vector2(Mathf.Sin(elapsed * 71f), Mathf.Cos(elapsed * 53f)) * intensity;
+                }
+            }
+        }
         public bool IsOpeningChoice => ChoiceVisible && Dialogue.IndexOf("OP 动画", StringComparison.OrdinalIgnoreCase) >= 0;
         public bool IsDialogueRevealComplete => VisibleDialogueLength >= Dialogue.Length;
         public string VisibleDialogue => Dialogue.Substring(0, VisibleDialogueLength);
@@ -113,6 +168,34 @@ namespace Higurashi.IOS.Runtime.Buriko
         private void Update()
         {
             UpdateLipSync();
+        }
+
+        public bool ConsumeCompletedBlockingAnimation()
+        {
+            if (_blockingAnimationUntil <= 0f || Time.unscaledTime < _blockingAnimationUntil)
+            {
+                return false;
+            }
+
+            _blockingAnimationUntil = 0f;
+            _previousSceneLayers.Clear();
+            if (_shakeDuration > 0f && Time.unscaledTime - _shakeStartedAt >= _shakeDuration)
+            {
+                _shakeDuration = 0f;
+            }
+            return true;
+        }
+
+        public bool SkipBlockingAnimation()
+        {
+            if (_blockingAnimationUntil <= 0f)
+            {
+                return false;
+            }
+
+            CompletePresentationAnimations();
+            _blockingAnimationUntil = 0f;
+            return true;
         }
 
         public void ApplySettings(BurikoMemory memory)
@@ -168,8 +251,6 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 42:
                 case 43:
                 case 44:
-                case 45:
-                case 46:
                 case 61:
                 case 68:
                 case 70:
@@ -278,14 +359,36 @@ namespace Higurashi.IOS.Runtime.Buriko
                         VoiceVolume(Int(invocation, 2, memory) / 128f),
                         memory);
                     return BurikoHostResponse.Continue;
+                case 45:
+                {
+                    var swing = Mathf.Max(0.01f, Int(invocation, 2, memory) / 1000f * 2f);
+                    var loops = Math.Max(0, Int(invocation, 3, memory));
+                    var duration = loops == 0 ? 0f : (swing + 0.005f) * loops;
+                    StartScreenShake(Int(invocation, 0, memory), Int(invocation, 1, memory),
+                        Int(invocation, 4, memory), swing, duration);
+                    return AnimationResponse(duration, loops != 0);
+                }
+                case 46:
+                {
+                    const float swing = 1f;
+                    const int loops = 30;
+                    var duration = (swing + 0.005f) * loops;
+                    StartScreenShake(Int(invocation, 0, memory), Int(invocation, 1, memory),
+                        5, swing, duration);
+                    return AnimationResponse(duration, true);
+                }
                 case 47:
-                    SetBackground(Text(invocation, 0, memory), memory, false,
-                        Int(invocation, 1, memory) / 1000f);
-                    return BurikoHostResponse.Continue;
+                {
+                    var duration = Int(invocation, 1, memory) / 1000f;
+                    SetBackground(Text(invocation, 0, memory), memory, false, duration);
+                    return AnimationResponse(duration, invocation.Arguments[2].AsBool(memory));
+                }
                 case 50:
-                    SetBackground(Text(invocation, 0, memory), memory, true,
-                        Int(invocation, 1, memory) / 1000f);
-                    return BurikoHostResponse.Continue;
+                {
+                    var duration = Int(invocation, 1, memory) / 1000f;
+                    SetBackground(Text(invocation, 0, memory), memory, true, duration);
+                    return AnimationResponse(duration, true);
+                }
                 case 51:
                     if (string.Equals(Text(invocation, 0, memory), "black", StringComparison.OrdinalIgnoreCase) &&
                         string.Equals(_backgroundName, "07th-mod", StringComparison.OrdinalIgnoreCase))
@@ -297,44 +400,70 @@ namespace Higurashi.IOS.Runtime.Buriko
                         WindowVisible = false;
                         return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
                     }
-                    SetBackground(Text(invocation, 0, memory), memory, true,
-                        Int(invocation, 4, memory) / 1000f);
-                    return BurikoHostResponse.Continue;
+                {
+                    var duration = Int(invocation, 4, memory) / 1000f;
+                    SetBackground(Text(invocation, 0, memory), memory, true, duration,
+                        Text(invocation, 1, memory));
+                    return AnimationResponse(duration, true);
+                }
                 case 52:
-                    SetBackground(Text(invocation, 0, memory), memory, true,
-                        Int(invocation, 2, memory) / 1000f);
-                    return BurikoHostResponse.Continue;
+                {
+                    var duration = Int(invocation, 2, memory) / 1000f;
+                    SetBackground(Text(invocation, 0, memory), memory, true, duration);
+                    return AnimationResponse(duration, true);
+                }
                 case 48:
-                    SetBackground("black", memory, false, Int(invocation, 0, memory) / 1000f);
-                    return BurikoHostResponse.Continue;
+                {
+                    var duration = Int(invocation, 0, memory) / 1000f;
+                    SetBackground("black", memory, false, duration);
+                    return AnimationResponse(duration, invocation.Arguments[1].AsBool(memory));
+                }
                 case 53:
-                    SetBackground("black", memory, true, Int(invocation, 0, memory) / 1000f);
-                    return BurikoHostResponse.Continue;
+                {
+                    var duration = Int(invocation, 0, memory) / 1000f;
+                    SetBackground("black", memory, true, duration);
+                    return AnimationResponse(duration, true);
+                }
                 case 54:
-                    SetBackground("black", memory, true, Int(invocation, 3, memory) / 1000f);
-                    return BurikoHostResponse.Continue;
+                {
+                    var duration = Int(invocation, 3, memory) / 1000f;
+                    SetBackground("black", memory, true, duration, Text(invocation, 0, memory));
+                    return AnimationResponse(duration, true);
+                }
                 case 49:
-                    SetBackground(Text(invocation, 0, memory), memory, false,
-                        Int(invocation, 3, memory) / 1000f);
-                    return BurikoHostResponse.Continue;
+                {
+                    var duration = Int(invocation, 3, memory) / 1000f;
+                    SetBackground(Text(invocation, 0, memory), memory, false, duration,
+                        Text(invocation, 1, memory));
+                    return AnimationResponse(duration, invocation.Arguments[4].AsBool(memory));
+                }
                 case 55:
                     DrawAnimatedLayer(invocation, memory, true, 0, 1, 2, 3, 4, 5, 6, 7, 8, 13, 14);
-                    return BurikoHostResponse.Continue;
+                    return AnimationResponse(Int(invocation, 14, memory) / 1000f,
+                        invocation.Arguments[15].AsBool(memory));
                 case 56:
                     MoveBustshot(invocation, memory);
-                    return BurikoHostResponse.Continue;
+                    return AnimationResponse(Int(invocation, 6, memory) / 1000f,
+                        invocation.Arguments[7].AsBool(memory));
                 case 57:
                     FadeBustshot(invocation, memory);
-                    return BurikoHostResponse.Continue;
+                    return AnimationResponse(Int(invocation, 6, memory) / 1000f,
+                        invocation.Arguments[7].AsBool(memory));
                 case 64:
                     FadeLayer(Int(invocation, 0, memory), Int(invocation, 1, memory) / 1000f);
-                    return BurikoHostResponse.Continue;
+                    return AnimationResponse(Int(invocation, 1, memory) / 1000f,
+                        invocation.Arguments[2].AsBool(memory));
                 case 65:
-                    FadeLayer(Int(invocation, 0, memory), Int(invocation, 3, memory) / 1000f);
-                    return BurikoHostResponse.Continue;
+                    FadeLayerWithMask(Int(invocation, 0, memory), Text(invocation, 1, memory),
+                        Int(invocation, 2, memory), Int(invocation, 3, memory) / 1000f, memory);
+                    return AnimationResponse(Int(invocation, 3, memory) / 1000f,
+                        invocation.Arguments[4].AsBool(memory));
                 case 58:
                     DrawAnimatedLayer(invocation, memory, true, 0, 1, 4, 5, 10, 6, 7, 8, 9, 12, 13);
-                    return BurikoHostResponse.Continue;
+                    SetLayerMask(Int(invocation, 0, memory), Text(invocation, 2, memory),
+                        0, false, memory);
+                    return AnimationResponse(Int(invocation, 13, memory) / 1000f,
+                        invocation.Arguments[14].AsBool(memory));
                 case 59:
                     DrawLayer(1000, Text(invocation, 0, memory), 213, 131, 0, 1000, memory,
                         false, 1f, Int(invocation, 1, memory) / 1000f);
@@ -354,7 +483,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                         false,
                         1f - Int(invocation, 12, memory) / 256f,
                         Int(invocation, 14, memory) / 1000f);
-                    return BurikoHostResponse.Continue;
+                    return AnimationResponse(Int(invocation, 14, memory) / 1000f,
+                        invocation.Arguments[15].AsBool(memory));
                 case 63:
                     DrawLayer(
                         Int(invocation, 0, memory),
@@ -367,10 +497,14 @@ namespace Higurashi.IOS.Runtime.Buriko
                         false,
                         1f,
                         Int(invocation, 11, memory) / 1000f);
-                    return BurikoHostResponse.Continue;
+                    SetLayerMask(Int(invocation, 0, memory), Text(invocation, 2, memory),
+                        Int(invocation, 3, memory), false, memory);
+                    return AnimationResponse(Int(invocation, 11, memory) / 1000f,
+                        invocation.Arguments[12].AsBool(memory));
                 case 66:
                     MoveLayer(invocation, memory);
-                    return BurikoHostResponse.Continue;
+                    return AnimationResponse(Int(invocation, 8, memory) / 1000f,
+                        invocation.Arguments[9].AsBool(memory));
                 case 67:
                     ReportApproximated(invocation);
                     return BurikoHostResponse.Continue;
@@ -381,8 +515,10 @@ namespace Higurashi.IOS.Runtime.Buriko
                     FadeLayerRange(1, 19, Int(invocation, 0, memory) / 1000f);
                     return BurikoHostResponse.Continue;
                 case 80:
-                    FadeLayer(Int(invocation, 0, memory), Int(invocation, 3, memory) / 1000f);
-                    return BurikoHostResponse.Continue;
+                    FadeLayerWithMask(Int(invocation, 0, memory), Text(invocation, 1, memory),
+                        Int(invocation, 2, memory), Int(invocation, 6, memory) / 1000f, memory);
+                    return AnimationResponse(Int(invocation, 6, memory) / 1000f,
+                        invocation.Arguments[7].AsBool(memory));
                 case 98:
                     FadeLayerRange(2, 3, Int(invocation, 0, memory) / 1000f);
                     return BurikoHostResponse.Continue;
@@ -427,10 +563,14 @@ namespace Higurashi.IOS.Runtime.Buriko
                     return BurikoHostResponse.Continue;
                 case 128:
                     DrawModCharacter(invocation, memory, false);
-                    return BurikoHostResponse.Continue;
+                    return AnimationResponse(Int(invocation, 16, memory) / 1000f,
+                        invocation.Arguments[17].AsBool(memory));
                 case 129:
                     DrawModCharacter(invocation, memory, true);
-                    return BurikoHostResponse.Continue;
+                    SetLayerMask(Int(invocation, 0, memory), Text(invocation, 4, memory),
+                        0, false, memory);
+                    return AnimationResponse(Int(invocation, 15, memory) / 1000f,
+                        invocation.Arguments[16].AsBool(memory));
                 case 130:
                     _currentVoiceCharacter = Int(invocation, 1, memory);
                     _audio.PlayVoice(
@@ -688,7 +828,10 @@ namespace Higurashi.IOS.Runtime.Buriko
             MovieVisible = false;
             _backgroundTexture = LoadTexture(_backgroundName, memory);
             _previousBackgroundTexture = null;
+            _backgroundTransitionMask = null;
             _backgroundTransitionDuration = 0f;
+            _blockingAnimationUntil = 0f;
+            _previousSceneLayers.Clear();
             _dialogueRevealForced = true;
         }
 
@@ -742,7 +885,10 @@ namespace Higurashi.IOS.Runtime.Buriko
             _backgroundName = snapshot.BackgroundName;
             _backgroundTexture = LoadTexture(_backgroundName, memory);
             _previousBackgroundTexture = null;
+            _backgroundTransitionMask = null;
             _backgroundTransitionDuration = 0f;
+            _blockingAnimationUntil = 0f;
+            _previousSceneLayers.Clear();
             _layers.Clear();
             for (var i = 0; i < snapshot.Layers.Length; i++)
             {
@@ -907,16 +1053,40 @@ namespace Higurashi.IOS.Runtime.Buriko
         }
 
         private void SetBackground(string textureName, BurikoMemory memory, bool clearLayers = true,
-            float duration = 0f)
+            float duration = 0f, string transitionMask = null)
         {
             var nextTexture = LoadTexture(textureName, memory);
             _previousBackgroundTexture = duration > 0f ? _backgroundTexture : null;
+            _backgroundTransitionMask = duration > 0f && !string.IsNullOrWhiteSpace(transitionMask)
+                ? LoadTexture(transitionMask, memory)
+                : null;
             _backgroundName = textureName;
             _backgroundTexture = nextTexture;
             _backgroundTransitionStartedAt = Time.unscaledTime;
             _backgroundTransitionDuration = Mathf.Max(0f, duration);
             if (clearLayers)
             {
+                _previousSceneLayers.Clear();
+                if (duration > 0f)
+                {
+                    foreach (var pair in _layers)
+                    {
+                        var source = pair.Value;
+                        source.GetRenderState(out var x, out var y, out var z, out var alpha);
+                        var copy = source.CloneWithoutTexture();
+                        copy.Texture = source.Texture;
+                        copy.X = Mathf.RoundToInt(x);
+                        copy.Y = Mathf.RoundToInt(y);
+                        copy.Z = Mathf.RoundToInt(z);
+                        copy.Alpha = alpha;
+                        copy.FromX = copy.X;
+                        copy.FromY = copy.Y;
+                        copy.FromZ = copy.Z;
+                        copy.FromAlpha = alpha;
+                        copy.TransitionDuration = 0f;
+                        _previousSceneLayers.Add(copy);
+                    }
+                }
                 _layers.Clear();
             }
         }
@@ -972,7 +1142,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                 PreviousZ = previousZ,
                 PreviousAlpha = previousAlpha,
                 PreviousIsBustshot = previousIsBustshot,
-                PreviousIsCentered = previousIsCentered
+                PreviousIsCentered = previousIsCentered,
+                EaseType = duration > 0f ? 13 : 0
             };
         }
 
@@ -1013,6 +1184,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 layer.FromX = Int(invocation, oldXIndex, memory);
                 layer.FromY = Int(invocation, oldYIndex, memory);
                 layer.FromZ = Int(invocation, oldZIndex, memory);
+                layer.EaseType = 0;
             }
         }
 
@@ -1041,7 +1213,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                 Int(invocation, 3, memory),
                 Int(invocation, 4, memory),
                 layer.Alpha,
-                duration);
+                duration,
+                0);
             var textureName = Text(invocation, 1, memory);
             if (!string.IsNullOrEmpty(textureName))
             {
@@ -1066,7 +1239,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                     Int(invocation, 3, memory),
                     Int(invocation, 4, memory),
                     layer.Alpha,
-                    duration);
+                    duration,
+                    0);
             }
             else
             {
@@ -1080,8 +1254,35 @@ namespace Higurashi.IOS.Runtime.Buriko
             {
                 return;
             }
-            layer.BeginTransition(layer.X, layer.Y, layer.Z, 0f, duration);
+            layer.BeginTransition(layer.X, layer.Y, layer.Z, 0f, duration, 13);
             layer.LipSyncBaseName = null;
+        }
+
+        private void FadeLayerWithMask(int id, string maskName, int style, float duration,
+            BurikoMemory memory)
+        {
+            if (!_layers.TryGetValue(id, out var layer))
+            {
+                return;
+            }
+
+            layer.BeginTransition(layer.X, layer.Y, layer.Z, 0f, duration, 13);
+            SetLayerMask(id, maskName, style, true, memory);
+            layer.LipSyncBaseName = null;
+        }
+
+        private void SetLayerMask(int id, string maskName, int style, bool reverse,
+            BurikoMemory memory)
+        {
+            if (!_layers.TryGetValue(id, out var layer) || string.IsNullOrWhiteSpace(maskName))
+            {
+                return;
+            }
+
+            layer.MaskName = maskName;
+            layer.MaskTexture = LoadTexture(maskName, memory);
+            layer.MaskFuzziness = style == 0 ? 0.45f : 0.15f;
+            layer.MaskReverse = reverse;
         }
 
         private void FadeLayerRange(int first, int last, float duration)
@@ -1127,6 +1328,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 layer.FromX = Int(invocation, filtered ? 9 : 8, memory);
                 layer.FromY = Int(invocation, filtered ? 10 : 9, memory);
                 layer.FromZ = Int(invocation, filtered ? 11 : 10, memory);
+                layer.EaseType = 0;
             }
         }
 
@@ -1147,7 +1349,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                     Int(invocation, 2, memory),
                     Int(invocation, 3, memory),
                     1f - Int(invocation, 5, memory) / 256f,
-                    Int(invocation, 8, memory) / 1000f);
+                    Int(invocation, 8, memory) / 1000f,
+                    Int(invocation, 6, memory));
             }
             else
             {
@@ -1304,6 +1507,42 @@ namespace Higurashi.IOS.Runtime.Buriko
             return new BurikoHostResponse(BurikoValue.FromInt(value ? 1 : 0));
         }
 
+        private BurikoHostResponse AnimationResponse(float duration, bool blocking)
+        {
+            if (!blocking || duration <= 0f)
+            {
+                return BurikoHostResponse.Continue;
+            }
+
+            _blockingAnimationUntil = Mathf.Max(_blockingAnimationUntil,
+                Time.unscaledTime + duration);
+            return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
+        }
+
+        private void StartScreenShake(int vector, int level, int attenuation, float swing,
+            float duration)
+        {
+            _shakeVector = vector;
+            _shakeIntensity = Mathf.Max(0f, level);
+            _shakeAttenuation = Mathf.Clamp01(attenuation / 100f);
+            _shakeSwingDuration = Mathf.Max(0.01f, swing);
+            _shakeDuration = Mathf.Max(0f, duration);
+            _shakeStartedAt = Time.unscaledTime;
+        }
+
+        private void CompletePresentationAnimations()
+        {
+            _backgroundTransitionStartedAt = Time.unscaledTime - _backgroundTransitionDuration;
+            _previousBackgroundTexture = null;
+            _backgroundTransitionMask = null;
+            _previousSceneLayers.Clear();
+            _shakeDuration = 0f;
+            foreach (var pair in _layers)
+            {
+                pair.Value.CompleteTransition();
+            }
+        }
+
         private void ReportApproximated(BurikoOperationInvocation invocation)
         {
             if (_reportedOperations.Add(invocation.Specification.Code))
@@ -1341,6 +1580,11 @@ namespace Higurashi.IOS.Runtime.Buriko
         public float PreviousAlpha;
         public bool PreviousIsBustshot;
         public bool PreviousIsCentered;
+        public Texture2D MaskTexture;
+        public string MaskName;
+        public float MaskFuzziness = 0.45f;
+        public bool MaskReverse;
+        public int EaseType;
         public int CharacterId = -1;
         public string LipSyncBaseName;
         public string LipSyncRestName;
@@ -1355,11 +1599,12 @@ namespace Higurashi.IOS.Runtime.Buriko
                     return 1f;
                 }
                 var progress = Mathf.Clamp01((Time.unscaledTime - TransitionStartedAt) / TransitionDuration);
-                return progress * progress * (3f - 2f * progress);
+                return ApplyEase(progress, EaseType);
             }
         }
 
-        public void BeginTransition(int x, int y, int z, float alpha, float duration)
+        public void BeginTransition(int x, int y, int z, float alpha, float duration,
+            int easeType = 0)
         {
             GetRenderState(out FromX, out FromY, out FromZ, out FromAlpha);
             X = x;
@@ -1368,6 +1613,61 @@ namespace Higurashi.IOS.Runtime.Buriko
             Alpha = Mathf.Clamp01(alpha);
             TransitionStartedAt = Time.unscaledTime;
             TransitionDuration = Mathf.Max(0f, duration);
+            EaseType = easeType;
+        }
+
+        public void CompleteTransition()
+        {
+            FromX = X;
+            FromY = Y;
+            FromZ = Z;
+            FromAlpha = Alpha;
+            TransitionStartedAt = Time.unscaledTime;
+            TransitionDuration = 0f;
+            PreviousTexture = null;
+            if (Alpha <= 0f)
+            {
+                MaskTexture = null;
+                MaskName = null;
+            }
+        }
+
+        private static float ApplyEase(float value, int easeType)
+        {
+            switch (easeType)
+            {
+                case 1:
+                case 2:
+                    return -(Mathf.Cos(Mathf.PI * value) - 1f) * 0.5f;
+                case 3:
+                    return value < 0.5f
+                        ? 2f * value * value
+                        : 1f - Mathf.Pow(-2f * value + 2f, 2f) * 0.5f;
+                case 4:
+                    return 1f - Mathf.Cos(value * Mathf.PI * 0.5f);
+                case 5:
+                    return Mathf.Sin(value * Mathf.PI * 0.5f);
+                case 6:
+                    return value * value;
+                case 7:
+                    return 1f - (1f - value) * (1f - value);
+                case 8:
+                    return value * value * value;
+                case 9:
+                    return 1f - Mathf.Pow(1f - value, 3f);
+                case 10:
+                    return value * value * value * value;
+                case 11:
+                    return 1f - Mathf.Pow(1f - value, 4f);
+                case 12:
+                case 14:
+                    return value <= 0f ? 0f : Mathf.Pow(2f, 10f * value - 10f);
+                case 13:
+                case 15:
+                    return value >= 1f ? 1f : 1f - Mathf.Pow(2f, -10f * value);
+                default:
+                    return value;
+            }
         }
 
         public void GetRenderState(out float x, out float y, out float z, out float alpha)
@@ -1396,6 +1696,10 @@ namespace Higurashi.IOS.Runtime.Buriko
                 LipSyncBaseName = LipSyncBaseName,
                 LipSyncRestName = LipSyncRestName,
                 LipSyncFrame = LipSyncFrame,
+                MaskName = MaskName,
+                MaskFuzziness = MaskFuzziness,
+                MaskReverse = MaskReverse,
+                EaseType = EaseType,
                 FromX = X,
                 FromY = Y,
                 FromZ = Z,

@@ -26,6 +26,7 @@ namespace Higurashi.IOS.Runtime
         private Texture2D _sliderThumb;
         private Texture2D _sectionHeader;
         private Texture2D _transparent;
+        private Material _maskedTransitionMaterial;
         private Font _uiFont;
         private float _styledForHeight;
         private string _toast = string.Empty;
@@ -129,15 +130,43 @@ namespace Higurashi.IOS.Runtime
         private void DrawPresentation()
         {
             var content = GetContentRect();
+            var presentationOffset = _host.PresentationOffset * (content.height / 480f);
+            content.position += presentationOffset;
+            var screenScale = content.height / 480f;
             var backgroundProgress = _host.BackgroundTransitionProgress;
             if (_host.PreviousBackgroundTexture != null && backgroundProgress < 1f)
             {
                 DrawBackgroundTexture(content, _host.PreviousBackgroundTexture, 1f);
+                _orderedLayers.Clear();
+                for (var i = 0; i < _host.PreviousSceneLayers.Count; i++)
+                {
+                    if (_host.PreviousSceneLayers[i].Texture != null)
+                    {
+                        _orderedLayers.Add(_host.PreviousSceneLayers[i]);
+                    }
+                }
+                _orderedLayers.Sort((left, right) => left.Priority.CompareTo(right.Priority));
+                for (var i = 0; i < _orderedLayers.Count; i++)
+                {
+                    var previousLayer = _orderedLayers[i];
+                    previousLayer.GetRenderState(out var x, out var y, out var z, out var alpha);
+                    DrawPresentationTexture(content, previousLayer.Texture, x, y, z, alpha,
+                        previousLayer.IsCentered, screenScale);
+                }
             }
             if (_host.BackgroundTexture != null)
             {
-                DrawBackgroundTexture(content, _host.BackgroundTexture,
-                    _host.PreviousBackgroundTexture != null ? backgroundProgress : 1f);
+                if (_host.BackgroundTransitionMask != null &&
+                    _host.PreviousBackgroundTexture != null && backgroundProgress < 1f)
+                {
+                    DrawMaskedBackgroundTexture(content, _host.BackgroundTexture,
+                        _host.BackgroundTransitionMask, backgroundProgress, 0.45f);
+                }
+                else
+                {
+                    DrawBackgroundTexture(content, _host.BackgroundTexture,
+                        _host.PreviousBackgroundTexture != null ? backgroundProgress : 1f);
+                }
             }
 
             _orderedLayers.Clear();
@@ -152,7 +181,6 @@ namespace Higurashi.IOS.Runtime
 
             // The PC engine renders in a 640x480 coordinate space and clamps tall
             // textures to 480 units before applying the script's Z scale.
-            var screenScale = content.height / 480f;
             for (var i = 0; i < _orderedLayers.Count; i++)
             {
                 var layer = _orderedLayers[i];
@@ -164,9 +192,28 @@ namespace Higurashi.IOS.Runtime
                         layer.PreviousIsCentered, screenScale);
                 }
                 layer.GetRenderState(out var layerX, out var layerY, out var layerZ, out var layerAlpha);
-                DrawPresentationTexture(content, layer.Texture, layerX, layerY, layerZ,
-                    layerAlpha, layer.IsCentered, screenScale);
+                if (layer.MaskTexture != null && layer.TransitionProgress < 1f)
+                {
+                    var maskProgress = layer.MaskReverse
+                        ? 1f - layer.TransitionProgress
+                        : layer.TransitionProgress;
+                    DrawMaskedPresentationTexture(content, layer.Texture, layer.MaskTexture,
+                        layerX, layerY, layerZ, layer.MaskReverse ? layer.FromAlpha : layer.Alpha,
+                        layer.IsCentered, screenScale, maskProgress, layer.MaskFuzziness);
+                }
+                else
+                {
+                    DrawPresentationTexture(content, layer.Texture, layerX, layerY, layerZ,
+                        layerAlpha, layer.IsCentered, screenScale);
+                }
             }
+        }
+
+        private void DrawMaskedBackgroundTexture(Rect content, Texture2D texture, Texture2D mask,
+            float progress, float fuzziness)
+        {
+            GetBackgroundGeometry(content, texture, out var destination, out var source);
+            DrawMaskedTexture(destination, texture, mask, source, progress, fuzziness, 1f);
         }
 
         private void DrawBackgroundTexture(Rect content, Texture texture, float alpha)
@@ -179,6 +226,28 @@ namespace Higurashi.IOS.Runtime
                     : ScaleMode.ScaleToFit,
                 true);
             GUI.color = previous;
+        }
+
+        private void GetBackgroundGeometry(Rect content, Texture texture, out Rect destination,
+            out Rect source)
+        {
+            if (_settings.presentationMode == MobilePresentationMode.Fill)
+            {
+                var scale = Mathf.Max(content.width / texture.width, content.height / texture.height);
+                var visibleWidth = Mathf.Clamp01(content.width / (texture.width * scale));
+                var visibleHeight = Mathf.Clamp01(content.height / (texture.height * scale));
+                destination = content;
+                source = new Rect((1f - visibleWidth) * 0.5f,
+                    (1f - visibleHeight) * 0.5f, visibleWidth, visibleHeight);
+                return;
+            }
+
+            var fitScale = Mathf.Min(content.width / texture.width, content.height / texture.height);
+            var width = texture.width * fitScale;
+            var height = texture.height * fitScale;
+            destination = new Rect(content.center.x - width * 0.5f,
+                content.center.y - height * 0.5f, width, height);
+            source = new Rect(0f, 0f, 1f, 1f);
         }
 
         private static void DrawPresentationTexture(Rect content, Texture2D texture,
@@ -207,21 +276,69 @@ namespace Higurashi.IOS.Runtime
             GUI.color = previousColor;
         }
 
+        private void DrawMaskedPresentationTexture(Rect content, Texture2D texture, Texture2D mask,
+            float layerX, float layerY, float layerZ, float alpha, bool centered,
+            float screenScale, float progress, float fuzziness)
+        {
+            var canonicalHeight = Mathf.Min(texture.height, 480f);
+            var canonicalWidth = texture.width * canonicalHeight / texture.height;
+            var depthScale = Mathf.Max(0.05f, 1f - layerZ / 400f);
+            var width = canonicalWidth * screenScale * depthScale;
+            var height = canonicalHeight * screenScale * depthScale;
+            var x = centered
+                ? content.center.x + layerX * screenScale - width * 0.5f
+                : content.center.x + layerX * screenScale;
+            var y = centered
+                ? content.center.y + layerY * screenScale - height * 0.5f
+                : content.center.y + layerY * screenScale;
+            DrawMaskedTexture(new Rect(x, y, width, height), texture, mask,
+                new Rect(0f, 0f, 1f, 1f), progress, fuzziness, alpha);
+        }
+
+        private void DrawMaskedTexture(Rect destination, Texture texture, Texture mask, Rect source,
+            float progress, float fuzziness, float alpha)
+        {
+            if (_maskedTransitionMaterial == null)
+            {
+                var shader = Resources.Load<Shader>("HigurashiMaskedTransition");
+                if (shader != null)
+                {
+                    _maskedTransitionMaterial = new Material(shader);
+                }
+            }
+
+            if (_maskedTransitionMaterial == null || mask == null)
+            {
+                var previous = GUI.color;
+                GUI.color = new Color(1f, 1f, 1f, Mathf.Clamp01(alpha * progress));
+                GUI.DrawTextureWithTexCoords(destination, texture, source, true);
+                GUI.color = previous;
+                return;
+            }
+
+            _maskedTransitionMaterial.SetTexture("_MaskTex", mask);
+            _maskedTransitionMaterial.SetFloat("_Progress", Mathf.Clamp01(progress));
+            _maskedTransitionMaterial.SetFloat("_Fuzziness", Mathf.Max(0.001f, fuzziness));
+            Graphics.DrawTexture(destination, texture, source, 0, 0, 0, 0,
+                new Color(1f, 1f, 1f, Mathf.Clamp01(alpha)), _maskedTransitionMaterial);
+        }
+
         private void DrawChapterPreviewControls()
         {
             // The localized scenario texture already contains the PC labels and
             // artwork.  Keep those visuals untouched and place touch targets over
             // its “开始” and “退出” rows.
             var content = GetContentRect();
-            var start = new Rect(content.x + content.width * 0.07f,
-                content.y + content.height * 0.80f, content.width * 0.34f, content.height * 0.085f);
-            var exit = new Rect(content.x + content.width * 0.07f,
-                content.y + content.height * 0.885f, content.width * 0.34f, content.height * 0.085f);
-            if (GUI.Button(start, GUIContent.none, GUIStyle.none))
+            var scale = UiScale;
+            var width = Mathf.Clamp(content.width * 0.24f, 190f * scale, 330f * scale);
+            var height = Mathf.Clamp(content.height * 0.065f, 42f * scale, 62f * scale);
+            var x = content.x + content.width * 0.075f;
+            var y = content.y + content.height * 0.785f;
+            if (PcButton(new Rect(x, y, width, height), "开始"))
             {
                 ResolveChapterPreview(true);
             }
-            if (GUI.Button(exit, GUIContent.none, GUIStyle.none))
+            if (PcButton(new Rect(x, y + height + 9f * scale, width, height), "退出"))
             {
                 ResolveChapterPreview(false);
             }
@@ -241,16 +358,17 @@ namespace Higurashi.IOS.Runtime
 
         private void DrawMessageWindow()
         {
-            var safe = GetGuiSafeArea();
+            var content = GetContentRect();
             var scale = UiScale;
-            var height = Mathf.Clamp(safe.height * 0.225f, 170f * scale, 255f * scale);
-            var side = 18f * scale;
-            var rect = new Rect(safe.x + side, safe.yMax - height - 14f * scale, safe.width - side * 2f, height);
+            var height = Mathf.Clamp(content.height * 0.16f, 112f * scale, 175f * scale);
+            var rect = new Rect(content.x, content.yMax - height, content.width, height);
             var opacity = Mathf.Clamp01(_settings.windowOpacity / 100f);
-            DrawPanel(rect, new Color(0.01f, 0.01f, 0.015f, Mathf.Lerp(0.34f, 0.86f, opacity)));
+            FillRect(rect, new Color(0.005f, 0.005f, 0.008f, Mathf.Lerp(0.30f, 0.76f, opacity)));
+            FillRect(new Rect(rect.x, rect.y, rect.width, Mathf.Max(1f, scale)),
+                new Color(1f, 1f, 1f, 0.34f));
 
-            var left = rect.x + 28f * scale;
-            var top = rect.y + 16f * scale;
+            var left = rect.x + 24f * scale;
+            var top = rect.y + 10f * scale;
             var toolbarReserve = Mathf.Min(rect.width * 0.18f, 250f * scale);
             if (!string.IsNullOrEmpty(_host.Speaker))
             {
@@ -402,6 +520,10 @@ namespace Higurashi.IOS.Runtime
             if (PcButton(new Rect(x, y, railWidth, buttonHeight), "记录", true))
             {
                 _host.HistoryVisible = !_host.HistoryVisible;
+                if (_host.HistoryVisible)
+                {
+                    _historyAutoScrollPending = true;
+                }
                 SuppressInput();
             }
             y += buttonHeight + 7f * scale;
@@ -435,10 +557,12 @@ namespace Higurashi.IOS.Runtime
             var scale = UiScale;
             var panel = new Rect(safe.x + safe.width * 0.12f, safe.y + safe.height * 0.08f,
                 safe.width * 0.76f, safe.height * 0.84f);
-            DrawPanel(panel, new Color(0.025f, 0.015f, 0.018f, 0.88f));
+            FillRect(panel, new Color(0.005f, 0.005f, 0.008f, 0.70f));
             var redField = new Rect(panel.x + panel.width * 0.55f, panel.y,
                 panel.width * 0.45f, panel.height);
-            DrawPanel(redField, new Color(0.55f, 0.01f, 0.01f, 0.42f));
+            FillRect(redField, new Color(0.55f, 0.005f, 0.005f, 0.27f));
+            FillRect(new Rect(redField.x, redField.y, Mathf.Max(2f, 3f * scale), redField.height),
+                new Color(0.92f, 0.02f, 0.01f, 0.44f));
             DrawSectionHeader(panel, "系统菜单");
 
             var width = Mathf.Min(panel.width * 0.44f, 470f * scale);
@@ -771,14 +895,23 @@ namespace Higurashi.IOS.Runtime
         private void DrawHistory()
         {
             var scale = UiScale;
-            var safe = Inset(GetGuiSafeArea(), 22f * scale);
-            DrawPanel(safe, new Color(0.02f, 0.02f, 0.025f, 0.96f));
+            var safe = Inset(GetGuiSafeArea(), 14f * scale);
+            FillRect(safe, new Color(0.005f, 0.005f, 0.008f, 0.78f));
             DrawSectionHeader(safe, "剧情记录");
             var lineHeight = 90f * scale;
-            var contentHeight = Mathf.Max(safe.height, _host.History.Count * lineHeight + 25f * scale);
+            var viewport = new Rect(safe.x + 22f * scale, safe.y + 66f * scale,
+                safe.width - 44f * scale, safe.height - 82f * scale);
+            var contentHeight = Mathf.Max(viewport.height,
+                _host.History.Count * lineHeight + 25f * scale);
+            var maxScroll = Mathf.Max(0f, contentHeight - viewport.height);
+            if (_historyAutoScrollPending)
+            {
+                _historyScroll.y = maxScroll;
+                _historyAutoScrollPending = false;
+            }
+            _historyScroll.y = Mathf.Clamp(_historyScroll.y, 0f, maxScroll);
             _historyScroll = GUI.BeginScrollView(
-                new Rect(safe.x + 22f * scale, safe.y + 74f * scale,
-                    safe.width - 44f * scale, safe.height - 96f * scale),
+                viewport,
                 _historyScroll,
                 new Rect(0, 0, safe.width - 82f * scale, contentHeight));
             var y = 8f * scale;
@@ -820,6 +953,10 @@ namespace Higurashi.IOS.Runtime
         private bool UiConsumesPoint(Vector2 guiPoint)
         {
             if (_runtime == null || _host == null || _host.TitleVisible || IsModalVisible || _host.ChoiceVisible)
+            {
+                return true;
+            }
+            if (_host.HistoryVisible)
             {
                 return true;
             }
@@ -890,6 +1027,14 @@ namespace Higurashi.IOS.Runtime
             var previous = GUI.color;
             GUI.color = color;
             GUI.DrawTexture(rect, _roundedPanel, ScaleMode.StretchToFill, true);
+            GUI.color = previous;
+        }
+
+        private void FillRect(Rect rect, Color color)
+        {
+            var previous = GUI.color;
+            GUI.color = color;
+            GUI.DrawTexture(rect, _solidWhite, ScaleMode.StretchToFill, true);
             GUI.color = previous;
         }
 
