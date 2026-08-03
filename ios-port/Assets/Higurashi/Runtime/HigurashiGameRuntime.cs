@@ -435,7 +435,8 @@ namespace Higurashi.IOS.Runtime
 
             _timeline.Push(new RuntimeCheckpoint(
                 _runtime.CaptureSnapshot(),
-                _host.CaptureSnapshot()));
+                _host.CaptureSnapshot(),
+                _host.CaptureBgmState()));
             _capturedDialogueSerial = _host.DialogueSerial;
             _dialoguesSinceAutoSave++;
             MaybeAutoSave(false);
@@ -450,7 +451,8 @@ namespace Higurashi.IOS.Runtime
             }
             _titleCheckpoint = new RuntimeCheckpoint(
                 _runtime.CaptureSnapshot(),
-                _host.CaptureSnapshot());
+                _host.CaptureSnapshot(),
+                _host.CaptureBgmState());
         }
 
         private void RestoreCheckpoint(RuntimeCheckpoint checkpoint)
@@ -668,7 +670,8 @@ namespace Higurashi.IOS.Runtime
                 _capturedDialogueSerial = _host.DialogueSerial;
                 _timeline.Push(new RuntimeCheckpoint(
                     _runtime.CaptureSnapshot(),
-                    _host.CaptureSnapshot()));
+                    _host.CaptureSnapshot(),
+                    _host.CaptureBgmState()));
                 _fastTraversal.Stop();
                 _showHelpWhenGameplayStarts = false;
                 CloseAllModals();
@@ -824,12 +827,13 @@ namespace Higurashi.IOS.Runtime
                 return;
             }
             MaybeAutoSave(true);
-            _host.StopVoices();
+            _host.StopAllAudio();
             _autoMode = false;
             _showHelpWhenGameplayStarts = false;
             _fastTraversal.Stop();
             _timeline.Clear();
             RestoreCheckpoint(_titleCheckpoint);
+            _host.RestoreBgmState(_titleCheckpoint.BgmState, _runtime.Memory);
             CloseAllModals();
             _suppressInputUntilFrame = Time.frameCount + 2;
         }
@@ -890,14 +894,19 @@ namespace Higurashi.IOS.Runtime
 
         private sealed class RuntimeCheckpoint
         {
-            public RuntimeCheckpoint(BurikoRuntimeSnapshot runtime, UnityBurikoHostSnapshot presentation)
+            public RuntimeCheckpoint(
+                BurikoRuntimeSnapshot runtime,
+                UnityBurikoHostSnapshot presentation,
+                RuntimeBgmState[] bgmState)
             {
                 Runtime = runtime;
                 Presentation = presentation;
+                BgmState = bgmState ?? Array.Empty<RuntimeBgmState>();
             }
 
             public BurikoRuntimeSnapshot Runtime { get; }
             public UnityBurikoHostSnapshot Presentation { get; }
+            public RuntimeBgmState[] BgmState { get; }
         }
     }
 }

@@ -68,7 +68,13 @@ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
         NSError *error = nil;
         NSFileManager *files = NSFileManager.defaultManager;
         [files removeItemAtPath:destination error:nil];
-        [files copyItemAtURL:sourceURL toURL:[NSURL fileURLWithPath:destination] error:&error];
+        NSURL *destinationURL = [NSURL fileURLWithPath:destination];
+        [files moveItemAtURL:sourceURL toURL:destinationURL error:&error];
+        if (error != nil)
+        {
+            error = nil;
+            [files copyItemAtURL:sourceURL toURL:destinationURL error:&error];
+        }
         if (scoped) [sourceURL stopAccessingSecurityScopedResource];
 
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -112,7 +118,7 @@ extern "C" void Higurashi_ShowDataPackPicker(
         UIDocumentPickerViewController *picker =
             [[UIDocumentPickerViewController alloc]
                 initForOpeningContentTypes:@[UTTypeZIP]
-                asCopy:NO];
+                asCopy:YES];
         picker.delegate = delegate;
         picker.allowsMultipleSelection = NO;
         picker.modalPresentationStyle = UIModalPresentationFormSheet;

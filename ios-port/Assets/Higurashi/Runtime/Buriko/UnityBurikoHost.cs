@@ -738,6 +738,16 @@ namespace Higurashi.IOS.Runtime.Buriko
             ResetLipSyncFrames();
         }
 
+        public RuntimeBgmState[] CaptureBgmState()
+        {
+            return _audio != null ? _audio.CaptureBgmState() : Array.Empty<RuntimeBgmState>();
+        }
+
+        public void RestoreBgmState(RuntimeBgmState[] state, BurikoMemory memory)
+        {
+            _audio?.RestoreBgmState(state, memory);
+        }
+
         public void ToggleWindow()
         {
             WindowVisible = !WindowVisible;
@@ -2023,6 +2033,20 @@ namespace Higurashi.IOS.Runtime.Buriko
         }
     }
 
+    public sealed class RuntimeBgmState
+    {
+        public RuntimeBgmState(int channel, string filename, float volume)
+        {
+            Channel = channel;
+            Filename = filename ?? string.Empty;
+            Volume = volume;
+        }
+
+        public int Channel { get; }
+        public string Filename { get; }
+        public float Volume { get; }
+    }
+
     internal enum RuntimeAudioKind
     {
         Bgm,
@@ -2035,6 +2059,8 @@ namespace Higurashi.IOS.Runtime.Buriko
         private readonly Dictionary<string, int> _generations = new Dictionary<string, int>();
         private readonly Dictionary<string, int> _pendingGenerations = new Dictionary<string, int>();
         private readonly Dictionary<string, AudioSource> _sources = new Dictionary<string, AudioSource>();
+        private readonly Dictionary<int, RuntimeBgmState> _bgmState =
+            new Dictionary<int, RuntimeBgmState>();
         private AssetCascadeResolver _resolver;
         private UnityBurikoHost _host;
 
@@ -2046,6 +2072,7 @@ namespace Higurashi.IOS.Runtime.Buriko
 
         public void PlayBgm(int channel, string filename, float volume, BurikoMemory memory)
         {
+            _bgmState[channel] = new RuntimeBgmState(channel, filename, volume);
             Play(RuntimeAudioKind.Bgm, channel, filename, volume, _host.CurrentBgmFolders(memory), true);
         }
 
@@ -2059,7 +2086,11 @@ namespace Higurashi.IOS.Runtime.Buriko
             Play(RuntimeAudioKind.Voice, channel, filename, volume, new[] { "voice" }, false);
         }
 
-        public void StopBgm(int channel) => Stop(RuntimeAudioKind.Bgm, channel);
+        public void StopBgm(int channel)
+        {
+            _bgmState.Remove(channel);
+            Stop(RuntimeAudioKind.Bgm, channel);
+        }
         public void StopSe(int channel) => Stop(RuntimeAudioKind.Se, channel);
 
         public bool AnyVoicePlaying()
@@ -2090,6 +2121,40 @@ namespace Higurashi.IOS.Runtime.Buriko
         public void StopAll()
         {
             StopAllWithPrefix(string.Empty);
+            _bgmState.Clear();
+        }
+
+        public RuntimeBgmState[] CaptureBgmState()
+        {
+            var result = new RuntimeBgmState[_bgmState.Count];
+            var index = 0;
+            foreach (var pair in _bgmState)
+            {
+                var state = pair.Value;
+                result[index++] = new RuntimeBgmState(state.Channel, state.Filename, state.Volume);
+            }
+            return result;
+        }
+
+        public void RestoreBgmState(RuntimeBgmState[] state, BurikoMemory memory)
+        {
+            var channels = new List<int>(_bgmState.Keys);
+            for (var i = 0; i < channels.Count; i++)
+            {
+                StopBgm(channels[i]);
+            }
+            if (state == null)
+            {
+                return;
+            }
+            for (var i = 0; i < state.Length; i++)
+            {
+                var item = state[i];
+                if (item != null && !string.IsNullOrEmpty(item.Filename))
+                {
+                    PlayBgm(item.Channel, item.Filename, item.Volume, memory);
+                }
+            }
         }
 
         private void StopAllWithPrefix(string prefix)
@@ -2134,6 +2199,10 @@ namespace Higurashi.IOS.Runtime.Buriko
 
         public void SetBgmVolume(int channel, float volume)
         {
+            if (_bgmState.TryGetValue(channel, out var state))
+            {
+                _bgmState[channel] = new RuntimeBgmState(channel, state.Filename, volume);
+            }
             if (_sources.TryGetValue(Key(RuntimeAudioKind.Bgm, channel), out var source))
             {
                 source.volume = Mathf.Clamp01(volume);
