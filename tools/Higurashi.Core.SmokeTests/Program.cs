@@ -28,12 +28,14 @@ internal static class Program
             Episode03OperationCatalogNormalizesShiftedModCodes,
             Episode04OperationCatalogNormalizesShiftedCodes,
             Episode05OperationCatalogNormalizesShiftedCodes,
+            Episode06OperationCatalogNormalizesShiftedCodes,
             BurikoRuntimeExecutesDialogueAndFlags,
             BurikoRuntimeCallsAndReturnsFromScript,
             BurikoRuntimeSnapshotRestoresExecutionAndMemory,
             BurikoRuntimePersistentStateRoundTrips,
             BurikoRuntimeHandlesModCrossScriptSectionCall,
-            BurikoRuntimeHandlesEpisode04ReturnOperation
+            BurikoRuntimeHandlesEpisode04ReturnOperation,
+            BurikoMemoryInitializesTextColorToWhite
         };
 
         foreach (var test in tests)
@@ -125,6 +127,32 @@ internal static class Program
         BurikoOperationCatalog.ConfigureForEpisode(1);
     }
 
+    private static void Episode06OperationCatalogNormalizesShiftedCodes()
+    {
+        BurikoOperationCatalog.ConfigureForEpisode(6);
+        Equal((short)150, BurikoOperationCatalog.Get(10).Code);
+        Equal("Return", BurikoOperationCatalog.Get(10).Name);
+        Equal((short)151, BurikoOperationCatalog.Get(23).Code);
+        Equal("DisplayWindow", BurikoOperationCatalog.Get(23).Name);
+        Equal((short)153, BurikoOperationCatalog.Get(24).Code);
+        Equal("HideWindow", BurikoOperationCatalog.Get(24).Name);
+        Equal((short)154, BurikoOperationCatalog.Get(26).Code);
+        Equal("SetColorOfMessage", BurikoOperationCatalog.Get(26).Name);
+        Equal((short)155, BurikoOperationCatalog.Get(54).Code);
+        Equal("RotateBG", BurikoOperationCatalog.Get(54).Name);
+        Equal((short)152, BurikoOperationCatalog.Get(63).Code);
+        Equal("ChangeBustshot", BurikoOperationCatalog.Get(63).Name);
+        Equal((short)156, BurikoOperationCatalog.Get(97).Code);
+        Equal("GetRandomNumber", BurikoOperationCatalog.Get(97).Name);
+        Equal((short)148, BurikoOperationCatalog.Get(129).Code);
+        Equal("SetValidityOfLoading", BurikoOperationCatalog.Get(129).Name);
+        Equal((short)130, BurikoOperationCatalog.Get(139).Code);
+        Equal("ModPlayVoiceLS", BurikoOperationCatalog.Get(139).Name);
+        Equal((short)147, BurikoOperationCatalog.Get(156).Code);
+        Equal("ModGenericCall", BurikoOperationCatalog.Get(156).Name);
+        BurikoOperationCatalog.ConfigureForEpisode(1);
+    }
+
     private static void ChapterProfilesHaveWholeZipFingerprints()
     {
         var episode01 = HigurashiChapterProfiles.ForEpisode(1);
@@ -168,6 +196,16 @@ internal static class Program
         Equal(1961020275L, episode05.ExpectedDataPackSize);
         Equal("AFAAD2CCBF45C9BC6729C020DE6E86A58CB741EFD889280681181B243644A302",
             episode05.ExpectedDataPackSha256);
+
+        var episode06 = HigurashiChapterProfiles.ForEpisode(6);
+        Equal("HigurashiEp06", episode06.ProductName);
+        Equal("com.bugjump.higurashi.ep06", episode06.BundleIdentifier);
+        Equal("Higurashi-06-data.zip", episode06.DataPackFileName);
+        Equal("higurashi-06", episode06.GameId);
+        Equal("tsumihoroboshi", episode06.ChapterSlug);
+        Equal(2524592182L, episode06.ExpectedDataPackSize);
+        Equal("460C397D1F7B4B7FC756E3273A238DD1AC9FF2D4F89BFD417341038CD7B47869",
+            episode06.ExpectedDataPackSha256);
     }
 
     private static void BurikoTextContinuationFollowsPreviousMode()
@@ -550,6 +588,12 @@ internal static class Program
         Equal(BurikoBlockReason.Completed, runtime.RunUntilBlocked());
         Equal(2, runtime.Memory.GetGlobalFlag("GAfterReturn"));
         BurikoOperationCatalog.ConfigureForEpisode(1);
+    }
+
+    private static void BurikoMemoryInitializesTextColorToWhite()
+    {
+        var memory = new BurikoMemory();
+        Equal(0xFFFFFF, memory.GetLocalFlag("LTextColor"));
     }
 
     private static byte[] BuildBytecode(Action<BinaryWriter> write)

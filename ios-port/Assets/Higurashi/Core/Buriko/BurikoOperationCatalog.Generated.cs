@@ -24,6 +24,7 @@ namespace Higurashi.IOS.Buriko
         private static readonly BurikoOperationSpecification?[] Episode03Items = CreateEpisode03();
         private static readonly BurikoOperationSpecification?[] Episode04Items = CreateEpisode04();
         private static readonly BurikoOperationSpecification?[] Episode05Items = CreateEpisode05();
+        private static readonly BurikoOperationSpecification?[] Episode06Items = CreateEpisode06();
         private static BurikoOperationSpecification?[] Items = Episode01Items;
 
         public static void ConfigureForEpisode(int episodeNumber)
@@ -41,6 +42,9 @@ namespace Higurashi.IOS.Buriko
                     break;
                 case 5:
                     Items = Episode05Items;
+                    break;
+                case 6:
+                    Items = Episode06Items;
                     break;
                 default:
                     Items = Episode01Items;
@@ -291,6 +295,51 @@ namespace Higurashi.IOS.Buriko
             for (var rawCode = 127; rawCode <= 152; rawCode++)
             {
                 result[rawCode] = Episode01Items[rawCode - 5];
+            }
+            return result;
+        }
+
+        private static BurikoOperationSpecification?[] CreateEpisode06()
+        {
+            var result = new BurikoOperationSpecification?[256];
+            for (var rawCode = 0; rawCode <= 9; rawCode++)
+            {
+                result[rawCode] = Episode01Items[rawCode];
+            }
+
+            result[10] = new BurikoOperationSpecification(150, "Return", "");
+            for (var rawCode = 11; rawCode <= 22; rawCode++)
+            {
+                result[rawCode] = Episode01Items[rawCode - 1];
+            }
+            result[23] = new BurikoOperationSpecification(151, "DisplayWindow", "");
+            result[24] = new BurikoOperationSpecification(153, "HideWindow", "i");
+            result[25] = Episode01Items[22];
+            result[26] = new BurikoOperationSpecification(154, "SetColorOfMessage", "biii");
+            for (var rawCode = 27; rawCode <= 53; rawCode++)
+            {
+                result[rawCode] = Episode01Items[rawCode - 4];
+            }
+            result[54] = new BurikoOperationSpecification(155, "RotateBG", "iiiiiiibiiiiib");
+            for (var rawCode = 55; rawCode <= 62; rawCode++)
+            {
+                result[rawCode] = Episode01Items[rawCode - 5];
+            }
+            result[63] = new BurikoOperationSpecification(152, "ChangeBustshot", "isib");
+            for (var rawCode = 64; rawCode <= 96; rawCode++)
+            {
+                result[rawCode] = Episode01Items[rawCode - 6];
+            }
+            result[97] = new BurikoOperationSpecification(156, "GetRandomNumber", "i");
+            for (var rawCode = 98; rawCode <= 128; rawCode++)
+            {
+                result[rawCode] = Episode01Items[rawCode - 7];
+            }
+            result[129] = new BurikoOperationSpecification(148, "SetValidityOfLoading", "b");
+            result[130] = new BurikoOperationSpecification(149, "ActivateScreenEffectForcedly", "b");
+            for (var rawCode = 131; rawCode <= 156; rawCode++)
+            {
+                result[rawCode] = Episode01Items[rawCode - 9];
             }
             return result;
         }

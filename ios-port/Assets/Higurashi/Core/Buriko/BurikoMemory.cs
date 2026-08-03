@@ -16,6 +16,7 @@ namespace Higurashi.IOS.Buriko
         public BurikoMemory()
         {
             ResetScope();
+            SetLocalFlag("LTextColor", 0xFFFFFF);
         }
 
         public int GetGlobalFlag(string name) => GetFlag(_globalFlags, name);

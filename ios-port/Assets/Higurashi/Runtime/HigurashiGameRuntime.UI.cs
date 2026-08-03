@@ -383,26 +383,35 @@ namespace Higurashi.IOS.Runtime
         {
             var content = GetContentRect();
             var scale = UiScale;
+            var windowFade = _host.WindowOpacity;
             var height = Mathf.Clamp(content.height * 0.16f, 112f * scale, 175f * scale);
             var rect = new Rect(content.x, content.yMax - height, content.width, height);
             var opacity = Mathf.Clamp01(_settings.windowOpacity / 100f);
-            FillRect(rect, new Color(0.005f, 0.005f, 0.008f, Mathf.Lerp(0.30f, 0.76f, opacity)));
+            FillRect(rect, new Color(0.005f, 0.005f, 0.008f,
+                Mathf.Lerp(0.30f, 0.76f, opacity) * windowFade));
             FillRect(new Rect(rect.x, rect.y, rect.width, Mathf.Max(1f, scale)),
-                new Color(1f, 1f, 1f, 0.34f));
+                new Color(1f, 1f, 1f, 0.34f * windowFade));
 
             var left = rect.x + 24f * scale;
             var top = rect.y + 10f * scale;
             var toolbarReserve = Mathf.Min(rect.width * 0.18f, 250f * scale);
+            var previousGuiColor = GUI.color;
+            GUI.color = new Color(previousGuiColor.r, previousGuiColor.g,
+                previousGuiColor.b, previousGuiColor.a * windowFade);
             if (!string.IsNullOrEmpty(_host.Speaker))
             {
                 GUI.Label(new Rect(left, top, rect.width - 56f * scale - toolbarReserve, 40f * scale),
                     _host.Speaker, _speakerStyle);
                 top += 39f * scale;
             }
+            var previousDialogueColor = _dialogueStyle.normal.textColor;
+            _dialogueStyle.normal.textColor = _host.DialogueColor;
             GUI.Label(
                 new Rect(left, top, rect.width - 56f * scale - toolbarReserve, rect.yMax - top - 14f * scale),
                 _host.VisibleDialogue + (_host.IsDialogueRevealComplete ? "　▼" : string.Empty),
                 _dialogueStyle);
+            _dialogueStyle.normal.textColor = previousDialogueColor;
+            GUI.color = previousGuiColor;
         }
 
         private void DrawCinematicDialogue()
@@ -413,7 +422,15 @@ namespace Higurashi.IOS.Runtime
                 content.y + content.height * 0.72f,
                 content.width * 0.80f, content.height * 0.20f);
             var text = _host.VisibleDialogue + (_host.IsDialogueRevealComplete ? "　▼" : string.Empty);
+            var previousGuiColor = GUI.color;
+            var windowFade = _host.WindowOpacity;
+            GUI.color = new Color(previousGuiColor.r, previousGuiColor.g,
+                previousGuiColor.b, previousGuiColor.a * windowFade);
+            var previousDialogueColor = _dialogueStyle.normal.textColor;
+            _dialogueStyle.normal.textColor = _host.DialogueColor;
             DrawShadowLabel(rect, text, _dialogueStyle);
+            _dialogueStyle.normal.textColor = previousDialogueColor;
+            GUI.color = previousGuiColor;
         }
 
         private void DrawCreditsScreen()

@@ -45,6 +45,10 @@ namespace Higurashi.IOS.Runtime.Buriko
         private float _dialogueRevealStartedAt;
         private int _dialogueRevealStartIndex;
         private bool _dialogueRevealForced;
+        private float _windowTransitionStartedAt;
+        private float _windowTransitionDuration;
+        private float _windowTransitionFrom = 1f;
+        private float _windowTransitionTo = 1f;
         private bool _appendNext;
         private int _currentVoiceCharacter = -1;
         private int _lastVoiceChannel = -1;
@@ -139,6 +143,32 @@ namespace Higurashi.IOS.Runtime.Buriko
         public bool IsOpeningChoice => ChoiceVisible && Dialogue.IndexOf("OP 动画", StringComparison.OrdinalIgnoreCase) >= 0;
         public bool IsDialogueRevealComplete => VisibleDialogueLength >= Dialogue.Length;
         public string VisibleDialogue => Dialogue.Substring(0, VisibleDialogueLength);
+        public float WindowOpacity
+        {
+            get
+            {
+                if (_windowTransitionDuration <= 0f)
+                {
+                    return WindowVisible ? _windowTransitionTo : 0f;
+                }
+                var progress = Mathf.Clamp01(
+                    (Time.unscaledTime - _windowTransitionStartedAt) / _windowTransitionDuration);
+                return Mathf.Lerp(_windowTransitionFrom, _windowTransitionTo,
+                    -(Mathf.Cos(Mathf.PI * progress) - 1f) * 0.5f);
+            }
+        }
+        public Color DialogueColor
+        {
+            get
+            {
+                var value = _memory == null ? 0xFFFFFF : _memory.GetLocalFlag("LTextColor");
+                return new Color32(
+                    (byte)((value >> 16) & 0xFF),
+                    (byte)((value >> 8) & 0xFF),
+                    (byte)(value & 0xFF),
+                    0xFF);
+            }
+        }
 
         private int VisibleDialogueLength
         {
@@ -173,6 +203,7 @@ namespace Higurashi.IOS.Runtime.Buriko
 
         private void Update()
         {
+            UpdateWindowTransition();
             UpdateLipSync();
         }
 
@@ -295,6 +326,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 147:
                 case 148:
                 case 149:
+                case 155:
                     ReportApproximated(invocation);
                     return BurikoHostResponse.Continue;
                 case 16:
@@ -316,11 +348,31 @@ namespace Higurashi.IOS.Runtime.Buriko
                     Dialogue = string.Empty;
                     return BurikoHostResponse.Continue;
                 case 21:
-                    WindowVisible = false;
-                    return BurikoHostResponse.Continue;
-                case 151:
-                    WindowVisible = true;
+                    StartWindowTransition(false, 0.5f);
                     return AnimationResponse(0.5f, true);
+                case 151:
+                    StartWindowTransition(true, 0.5f);
+                    return AnimationResponse(0.5f, true);
+                case 153:
+                {
+                    var duration = Int(invocation, 0, memory) / 1000f;
+                    StartWindowTransition(false, duration);
+                    return AnimationResponse(duration, true);
+                }
+                case 154:
+                {
+                    var red = Mathf.Clamp(Int(invocation, 1, memory), 0, 255);
+                    var green = Mathf.Clamp(Int(invocation, 2, memory), 0, 255);
+                    var blue = Mathf.Clamp(Int(invocation, 3, memory), 0, 255);
+                    memory.SetLocalFlag("LTextColor", (red << 16) | (green << 8) | blue);
+                    return BurikoHostResponse.Continue;
+                }
+                case 156:
+                {
+                    var exclusiveMaximum = Math.Max(1, Int(invocation, 0, memory) - 1);
+                    return new BurikoHostResponse(
+                        BurikoValue.FromInt(UnityEngine.Random.Range(0, exclusiveMaximum)));
+                }
                 case 24:
                     ShowChoices(invocation, memory);
                     return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Choice);
@@ -408,7 +460,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                         CreditsVisible = true;
                         CreditsPage = 1;
                         _creditsPageChangedAt = Time.unscaledTime;
-                        WindowVisible = false;
+                        SetWindowVisibilityImmediate(false);
                         return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
                     }
                 {
@@ -544,13 +596,13 @@ namespace Higurashi.IOS.Runtime.Buriko
                     ChapterPreviewVisible = true;
                     _chapterPreviewAccepted = false;
                     GameplayUiVisible = false;
-                    WindowVisible = false;
+                    SetWindowVisibilityImmediate(false);
                     return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
                 case 101:
                     TitleVisible = true;
                     ChapterPreviewVisible = false;
                     GameplayUiVisible = false;
-                    WindowVisible = false;
+                    SetWindowVisibilityImmediate(false);
                     return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
                 case 109:
                     memory.SetGlobalFlag("GLanguage", 0);
@@ -646,7 +698,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             TitleVisible = false;
             ChapterPreviewVisible = false;
             GameplayUiVisible = false;
-            WindowVisible = false;
+            SetWindowVisibilityImmediate(false);
             return true;
         }
 
@@ -660,7 +712,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             memory.SetLocalFlag("LOCALWORK_NO_RESULT", start ? 1 : 0);
             ChapterPreviewVisible = false;
             _chapterPreviewAccepted = start;
-            WindowVisible = false;
+            SetWindowVisibilityImmediate(false);
             return true;
         }
 
@@ -757,7 +809,7 @@ namespace Higurashi.IOS.Runtime.Buriko
 
         public void ToggleWindow()
         {
-            WindowVisible = !WindowVisible;
+            SetWindowVisibilityImmediate(!WindowVisible);
         }
 
         public bool CompleteMovie()
@@ -864,7 +916,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 _backgroundName = reader.ReadString();
                 Speaker = reader.ReadString();
                 Dialogue = reader.ReadString();
-                WindowVisible = reader.ReadBoolean();
+                SetWindowVisibilityImmediate(reader.ReadBoolean());
                 TitleVisible = reader.ReadBoolean();
                 DialogueSerial = reader.ReadInt32();
                 FontSize = reader.ReadInt32();
@@ -988,7 +1040,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             Speaker = snapshot.Speaker;
             Dialogue = snapshot.Dialogue;
             _dialogueRevealForced = true;
-            WindowVisible = snapshot.WindowVisible;
+            SetWindowVisibilityImmediate(snapshot.WindowVisible);
             TitleVisible = snapshot.TitleVisible;
             ChapterPreviewVisible = snapshot.ChapterPreviewVisible;
             GameplayUiVisible = snapshot.GameplayUiVisible;
@@ -1075,7 +1127,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 Speaker = name;
                 Dialogue = text;
             }
-            WindowVisible = true;
+            SetWindowVisibilityImmediate(true);
             if (!appendToInProgressReveal)
             {
                 _dialogueRevealStartIndex = revealStart;
@@ -1699,6 +1751,43 @@ namespace Higurashi.IOS.Runtime.Buriko
             return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
         }
 
+        private void SetWindowVisibilityImmediate(bool visible)
+        {
+            WindowVisible = visible;
+            _windowTransitionDuration = 0f;
+            _windowTransitionFrom = visible ? 1f : 0f;
+            _windowTransitionTo = _windowTransitionFrom;
+            _windowTransitionStartedAt = Time.unscaledTime;
+        }
+
+        private void StartWindowTransition(bool visible, float duration)
+        {
+            var current = WindowOpacity;
+            _windowTransitionFrom = current;
+            _windowTransitionTo = visible ? 1f : 0f;
+            _windowTransitionStartedAt = Time.unscaledTime;
+            _windowTransitionDuration = Mathf.Max(0f, duration);
+            WindowVisible = true;
+            if (_windowTransitionDuration <= 0f)
+            {
+                WindowVisible = visible;
+                _windowTransitionFrom = _windowTransitionTo;
+            }
+        }
+
+        private void UpdateWindowTransition()
+        {
+            if (_windowTransitionDuration <= 0f ||
+                Time.unscaledTime - _windowTransitionStartedAt < _windowTransitionDuration)
+            {
+                return;
+            }
+
+            _windowTransitionDuration = 0f;
+            _windowTransitionFrom = _windowTransitionTo;
+            WindowVisible = _windowTransitionTo > 0f;
+        }
+
         private void StartScreenShake(int vector, int level, int attenuation, float swing,
             float duration)
         {
@@ -1717,6 +1806,9 @@ namespace Higurashi.IOS.Runtime.Buriko
             _backgroundTransitionMask = null;
             _previousSceneLayers.Clear();
             _shakeDuration = 0f;
+            _windowTransitionDuration = 0f;
+            _windowTransitionFrom = _windowTransitionTo;
+            WindowVisible = _windowTransitionTo > 0f;
             foreach (var pair in _layers)
             {
                 pair.Value.CompleteTransition();
