@@ -510,9 +510,9 @@ namespace Higurashi.IOS.Runtime
             }
             var copyrightY = safe.yMax - 43f * scale;
             var portY = Mathf.Min(y + buttonHeight + 8f * scale, copyrightY - 66f * scale);
-            GUI.Label(new Rect(safe.x, portY, safe.width, 34f * scale),
+            DrawOutlinedLabel(new Rect(safe.x, portY, safe.width, 34f * scale),
                 "iOS版移植", _portTitleStyle);
-            GUI.Label(new Rect(safe.x, portY + 31f * scale, safe.width, 27f * scale),
+            DrawOutlinedLabel(new Rect(safe.x, portY + 31f * scale, safe.width, 27f * scale),
                 "贴吧@bugjump bilibili@Hyperion233", _portSubtitleStyle);
             GUI.Label(new Rect(safe.x, safe.yMax - 43f * scale, safe.width, 30f * scale),
                 "(C) 龙骑士07 / 07th Expansion", _panelTitleStyle);
@@ -723,7 +723,7 @@ namespace Higurashi.IOS.Runtime
             var scale = UiScale;
             GUI.Box(rect, GUIContent.none, _slotStyle);
             var info = ReadSaveSlotInfo(slot);
-            var canSave = CanSaveGame();
+            var canSave = CanSaveGame() && slot != 1;
             var buttonWidth = 82f * scale;
             var buttonGap = 6f * scale;
             var buttonCount = info == null ? (canSave ? 1 : 0) : (canSave ? 3 : 2);
@@ -733,7 +733,10 @@ namespace Higurashi.IOS.Runtime
             var textX = rect.x + 14f * scale;
             var textWidth = rect.width - 28f * scale - controlsWidth;
             GUI.Label(new Rect(textX, rect.y + 7f * scale, textWidth, 29f * scale),
-                "文件 " + slot.ToString("00", CultureInfo.InvariantCulture), _speakerStyle);
+                slot == 1
+                    ? "最新快速存档"
+                    : "文件 " + (slot - 1).ToString("00", CultureInfo.InvariantCulture),
+                _speakerStyle);
             GUI.Label(new Rect(textX, rect.y + 35f * scale, textWidth, rect.height - 40f * scale),
                 info == null
                     ? "— 空存档 —"
@@ -770,7 +773,9 @@ namespace Higurashi.IOS.Runtime
                     try
                     {
                         File.Delete(SaveSlotPath(slot));
-                        ShowToast("已删除槽位 " + slot);
+                        ShowToast(slot == 1
+                            ? "已删除最新快速存档"
+                            : "已删除文件 " + (slot - 1).ToString("00", CultureInfo.InvariantCulture));
                     }
                     catch (Exception exception)
                     {
@@ -969,16 +974,24 @@ namespace Higurashi.IOS.Runtime
             top += 132f * scale;
             if (_dataPack.IsRunning)
             {
-                GUI.HorizontalSlider(new Rect(left, top, width, 30f * scale), _dataPack.Progress, 0f, 1f);
+                var track = new Rect(left, top + 8f * scale, width, 18f * scale);
+                GUI.DrawTexture(track, _sliderTrack, ScaleMode.StretchToFill, true);
+                var fill = new Rect(track.x, track.y, track.width * Mathf.Clamp01(_dataPack.Progress), track.height);
+                if (fill.width > 2f)
+                {
+                    GUI.DrawTexture(fill, _sliderFill, ScaleMode.StretchToFill, true);
+                }
             }
             else if (!_initializationAttempted && PcButton(
                          new Rect(left, top, width, 58f * scale),
-                         "导入 " + HigurashiActiveChapter.Profile.DataPackFileName))
+                         "请选择数据包"))
             {
-                _dataPack.BeginImport(Application.persistentDataPath);
+                BeginDataPackSelection();
             }
             GUI.Label(new Rect(left, top + 76f * scale, width, 100f * scale),
-                "请先把数据包放进本 App 的“文件”目录。原版游戏资源不会上传到 GitHub。",
+                "点击按钮后将打开 iOS“文件”。选取 " +
+                HigurashiActiveChapter.Profile.DataPackFileName +
+                "，通过整包 SHA-256 校验后会自动解压并启动。",
                 _statusStyle);
         }
 
@@ -1111,6 +1124,30 @@ namespace Higurashi.IOS.Runtime
             var original = style.normal.textColor;
             style.normal.textColor = Color.black;
             GUI.Label(new Rect(rect.x + 3f * UiScale, rect.y + 3f * UiScale, rect.width, rect.height), text, style);
+            style.normal.textColor = original;
+            GUI.Label(rect, text, style);
+        }
+
+        private void DrawOutlinedLabel(Rect rect, string text, GUIStyle style)
+        {
+            var original = style.normal.textColor;
+            var distance = Mathf.Max(2f, 2f * UiScale);
+            style.normal.textColor = Color.black;
+            for (var y = -1; y <= 1; y++)
+            {
+                for (var x = -1; x <= 1; x++)
+                {
+                    if (x == 0 && y == 0)
+                    {
+                        continue;
+                    }
+                    GUI.Label(new Rect(
+                        rect.x + x * distance,
+                        rect.y + y * distance,
+                        rect.width,
+                        rect.height), text, style);
+                }
+            }
             style.normal.textColor = original;
             GUI.Label(rect, text, style);
         }

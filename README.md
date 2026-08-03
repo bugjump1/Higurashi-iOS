@@ -36,7 +36,17 @@ dotnet run --project .\tools\Higurashi.DataPack -- `
   "D:\project\PCtoiOS\output data zip\Higurashi-02-data.zip"
 ```
 
-Copy the matching `Higurashi-NN-data.zip` into that chapter app's Files directory, launch the app, and choose Import. The source game directory is never modified.
+Launch the matching chapter app, tap `请选择数据包`, and select
+`Higurashi-NN-data.zip` in the native iOS Files picker. The app verifies the
+entire ZIP against the chapter's pinned byte length and SHA-256 before opening
+it, then validates `manifest.json` and every extracted file. Extraction is
+staged and atomically installed, so a wrong, damaged, cancelled, or interrupted
+import cannot replace an existing working data set. The temporary selected ZIP
+is removed after the attempt. The source game directory is never modified.
+
+Every chapter profile has its own pinned ZIP fingerprint. Regenerating a ZIP
+requires updating that profile's expected length and SHA-256; merely renaming
+the existing ZIP does not change its fingerprint.
 
 ## GitHub Actions
 

@@ -13,6 +13,7 @@
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Playback\CheckpointTimeline.cs" Link="Core\CheckpointTimeline.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Data\SafePath.cs" Link="Core\SafePath.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Data\AssetCascadeResolver.cs" Link="Core\AssetCascadeResolver.cs" />
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Compatibility\HigurashiChapterProfile.cs" Link="Core\HigurashiChapterProfile.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Buriko\CompiledScriptContainer.cs" Link="Core\CompiledScriptContainer.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Buriko\BurikoOperationCatalog.Generated.cs" Link="Core\BurikoOperationCatalog.Generated.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Buriko\BurikoValue.cs" Link="Core\BurikoValue.cs" />

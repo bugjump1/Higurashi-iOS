@@ -10,6 +10,8 @@ namespace Higurashi.IOS.Compatibility
             string bundleIdentifier,
             string dataDirectoryName,
             string dataPackFileName,
+            long expectedDataPackSize,
+            string expectedDataPackSha256,
             string gameId,
             string chapterSlug,
             string chineseChapterTitle)
@@ -20,6 +22,8 @@ namespace Higurashi.IOS.Compatibility
             BundleIdentifier = bundleIdentifier;
             DataDirectoryName = dataDirectoryName;
             DataPackFileName = dataPackFileName;
+            ExpectedDataPackSize = expectedDataPackSize;
+            ExpectedDataPackSha256 = expectedDataPackSha256;
             GameId = gameId;
             ChapterSlug = chapterSlug;
             ChineseChapterTitle = chineseChapterTitle;
@@ -31,6 +35,8 @@ namespace Higurashi.IOS.Compatibility
         public string BundleIdentifier { get; }
         public string DataDirectoryName { get; }
         public string DataPackFileName { get; }
+        public long ExpectedDataPackSize { get; }
+        public string ExpectedDataPackSha256 { get; }
         public string GameId { get; }
         public string ChapterSlug { get; }
         public string ChineseChapterTitle { get; }
@@ -42,11 +48,15 @@ namespace Higurashi.IOS.Compatibility
     {
         public static readonly HigurashiChapterProfile Episode01 = new HigurashiChapterProfile(
             1, "HigurashiEp01", "com.bugjump.higurashi.ep01", "HigurashiEp01_Data",
-            "Higurashi-01-data.zip", "higurashi-01", "onikakushi", "鬼隐篇");
+            "Higurashi-01-data.zip", 1919394073L,
+            "82EA7368576B2EC1E313505E854C784B67D44FBD36472F70A54FD6BE480CEB4F",
+            "higurashi-01", "onikakushi", "鬼隐篇");
 
         public static readonly HigurashiChapterProfile Episode02 = new HigurashiChapterProfile(
             2, "HigurashiEp02", "com.bugjump.higurashi.ep02", "HigurashiEp02_Data",
-            "Higurashi-02-data.zip", "higurashi-02", "watanagashi", "绵流篇");
+            "Higurashi-02-data.zip", 2269419044L,
+            "0481E9D02ED7A993BFC0CC4BEA378DC35E16621BEEBC09578057533FE0DC1CF0",
+            "higurashi-02", "watanagashi", "绵流篇");
 
         public static HigurashiChapterProfile ForEpisode(int episodeNumber)
         {

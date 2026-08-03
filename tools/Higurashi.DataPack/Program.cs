@@ -166,6 +166,9 @@ internal static class Program
 
             File.Move(temporaryPath, outputPath, true);
             Console.WriteLine("Data pack created successfully.");
+            var outputInfo = new FileInfo(outputPath);
+            Console.WriteLine($"ZIP bytes: {outputInfo.Length}");
+            Console.WriteLine($"ZIP SHA-256: {ComputeSha256(outputPath)}");
         }
         catch
         {

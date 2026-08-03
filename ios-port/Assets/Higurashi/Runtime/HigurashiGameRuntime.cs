@@ -25,6 +25,7 @@ namespace Higurashi.IOS.Runtime
             new CheckpointTimeline<RuntimeCheckpoint>(200);
         private readonly List<PresentationLayer> _orderedLayers = new List<PresentationLayer>();
         private TouchInputBehaviour _touchInput;
+        private IOSDataPackFilePicker _dataPackFilePicker;
         private BurikoRuntime _runtime;
         private UnityBurikoHost _host;
         private HigurashiUserSettings _settings;
@@ -57,6 +58,7 @@ namespace Higurashi.IOS.Runtime
             Screen.sleepTimeout = SleepTimeout.NeverSleep;
             _settings = LoadSettings();
             _touchInput = gameObject.AddComponent<TouchInputBehaviour>();
+            _dataPackFilePicker = gameObject.AddComponent<IOSDataPackFilePicker>();
             _touchInput.ActionRaised += HandleInput;
             _touchInput.UiHitTest = UiConsumesPoint;
             _fastTraversal.ModeChanged += mode => _runtimeStatus = "Traversal: " + mode;
@@ -150,6 +152,25 @@ namespace Higurashi.IOS.Runtime
                 SaveSettings();
                 SaveOpeningPreference();
             }
+        }
+
+        private void BeginDataPackSelection()
+        {
+            if (_dataPack.IsRunning ||
+                (_dataPackFilePicker != null && _dataPackFilePicker.IsPresenting))
+            {
+                return;
+            }
+
+            _dataPack.SetWaitingStatus("请在 iOS“文件”中选择本章数据包…");
+            _dataPackFilePicker.Pick(
+                DataPackImportService.GetIncomingPackPath(Application.persistentDataPath),
+                selectedPath =>
+                {
+                    _dataPack.SetWaitingStatus("已选择数据包，准备校验…");
+                    _dataPack.BeginSelectedImport(Application.persistentDataPath, selectedPath);
+                },
+                message => _dataPack.SetWaitingStatus(message));
         }
 
         private void InitializeRuntime()
@@ -246,6 +267,10 @@ namespace Higurashi.IOS.Runtime
                     break;
                 case NovelInputAction.StopFastTraversal:
                     _fastTraversal.Stop();
+                    if (_runtime.BlockReason == BurikoBlockReason.WaitForInput)
+                    {
+                        _host.ReplayRestoredVoice(_runtime.Memory);
+                    }
                     break;
                 case NovelInputAction.Advance:
                     _autoMode = false;
@@ -304,6 +329,10 @@ namespace Higurashi.IOS.Runtime
             {
                 _host.StopVoices();
                 RestoreCheckpoint(existing);
+                if (!_fastTraversal.IsActive)
+                {
+                    _host.ReplayRestoredVoice(_runtime.Memory);
+                }
                 return true;
             }
 
@@ -755,12 +784,13 @@ namespace Higurashi.IOS.Runtime
 
         private void SaveQuickGame()
         {
-            SaveGame(FindOldestOrEmptySlot(101, 103));
+            SaveGame(FindOldestOrEmptySlot(101, 103), false);
+            SaveGame(1);
         }
 
         private void LoadLatestQuickGame()
         {
-            var slot = FindLatestSlot(101, 103);
+            var slot = ReadSaveSlotInfo(1) != null ? 1 : FindLatestSlot(101, 103);
             if (slot < 0 && ReadSaveSlotInfo(0) != null)
             {
                 slot = 0;
@@ -808,16 +838,16 @@ namespace Higurashi.IOS.Runtime
         {
             if (slot >= 201) return "自动保存完成";
             if (slot >= 101) return "快速保存完成";
-            if (slot == 0) return "快速保存完成";
-            return "已保存到槽位 " + slot;
+            if (slot == 0 || slot == 1) return "快速保存完成";
+            return "已保存到文件 " + (slot - 1).ToString("00");
         }
 
         private static string LoadCompletedMessage(int slot)
         {
             if (slot >= 201) return "已读取自动存档 " + (slot - 200);
             if (slot >= 101) return "已读取快速存档 " + (slot - 100);
-            if (slot == 0) return "快速读取完成";
-            return "已读取槽位 " + slot;
+            if (slot == 0 || slot == 1) return "已读取最新快速存档";
+            return "已读取文件 " + (slot - 1).ToString("00");
         }
 
         private string SaveSlotPath(int slot)

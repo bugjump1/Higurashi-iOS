@@ -2,6 +2,7 @@ using Higurashi.IOS.Data;
 using Higurashi.IOS.Input;
 using Higurashi.IOS.Playback;
 using Higurashi.IOS.Buriko;
+using Higurashi.IOS.Compatibility;
 using System.Text;
 
 internal static class Program
@@ -21,6 +22,8 @@ internal static class Program
             SafePathRejectsTraversal,
             AssetCascadeFallsBackInOrder,
             CompiledScriptHeaderIsParsed,
+            ChapterProfilesHaveWholeZipFingerprints,
+            BurikoTextContinuationFollowsPreviousMode,
             Episode02OperationCatalogNormalizesShiftedModCodes,
             BurikoRuntimeExecutesDialogueAndFlags,
             BurikoRuntimeCallsAndReturnsFromScript,
@@ -61,6 +64,39 @@ internal static class Program
 
         BurikoOperationCatalog.ConfigureForEpisode(1);
         Equal("ModPlayVoiceLS", BurikoOperationCatalog.Get(130).Name);
+    }
+
+    private static void ChapterProfilesHaveWholeZipFingerprints()
+    {
+        var episode01 = HigurashiChapterProfiles.ForEpisode(1);
+        Equal(1919394073L, episode01.ExpectedDataPackSize);
+        Equal(64, episode01.ExpectedDataPackSha256.Length);
+        Equal("82EA7368576B2EC1E313505E854C784B67D44FBD36472F70A54FD6BE480CEB4F",
+            episode01.ExpectedDataPackSha256);
+
+        var episode02 = HigurashiChapterProfiles.ForEpisode(2);
+        Equal(2269419044L, episode02.ExpectedDataPackSize);
+        Equal(64, episode02.ExpectedDataPackSha256.Length);
+        Equal("0481E9D02ED7A993BFC0CC4BEA378DC35E16621BEEBC09578057533FE0DC1CF0",
+            episode02.ExpectedDataPackSha256);
+    }
+
+    private static void BurikoTextContinuationFollowsPreviousMode()
+    {
+        var appendNext = false;
+        Equal(false, BeginTextLine(ref appendNext, 1)); // Continue starts a fresh line.
+        Equal(true, BeginTextLine(ref appendNext, 0));  // Normal appends to that Continue.
+        Equal(false, appendNext);                       // Normal clears continuation.
+
+        Equal(false, BeginTextLine(ref appendNext, 2)); // WaitForInput starts a fresh line.
+        Equal(true, BeginTextLine(ref appendNext, 0));  // After the click, retain it and append.
+    }
+
+    private static bool BeginTextLine(ref bool appendNext, int textMode)
+    {
+        var append = appendNext;
+        appendNext = textMode != 0;
+        return append;
     }
 
     private static void SwipeUpOpensHistory()

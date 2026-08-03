@@ -18,7 +18,7 @@ namespace Higurashi.IOS.Runtime.Data
         private const int SupportedFormatVersion = 1;
 
         private readonly object _stateLock = new object();
-        private string _status = "Waiting for data pack";
+        private string _status = "请选择数据包";
         private float _progress;
         private bool _isRunning;
 
@@ -60,6 +60,11 @@ namespace Higurashi.IOS.Runtime.Data
             return Path.Combine(persistentDataPath, DataPackFileName);
         }
 
+        public static string GetIncomingPackPath(string persistentDataPath)
+        {
+            return Path.Combine(persistentDataPath, ".higurashi-data-pack.incoming.zip");
+        }
+
         public static string GetInstallPath(string persistentDataPath)
         {
             return Path.Combine(persistentDataPath, InstalledFolderName);
@@ -73,6 +78,31 @@ namespace Higurashi.IOS.Runtime.Data
 
         public bool BeginImport(string persistentDataPath)
         {
+            return BeginImport(persistentDataPath, GetPackPath(persistentDataPath), false);
+        }
+
+        public bool BeginSelectedImport(string persistentDataPath, string selectedPackPath)
+        {
+            return BeginImport(persistentDataPath, selectedPackPath, true);
+        }
+
+        public void SetWaitingStatus(string status)
+        {
+            lock (_stateLock)
+            {
+                if (!_isRunning)
+                {
+                    _status = status;
+                    _progress = 0f;
+                }
+            }
+        }
+
+        private bool BeginImport(
+            string persistentDataPath,
+            string packPath,
+            bool deleteSourceWhenFinished)
+        {
             lock (_stateLock)
             {
                 if (_isRunning)
@@ -82,24 +112,38 @@ namespace Higurashi.IOS.Runtime.Data
 
                 _isRunning = true;
                 _progress = 0;
-                _status = "Reading manifest";
+                _status = "正在验证数据包…";
             }
 
-            var packPath = GetPackPath(persistentDataPath);
-            if (!File.Exists(packPath))
+            if (string.IsNullOrWhiteSpace(packPath) || !File.Exists(packPath))
             {
-                SetFinished("Data pack not found in the app Files directory");
+                SetFinished("未找到所选数据包，请重新选择。");
                 return false;
             }
 
-            DataPackManifest manifest;
-            string manifestJson;
+            var installPath = GetInstallPath(persistentDataPath);
+            Task.Run(() => ImportWorker(packPath, installPath, deleteSourceWhenFinished));
+            return true;
+        }
+
+        private void ImportWorker(
+            string packPath,
+            string installPath,
+            bool deleteSourceWhenFinished)
+        {
+            var stagingPath = installPath + ".staging";
+            var backupPath = installPath + ".backup";
+
             try
             {
+                ValidateArchiveFingerprint(packPath);
+
+                DataPackManifest manifest;
+                string manifestJson;
                 using (var archive = ZipFile.OpenRead(packPath))
                 {
                     var manifestEntry = archive.GetEntry(ManifestEntryName)
-                        ?? throw new InvalidDataException("The data pack has no manifest.json.");
+                        ?? throw new InvalidDataException("数据包缺少 manifest.json。");
                     using (var reader = new StreamReader(manifestEntry.Open(), Encoding.UTF8, true))
                     {
                         manifestJson = reader.ReadToEnd();
@@ -108,29 +152,7 @@ namespace Higurashi.IOS.Runtime.Data
 
                 manifest = JsonUtility.FromJson<DataPackManifest>(manifestJson);
                 ValidateManifest(manifest);
-            }
-            catch (Exception exception)
-            {
-                SetFinished("Manifest error: " + exception.Message);
-                return false;
-            }
 
-            var installPath = GetInstallPath(persistentDataPath);
-            Task.Run(() => ImportWorker(packPath, installPath, manifest, manifestJson));
-            return true;
-        }
-
-        private void ImportWorker(
-            string packPath,
-            string installPath,
-            DataPackManifest manifest,
-            string manifestJson)
-        {
-            var stagingPath = installPath + ".staging";
-            var backupPath = installPath + ".backup";
-
-            try
-            {
                 DeleteDirectoryIfPresent(stagingPath);
                 Directory.CreateDirectory(stagingPath);
 
@@ -153,8 +175,8 @@ namespace Higurashi.IOS.Runtime.Data
                         }
 
                         SetProgress(
-                            totalBytes == 0 ? 0 : (float)completedBytes / totalBytes,
-                            "Importing " + file.path);
+                            totalBytes == 0 ? 0.1f : 0.1f + 0.9f * completedBytes / totalBytes,
+                            "正在解压并校验… " + (i + 1) + " / " + manifest.files.Length);
 
                         using (var source = archiveEntry.Open())
                         using (var target = new FileStream(
@@ -210,13 +232,44 @@ namespace Higurashi.IOS.Runtime.Data
                     throw;
                 }
 
-                SetFinished("Data pack imported successfully", 1f);
+                SetFinished("数据包导入成功，正在启动游戏…", 1f);
             }
             catch (Exception exception)
             {
                 DeleteDirectoryIfPresent(stagingPath);
-                SetFinished("Import failed: " + exception.Message);
+                SetFinished("导入失败：" + exception.Message);
             }
+            finally
+            {
+                if (deleteSourceWhenFinished)
+                {
+                    DeleteFileIfPresent(packPath);
+                }
+            }
+        }
+
+        private void ValidateArchiveFingerprint(string packPath)
+        {
+            var profile = HigurashiActiveChapter.Profile;
+            var fileInfo = new FileInfo(packPath);
+            if (fileInfo.Length != profile.ExpectedDataPackSize)
+            {
+                throw new InvalidDataException(
+                    "ZIP 文件大小不正确；请选择 " + profile.DataPackFileName + "。");
+            }
+
+            SetProgress(0.02f, "正在计算整个 ZIP 的 SHA-256…");
+            var actualHash = ComputeSha256(packPath);
+            if (!string.Equals(
+                    actualHash,
+                    profile.ExpectedDataPackSha256,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException(
+                    "ZIP 的 SHA-256 不匹配，文件可能选错或已损坏。");
+            }
+
+            SetProgress(0.1f, "ZIP 校验通过，正在读取文件清单…");
         }
 
         private static Dictionary<string, ZipArchiveEntry> BuildArchiveEntryMap(
@@ -289,6 +342,11 @@ namespace Higurashi.IOS.Runtime.Data
                     "This data pack is not Higurashi chapter " + profile.EpisodeNumber + ".");
             }
 
+            if (!string.Equals(manifest.chapter, profile.ChapterSlug, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException("数据包章节标识不正确。");
+            }
+
             if (manifest.files == null || manifest.files.Length == 0)
             {
                 throw new InvalidDataException("The data-pack file list is empty.");
@@ -299,7 +357,8 @@ namespace Higurashi.IOS.Runtime.Data
                 var file = manifest.files[i];
                 if (file == null || file.size < 0 ||
                     string.IsNullOrWhiteSpace(file.path) ||
-                    string.IsNullOrWhiteSpace(file.sha256))
+                    string.IsNullOrWhiteSpace(file.sha256) ||
+                    file.sha256.Length != 64)
                 {
                     throw new InvalidDataException("Manifest contains an invalid file entry.");
                 }
@@ -352,6 +411,21 @@ namespace Higurashi.IOS.Runtime.Data
             if (Directory.Exists(path))
             {
                 Directory.Delete(path, true);
+            }
+        }
+
+        private static void DeleteFileIfPresent(string path)
+        {
+            try
+            {
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("Unable to remove temporary data pack: " + exception.Message);
             }
         }
 

@@ -45,7 +45,12 @@ namespace Higurashi.IOS.Runtime.Buriko
         private float _dialogueRevealStartedAt;
         private int _dialogueRevealStartIndex;
         private bool _dialogueRevealForced;
+        private bool _appendNext;
         private int _currentVoiceCharacter = -1;
+        private int _lastVoiceChannel = -1;
+        private int _lastVoiceCharacter = -1;
+        private string _lastVoiceFilename = string.Empty;
+        private float _lastVoiceVolume;
         private float _creditsPageChangedAt;
         private bool _chapterPreviewAccepted;
         private BurikoMemory _memory;
@@ -355,9 +360,9 @@ namespace Higurashi.IOS.Runtime.Buriko
                         invocation.Specification.Code == 33 ? RuntimeAudioKind.Se : RuntimeAudioKind.Voice,
                         Int(invocation, 0, memory)));
                 case 34:
-                    _currentVoiceCharacter = -1;
-                    _audio.PlayVoice(
+                    PlayTrackedVoice(
                         Int(invocation, 0, memory),
+                        -1,
                         AddOgg(Text(invocation, 1, memory)),
                         VoiceVolume(Int(invocation, 2, memory) / 128f),
                         memory);
@@ -575,9 +580,9 @@ namespace Higurashi.IOS.Runtime.Buriko
                     return AnimationResponse(Int(invocation, 15, memory) / 1000f,
                         invocation.Arguments[16].AsBool(memory));
                 case 130:
-                    _currentVoiceCharacter = Int(invocation, 1, memory);
-                    _audio.PlayVoice(
+                    PlayTrackedVoice(
                         Int(invocation, 0, memory),
+                        Int(invocation, 1, memory),
                         AddOgg(Text(invocation, 2, memory)),
                         VoiceVolume(Int(invocation, 3, memory) / 128f),
                         memory);
@@ -699,13 +704,37 @@ namespace Higurashi.IOS.Runtime.Buriko
         {
             _audio?.StopAllVoices();
             _currentVoiceCharacter = -1;
+            _lastVoiceChannel = -1;
+            _lastVoiceCharacter = -1;
+            _lastVoiceFilename = string.Empty;
+            _lastVoiceVolume = 0f;
             ResetLipSyncFrames();
+        }
+
+        public void ReplayRestoredVoice(BurikoMemory memory)
+        {
+            if (_audio == null || _lastVoiceChannel < 0 || string.IsNullOrEmpty(_lastVoiceFilename))
+            {
+                return;
+            }
+
+            _audio.StopAllVoices();
+            _currentVoiceCharacter = _lastVoiceCharacter;
+            _audio.PlayVoice(
+                _lastVoiceChannel,
+                _lastVoiceFilename,
+                _lastVoiceVolume,
+                memory);
         }
 
         public void StopAllAudio()
         {
             _audio?.StopAll();
             _currentVoiceCharacter = -1;
+            _lastVoiceChannel = -1;
+            _lastVoiceCharacter = -1;
+            _lastVoiceFilename = string.Empty;
+            _lastVoiceVolume = 0f;
             ResetLipSyncFrames();
         }
 
@@ -748,6 +777,11 @@ namespace Higurashi.IOS.Runtime.Buriko
                 GameplayUiVisible,
                 ChapterPreviewVisible,
                 _chapterPreviewAccepted,
+                _appendNext,
+                _lastVoiceChannel,
+                _lastVoiceCharacter,
+                _lastVoiceFilename,
+                _lastVoiceVolume,
                 FontSize,
                 WindowX,
                 WindowY,
@@ -796,12 +830,14 @@ namespace Higurashi.IOS.Runtime.Buriko
                 writer.Write(GameplayUiVisible);
                 writer.Write(ChapterPreviewVisible);
                 writer.Write(_chapterPreviewAccepted);
+                writer.Write(_appendNext);
             }
         }
 
         public void ReadPersistentState(Stream input, BurikoMemory memory)
         {
             var hasPersistedUiState = false;
+            var hasPersistedAppendState = false;
             using (var reader = new BinaryReader(input, System.Text.Encoding.UTF8, true))
             {
                 if (reader.ReadInt32() != PersistentStateMagic)
@@ -857,6 +893,11 @@ namespace Higurashi.IOS.Runtime.Buriko
                         GameplayUiVisible = reader.ReadBoolean();
                         ChapterPreviewVisible = reader.ReadBoolean();
                         _chapterPreviewAccepted = reader.ReadBoolean();
+                        if (input.Length - input.Position >= 1)
+                        {
+                            _appendNext = reader.ReadBoolean();
+                            hasPersistedAppendState = true;
+                        }
                         hasPersistedUiState = true;
                     }
                     else
@@ -885,6 +926,10 @@ namespace Higurashi.IOS.Runtime.Buriko
             _blockingAnimationUntil = 0f;
             _previousSceneLayers.Clear();
             _dialogueRevealForced = true;
+            if (!hasPersistedAppendState)
+            {
+                _appendNext = false;
+            }
         }
 
         private static void WriteStrings(BinaryWriter writer, IReadOnlyList<string> values)
@@ -931,6 +976,12 @@ namespace Higurashi.IOS.Runtime.Buriko
             ChapterPreviewVisible = snapshot.ChapterPreviewVisible;
             GameplayUiVisible = snapshot.GameplayUiVisible;
             _chapterPreviewAccepted = snapshot.ChapterPreviewAccepted;
+            _appendNext = snapshot.AppendNext;
+            _lastVoiceChannel = snapshot.LastVoiceChannel;
+            _lastVoiceCharacter = snapshot.LastVoiceCharacter;
+            _lastVoiceFilename = snapshot.LastVoiceFilename;
+            _lastVoiceVolume = snapshot.LastVoiceVolume;
+            _currentVoiceCharacter = -1;
             SavingEnabled = snapshot.SavingEnabled;
             InterfaceEnabled = snapshot.InterfaceEnabled;
             DialogueSerial = snapshot.DialogueSerial;
@@ -986,7 +1037,13 @@ namespace Higurashi.IOS.Runtime.Buriko
             var name = string.IsNullOrEmpty(fallbackName) ? primaryName : fallbackName;
             var text = (string.IsNullOrEmpty(fallbackText) ? primaryText : fallbackText)
                 .Replace("\\n", "\n");
-            var append = textMode == 1 || textMode == 3 || textMode == 4;
+            // Buriko's continuation flag belongs to the previous output operation:
+            // Continue marks the following line for append, while Normal clears it.
+            // Looking only at the current mode reverses sequences such as
+            // Continue("为什么那么冷淡呢。") -> Normal("…呢？").
+            var append = _appendNext;
+            var appendToInProgressReveal = append && !_dialogueRevealForced &&
+                                           VisibleDialogueLength < Dialogue.Length;
             var revealStart = append ? Dialogue.Length : 0;
             if (append)
             {
@@ -1002,9 +1059,13 @@ namespace Higurashi.IOS.Runtime.Buriko
                 Dialogue = text;
             }
             WindowVisible = true;
-            _dialogueRevealStartIndex = revealStart;
-            _dialogueRevealStartedAt = Time.unscaledTime;
+            if (!appendToInProgressReveal)
+            {
+                _dialogueRevealStartIndex = revealStart;
+                _dialogueRevealStartedAt = Time.unscaledTime;
+            }
             _dialogueRevealForced = false;
+            _appendNext = textMode != 0;
             DialogueSerial++;
             var waitsForInput = textMode == 0 || textMode == 2;
             if (waitsForInput && _chapterPreviewAccepted)
@@ -1540,6 +1601,21 @@ namespace Higurashi.IOS.Runtime.Buriko
             return scriptVolume * ((_settings?.voiceVolume ?? 75) / 100f);
         }
 
+        private void PlayTrackedVoice(
+            int channel,
+            int character,
+            string filename,
+            float volume,
+            BurikoMemory memory)
+        {
+            _currentVoiceCharacter = character;
+            _lastVoiceChannel = channel;
+            _lastVoiceCharacter = character;
+            _lastVoiceFilename = filename ?? string.Empty;
+            _lastVoiceVolume = volume;
+            _audio.PlayVoice(channel, _lastVoiceFilename, volume, memory);
+        }
+
         private static string Text(BurikoOperationInvocation invocation, int index, BurikoMemory memory)
         {
             return invocation.Arguments[index].AsString(memory);
@@ -1823,6 +1899,11 @@ namespace Higurashi.IOS.Runtime.Buriko
             bool gameplayUiVisible,
             bool chapterPreviewVisible,
             bool chapterPreviewAccepted,
+            bool appendNext,
+            int lastVoiceChannel,
+            int lastVoiceCharacter,
+            string lastVoiceFilename,
+            float lastVoiceVolume,
             int fontSize,
             int windowX,
             int windowY,
@@ -1842,6 +1923,11 @@ namespace Higurashi.IOS.Runtime.Buriko
             GameplayUiVisible = gameplayUiVisible;
             ChapterPreviewVisible = chapterPreviewVisible;
             ChapterPreviewAccepted = chapterPreviewAccepted;
+            AppendNext = appendNext;
+            LastVoiceChannel = lastVoiceChannel;
+            LastVoiceCharacter = lastVoiceCharacter;
+            LastVoiceFilename = lastVoiceFilename ?? string.Empty;
+            LastVoiceVolume = lastVoiceVolume;
             FontSize = fontSize;
             WindowX = windowX;
             WindowY = windowY;
@@ -1862,6 +1948,11 @@ namespace Higurashi.IOS.Runtime.Buriko
         public bool GameplayUiVisible { get; }
         public bool ChapterPreviewVisible { get; }
         public bool ChapterPreviewAccepted { get; }
+        public bool AppendNext { get; }
+        public int LastVoiceChannel { get; }
+        public int LastVoiceCharacter { get; }
+        public string LastVoiceFilename { get; }
+        public float LastVoiceVolume { get; }
         public int FontSize { get; }
         public int WindowX { get; }
         public int WindowY { get; }
