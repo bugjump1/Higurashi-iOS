@@ -21,11 +21,23 @@ namespace Higurashi.IOS.Buriko
     {
         private static readonly BurikoOperationSpecification?[] Episode01Items = Create();
         private static readonly BurikoOperationSpecification?[] Episode02Items = CreateEpisode02();
+        private static readonly BurikoOperationSpecification?[] Episode03Items = CreateEpisode03();
         private static BurikoOperationSpecification?[] Items = Episode01Items;
 
         public static void ConfigureForEpisode(int episodeNumber)
         {
-            Items = episodeNumber == 2 ? Episode02Items : Episode01Items;
+            switch (episodeNumber)
+            {
+                case 2:
+                    Items = Episode02Items;
+                    break;
+                case 3:
+                    Items = Episode03Items;
+                    break;
+                default:
+                    Items = Episode01Items;
+                    break;
+            }
         }
 
         public static BurikoOperationSpecification Get(short code)
@@ -210,6 +222,13 @@ namespace Higurashi.IOS.Buriko
                 result[rawCode] = Episode01Items[rawCode - 2];
             }
             return result;
+        }
+
+        private static BurikoOperationSpecification?[] CreateEpisode03()
+        {
+            // Episode 3 has the same raw operation layout as episode 2. Keep a
+            // chapter-specific catalog entry so later chapters can diverge safely.
+            return CreateEpisode02();
         }
     }
 }

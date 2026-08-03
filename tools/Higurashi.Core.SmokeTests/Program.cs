@@ -25,6 +25,7 @@ internal static class Program
             ChapterProfilesHaveWholeZipFingerprints,
             BurikoTextContinuationFollowsPreviousMode,
             Episode02OperationCatalogNormalizesShiftedModCodes,
+            Episode03OperationCatalogNormalizesShiftedModCodes,
             BurikoRuntimeExecutesDialogueAndFlags,
             BurikoRuntimeCallsAndReturnsFromScript,
             BurikoRuntimeSnapshotRestoresExecutionAndMemory,
@@ -66,6 +67,21 @@ internal static class Program
         Equal("ModPlayVoiceLS", BurikoOperationCatalog.Get(130).Name);
     }
 
+    private static void Episode03OperationCatalogNormalizesShiftedModCodes()
+    {
+        BurikoOperationCatalog.ConfigureForEpisode(3);
+        var loading = BurikoOperationCatalog.Get(122);
+        Equal((short)148, loading.Code);
+        Equal("SetValidityOfLoading", loading.Name);
+
+        var voice = BurikoOperationCatalog.Get(132);
+        Equal((short)130, voice.Code);
+        Equal("ModPlayVoiceLS", voice.Name);
+        Equal("iisib", voice.Signature);
+
+        BurikoOperationCatalog.ConfigureForEpisode(1);
+    }
+
     private static void ChapterProfilesHaveWholeZipFingerprints()
     {
         var episode01 = HigurashiChapterProfiles.ForEpisode(1);
@@ -79,6 +95,16 @@ internal static class Program
         Equal(64, episode02.ExpectedDataPackSha256.Length);
         Equal("0481E9D02ED7A993BFC0CC4BEA378DC35E16621BEEBC09578057533FE0DC1CF0",
             episode02.ExpectedDataPackSha256);
+
+        var episode03 = HigurashiChapterProfiles.ForEpisode(3);
+        Equal("HigurashiEp03", episode03.ProductName);
+        Equal("com.bugjump.higurashi.ep03", episode03.BundleIdentifier);
+        Equal("Higurashi-03-data.zip", episode03.DataPackFileName);
+        Equal("higurashi-03", episode03.GameId);
+        Equal("tatarigoroshi", episode03.ChapterSlug);
+        Equal(2079546842L, episode03.ExpectedDataPackSize);
+        Equal("13F2957DC7D6F2A6A7A9DAE737E3C4029D30A20F4E34B200AE5499C79C3A5FEF",
+            episode03.ExpectedDataPackSha256);
     }
 
     private static void BurikoTextContinuationFollowsPreviousMode()
