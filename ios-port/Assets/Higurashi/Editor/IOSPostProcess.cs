@@ -29,8 +29,8 @@ namespace Higurashi.IOS.Editor
             plist.root.SetBoolean("LSSupportsOpeningDocumentsInPlace", true);
             plist.root.SetBoolean("UIRequiresFullScreen", true);
             plist.root.SetString("MinimumOSVersion", "15.0");
-            plist.root.SetString("CFBundleDisplayName", "HigurashiEp01");
-            plist.root.SetString("CFBundleName", "HigurashiEp01");
+            plist.root.SetString("CFBundleDisplayName", PlayerSettings.productName);
+            plist.root.SetString("CFBundleName", PlayerSettings.productName);
             plist.WriteToFile(plistPath);
         }
 

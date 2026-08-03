@@ -3,10 +3,17 @@ name: Build unsigned iOS IPA
 on:
   workflow_dispatch:
     inputs:
+      chapter_number:
+        description: Higurashi chapter to build
+        required: true
+        type: choice
+        default: '01'
+        options:
+          - '01'
+          - '02'
       bundle_identifier:
-        description: Bundle identifier used before self-signing
+        description: Optional Bundle ID override before self-signing
         required: false
-        default: com.local.higurashi01
   push:
     branches:
       - main
@@ -16,8 +23,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: ios-unsigned-${{ github.ref }}
+  group: ios-unsigned-${{ github.ref }}-${{ inputs.chapter_number || '01' }}
   cancel-in-progress: true
+
+env:
+  CHAPTER_NUMBER: ${{ inputs.chapter_number || '01' }}
 
 jobs:
   core-tests:
@@ -54,11 +64,11 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Restore original HigurashiEp01 app icon
+      - name: Restore chapter app icon
         shell: bash
         env:
-          APP_ICON_BASE64_1: ${{ secrets.HIGURASHI_APP_ICON_BASE64_1 }}
-          APP_ICON_BASE64_2: ${{ secrets.HIGURASHI_APP_ICON_BASE64_2 }}
+          APP_ICON_BASE64_1: ${{ inputs.chapter_number == '02' && secrets.HIGURASHI_EP02_APP_ICON_BASE64_1 || secrets.HIGURASHI_APP_ICON_BASE64_1 }}
+          APP_ICON_BASE64_2: ${{ inputs.chapter_number == '02' && secrets.HIGURASHI_EP02_APP_ICON_BASE64_2 || secrets.HIGURASHI_APP_ICON_BASE64_2 }}
         run: |
           set -euo pipefail
           if [[ -z "$APP_ICON_BASE64_1" || -z "$APP_ICON_BASE64_2" ]]; then
@@ -94,13 +104,14 @@ jobs:
           allowDirtyBuild: true
           customParameters: >-
             -customBuildPath /github/workspace/build/iOS
-            -bundleIdentifier ${{ inputs.bundle_identifier || 'com.local.higurashi01' }}
+            -chapterNumber ${{ env.CHAPTER_NUMBER }}
+            -bundleIdentifier ${{ inputs.bundle_identifier || format('com.bugjump.higurashi.ep{0}', env.CHAPTER_NUMBER) }}
             -buildNumber ${{ github.run_number }}
 
       - name: Upload Xcode project for compile job
         uses: actions/upload-artifact@v4
         with:
-          name: Higurashi-01-XcodeProject-intermediate
+          name: Higurashi-${{ env.CHAPTER_NUMBER }}-XcodeProject-intermediate
           path: build/iOS
           if-no-files-found: error
           retention-days: 1
@@ -118,7 +129,7 @@ jobs:
       - name: Download Xcode project
         uses: actions/download-artifact@v4
         with:
-          name: Higurashi-01-XcodeProject-intermediate
+          name: Higurashi-${{ env.CHAPTER_NUMBER }}-XcodeProject-intermediate
           path: build/iOS
 
       - name: Show build environment
@@ -173,19 +184,19 @@ jobs:
           ditto "$APP_PATH" "artifacts/Payload/$(basename "$APP_PATH")"
           (
             cd artifacts
-            ditto -c -k --sequesterRsrc --keepParent Payload Higurashi-01-iOS-unsigned.ipa
+            ditto -c -k --sequesterRsrc --keepParent Payload "Higurashi-${CHAPTER_NUMBER}-iOS-unsigned.ipa"
           )
           ditto -c -k --sequesterRsrc --keepParent \
             "$XCODE_PROJECT_DIR" \
-            artifacts/Higurashi-01-iOS-unsigned-XcodeProject.zip
+            "artifacts/Higurashi-${CHAPTER_NUMBER}-iOS-unsigned-XcodeProject.zip"
 
       - name: Upload final unsigned artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Higurashi-01-iOS-unsigned
+          name: Higurashi-${{ env.CHAPTER_NUMBER }}-iOS-unsigned
           path: |
-            artifacts/Higurashi-01-iOS-unsigned.ipa
-            artifacts/Higurashi-01-iOS-unsigned-XcodeProject.zip
+            artifacts/Higurashi-${{ env.CHAPTER_NUMBER }}-iOS-unsigned.ipa
+            artifacts/Higurashi-${{ env.CHAPTER_NUMBER }}-iOS-unsigned-XcodeProject.zip
           if-no-files-found: error
           retention-days: 7
           compression-level: 0

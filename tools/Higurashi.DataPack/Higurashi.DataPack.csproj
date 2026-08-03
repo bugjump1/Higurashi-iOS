@@ -7,6 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Data\DataPackManifest.cs" Link="Shared\DataPackManifest.cs" />
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Compatibility\HigurashiChapterProfile.cs" Link="Shared\HigurashiChapterProfile.cs" />
   </ItemGroup>
 </Project>
-

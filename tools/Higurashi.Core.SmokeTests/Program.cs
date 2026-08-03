@@ -21,6 +21,7 @@ internal static class Program
             SafePathRejectsTraversal,
             AssetCascadeFallsBackInOrder,
             CompiledScriptHeaderIsParsed,
+            Episode02OperationCatalogNormalizesShiftedModCodes,
             BurikoRuntimeExecutesDialogueAndFlags,
             BurikoRuntimeCallsAndReturnsFromScript,
             BurikoRuntimeSnapshotRestoresExecutionAndMemory,
@@ -43,6 +44,23 @@ internal static class Program
         var input = new TouchGestureInterpreter();
         Equal(NovelInputAction.None, Frame(input, 0, false, P(1, 500, 300, PointerPhase.Began)));
         Equal(NovelInputAction.Advance, Frame(input, 0.1, false, P(1, 502, 301, PointerPhase.Ended)));
+    }
+
+    private static void Episode02OperationCatalogNormalizesShiftedModCodes()
+    {
+        BurikoOperationCatalog.ConfigureForEpisode(2);
+        var loading = BurikoOperationCatalog.Get(122);
+        Equal((short)148, loading.Code);
+        Equal("SetValidityOfLoading", loading.Name);
+        Equal("b", loading.Signature);
+
+        var voice = BurikoOperationCatalog.Get(132);
+        Equal((short)130, voice.Code);
+        Equal("ModPlayVoiceLS", voice.Name);
+        Equal("iisib", voice.Signature);
+
+        BurikoOperationCatalog.ConfigureForEpisode(1);
+        Equal("ModPlayVoiceLS", BurikoOperationCatalog.Get(130).Name);
     }
 
     private static void SwipeUpOpensHistory()

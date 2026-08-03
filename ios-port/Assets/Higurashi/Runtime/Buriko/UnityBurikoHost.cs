@@ -288,6 +288,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 140:
                 case 141:
                 case 147:
+                case 148:
+                case 149:
                     ReportApproximated(invocation);
                     return BurikoHostResponse.Continue;
                 case 16:

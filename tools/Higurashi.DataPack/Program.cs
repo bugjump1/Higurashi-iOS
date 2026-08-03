@@ -2,12 +2,11 @@ using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Higurashi.IOS.Compatibility;
 using Higurashi.IOS.Data;
 
 internal static class Program
 {
-    private const string ExpectedDataDirectoryName = "HigurashiEp01_Data";
-
     public static int Main(string[] args)
     {
         if (args.Length != 2)
@@ -31,16 +30,26 @@ internal static class Program
     private static void CreatePack(string sourceArgument, string outputArgument)
     {
         var source = Path.GetFullPath(sourceArgument);
-        var dataRoot = string.Equals(
-                Path.GetFileName(source.TrimEnd(Path.DirectorySeparatorChar)),
-                ExpectedDataDirectoryName,
-                StringComparison.OrdinalIgnoreCase)
+        var sourceName = Path.GetFileName(source.TrimEnd(Path.DirectorySeparatorChar));
+        var dataRoot = sourceName.StartsWith("HigurashiEp", StringComparison.OrdinalIgnoreCase) &&
+                       sourceName.EndsWith("_Data", StringComparison.OrdinalIgnoreCase)
             ? source
-            : Path.Combine(source, ExpectedDataDirectoryName);
+            : Directory.EnumerateDirectories(source, "HigurashiEp??_Data", SearchOption.TopDirectoryOnly)
+                .SingleOrDefault();
 
-        if (!Directory.Exists(dataRoot))
+        if (string.IsNullOrEmpty(dataRoot) || !Directory.Exists(dataRoot))
         {
-            throw new DirectoryNotFoundException("HigurashiEp01_Data was not found under the source directory.");
+            throw new DirectoryNotFoundException(
+                "Exactly one HigurashiEpNN_Data directory must exist under the source directory.");
+        }
+
+        var dataDirectoryName = Path.GetFileName(dataRoot);
+        var episodeText = dataDirectoryName.Substring("HigurashiEp".Length, 2);
+        var profile = HigurashiChapterProfiles.ForEpisode(int.Parse(episodeText));
+        if (!string.Equals(dataDirectoryName, profile.DataDirectoryName,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException("The chapter data directory name is invalid.");
         }
 
         var streamingAssets = Path.Combine(dataRoot, "StreamingAssets");
@@ -57,7 +66,7 @@ internal static class Program
 
         if (IsUnderRoot(dataRoot, outputPath))
         {
-            throw new InvalidOperationException("The output data pack cannot be written inside HigurashiEp01_Data.");
+            throw new InvalidOperationException("The output data pack cannot be written inside the game data directory.");
         }
 
         var files = EnumeratePackFiles(dataRoot, streamingAssets);
@@ -88,8 +97,8 @@ internal static class Program
         var manifest = new DataPackManifest
         {
             formatVersion = 1,
-            gameId = "higurashi-01",
-            chapter = "onikakushi",
+            gameId = profile.GameId,
+            chapter = profile.ChapterSlug,
             sourceEngine = "Unity 5.2.2f1 / Mono",
             modVersion = ReadModVersion(dataRoot),
             generatedUtc = DateTimeOffset.UtcNow.ToString("O"),
@@ -290,4 +299,3 @@ internal static class Program
         public string RelativePath { get; }
     }
 }
-

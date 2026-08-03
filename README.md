@@ -1,6 +1,6 @@
-# Higurashi 01 iOS research port
+# Higurashi iOS research ports
 
-Personal research project for running a legally owned copy of *Higurashi When They Cry Hou - Ch.1 Onikakushi* on iOS/iPadOS 15 or newer.
+Personal research project for running legally owned PC copies of *Higurashi When They Cry Hou* chapters as independent iOS apps on iOS/iPadOS 15 or newer. Chapters 1 and 2 are currently configured.
 
 The repository contains no game scripts, images, audio, video, or proprietary Unity binaries. Game data is packaged locally from the owner's PC installation and imported on-device after installation.
 
@@ -11,7 +11,9 @@ The repository contains no game scripts, images, audio, video, or proprietary Un
 - iPhone and iPad
 - Landscape left and landscape right
 - GitHub Actions build; no local Mac required
-- Unsigned artifact: `Higurashi-01-iOS-unsigned.ipa`
+- Independent apps and save containers per chapter
+- Bundle IDs: `com.bugjump.higurashi.ep01`, `com.bugjump.higurashi.ep02`, and so on
+- Unsigned artifacts: `Higurashi-NN-iOS-unsigned.ipa`
 - Signing is intentionally outside the build pipeline
 
 ## Repository layout
@@ -26,15 +28,15 @@ The repository contains no game scripts, images, audio, video, or proprietary Un
 
 ## Local data pack
 
-After the pack tool is built, run it against the directory that contains `HigurashiEp01_Data`:
+The pack tool detects the `HigurashiEpNN_Data` directory and writes a chapter-specific manifest. For chapter 2:
 
 ```powershell
 dotnet run --project .\tools\Higurashi.DataPack -- `
-  "D:\project\PCtoiOS\Higurashi When They Cry 01" `
-  "D:\project\PCtoiOS\Higurashi-01-data.zip"
+  "D:\project\PCtoiOS\game files\Higurashi When They Cry 02" `
+  "D:\project\PCtoiOS\output data zip\Higurashi-02-data.zip"
 ```
 
-Copy `Higurashi-01-data.zip` into the app's Files directory, launch the app, and choose Import. The source game directory is never modified.
+Copy the matching `Higurashi-NN-data.zip` into that chapter app's Files directory, launch the app, and choose Import. The source game directory is never modified.
 
 ## GitHub Actions
 
@@ -44,17 +46,21 @@ The workflow uses GameCI to generate an Xcode project on Linux, then compiles it
 - `UNITY_EMAIL`
 - `UNITY_PASSWORD`
 
-The original executable has no ProductName metadata, so the iOS display name is its
-file base name, `HigurashiEp01`. Its icon remains local-only and is restored during CI
-from two secrets (split to stay below GitHub's per-secret size limit):
+The iOS display name follows each executable's file base name (`HigurashiEp01`,
+`HigurashiEp02`). Icons remain local-only and are restored during CI from two
+chapter-specific secrets (split to stay below GitHub's per-secret size limit):
 
 - `HIGURASHI_APP_ICON_BASE64_1`
 - `HIGURASHI_APP_ICON_BASE64_2`
+- `HIGURASHI_EP02_APP_ICON_BASE64_1`
+- `HIGURASHI_EP02_APP_ICON_BASE64_2`
 
 For this workspace the ready-to-paste values are stored locally at:
 
 - `.tools/HIGURASHI_APP_ICON_BASE64_1.txt`
 - `.tools/HIGURASHI_APP_ICON_BASE64_2.txt`
+- `.tools/HIGURASHI_EP02_APP_ICON_BASE64_1.txt`
+- `.tools/HIGURASHI_EP02_APP_ICON_BASE64_2.txt`
 
 These files and `ios-port/Assets/Branding/AppIcon.png` are ignored by Git. The
 workflow reconstructs the icon before Unity starts, so no original artwork is

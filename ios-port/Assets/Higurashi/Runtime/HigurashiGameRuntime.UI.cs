@@ -442,7 +442,8 @@ namespace Higurashi.IOS.Runtime
                 "YCX STUDIOS 汉化组", _titleStyle);
             GUI.Label(new Rect(safe.xMax - safe.width * 0.38f - 30f * scale,
                     safe.y + 26f * scale, safe.width * 0.38f, 82f * scale),
-                "寒蝉鸣泣之时\n鬼隐篇", _panelTitleStyle);
+                "寒蝉鸣泣之时\n" + HigurashiActiveChapter.Profile.ChineseChapterTitle,
+                _panelTitleStyle);
             top += 88f * scale;
             var credits =
                 "参与人员\n" +
@@ -960,7 +961,8 @@ namespace Higurashi.IOS.Runtime
             var width = Mathf.Min(850f * scale, safe.width - 60f * scale);
             var left = safe.x + (safe.width - width) * 0.5f;
             var top = safe.y + safe.height * 0.18f;
-            DrawShadowLabel(new Rect(left, top, width, 66f * scale), "寒蝉鸣泣之时 鬼隐篇", _titleStyle);
+            DrawShadowLabel(new Rect(left, top, width, 66f * scale),
+                HigurashiActiveChapter.Profile.FullChineseTitle, _titleStyle);
             top += 88f * scale;
             GUI.Label(new Rect(left, top, width, 120f * scale),
                 _initializationAttempted ? _runtimeStatus : _dataPack.Status, _statusStyle);
@@ -970,7 +972,8 @@ namespace Higurashi.IOS.Runtime
                 GUI.HorizontalSlider(new Rect(left, top, width, 30f * scale), _dataPack.Progress, 0f, 1f);
             }
             else if (!_initializationAttempted && PcButton(
-                         new Rect(left, top, width, 58f * scale), "导入 Higurashi-01-data.zip"))
+                         new Rect(left, top, width, 58f * scale),
+                         "导入 " + HigurashiActiveChapter.Profile.DataPackFileName))
             {
                 _dataPack.BeginImport(Application.persistentDataPath);
             }

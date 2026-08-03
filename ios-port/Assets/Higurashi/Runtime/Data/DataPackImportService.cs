@@ -12,7 +12,7 @@ namespace Higurashi.IOS.Runtime.Data
 {
     public sealed class DataPackImportService
     {
-        public const string DataPackFileName = "Higurashi-01-data.zip";
+        public static string DataPackFileName => HigurashiActiveChapter.Profile.DataPackFileName;
         public const string InstalledFolderName = "GameData";
         private const string ManifestEntryName = "manifest.json";
         private const int SupportedFormatVersion = 1;
@@ -282,9 +282,11 @@ namespace Higurashi.IOS.Runtime.Data
                 throw new InvalidDataException("Unsupported data-pack format.");
             }
 
-            if (!string.Equals(manifest.gameId, "higurashi-01", StringComparison.Ordinal))
+            var profile = HigurashiActiveChapter.Profile;
+            if (!string.Equals(manifest.gameId, profile.GameId, StringComparison.Ordinal))
             {
-                throw new InvalidDataException("This data pack is not Higurashi chapter 1.");
+                throw new InvalidDataException(
+                    "This data pack is not Higurashi chapter " + profile.EpisodeNumber + ".");
             }
 
             if (manifest.files == null || manifest.files.Length == 0)
@@ -373,4 +375,3 @@ namespace Higurashi.IOS.Runtime.Data
         }
     }
 }
-

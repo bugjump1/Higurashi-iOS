@@ -10,16 +10,34 @@ internal static class Program
             return 2;
         }
 
-        var startFromTitle = args[0] == "--start";
-        var directories = startFromTitle ? args.Skip(1).ToArray() : args;
-        if (directories.Length == 0)
+        var startFromTitle = false;
+        var episodeNumber = 1;
+        var directories = new List<string>();
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (args[i] == "--start")
+            {
+                startFromTitle = true;
+            }
+            else if (args[i] == "--episode" && i + 1 < args.Length)
+            {
+                episodeNumber = int.Parse(args[++i]);
+            }
+            else
+            {
+                directories.Add(args[i]);
+            }
+        }
+        if (directories.Count == 0)
         {
             Console.Error.WriteLine("No compiled-script folder was supplied.");
             return 2;
         }
 
+        BurikoOperationCatalog.ConfigureForEpisode(episodeNumber);
         var host = new ProbeHost(startFromTitle);
-        var runtime = new BurikoRuntime(new DirectoryBurikoScriptRepository(directories), host);
+        var runtime = new BurikoRuntime(
+            new DirectoryBurikoScriptRepository(directories.ToArray()), host);
         runtime.Start("init");
 
         for (var waits = 0; waits < 100_000; waits++)

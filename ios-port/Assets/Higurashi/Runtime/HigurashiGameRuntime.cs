@@ -157,6 +157,7 @@ namespace Higurashi.IOS.Runtime
             _initializationAttempted = true;
             try
             {
+                BurikoOperationCatalog.ConfigureForEpisode(HigurashiActiveChapter.Profile.EpisodeNumber);
                 var installRoot = DataPackImportService.GetInstallPath(Application.persistentDataPath);
                 var streamingAssets = Path.Combine(installRoot, "StreamingAssets");
                 var repository = new DirectoryBurikoScriptRepository(

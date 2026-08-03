@@ -1,5 +1,6 @@
 # Original game data must never be committed.
 Higurashi When They Cry 01/
+game files/
 ios-port/Assets/Branding/AppIcon.png
 
 # Local-only tools and reference source.

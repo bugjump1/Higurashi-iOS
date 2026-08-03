@@ -19,7 +19,14 @@ namespace Higurashi.IOS.Buriko
 
     public static class BurikoOperationCatalog
     {
-        private static readonly BurikoOperationSpecification?[] Items = Create();
+        private static readonly BurikoOperationSpecification?[] Episode01Items = Create();
+        private static readonly BurikoOperationSpecification?[] Episode02Items = CreateEpisode02();
+        private static BurikoOperationSpecification?[] Items = Episode01Items;
+
+        public static void ConfigureForEpisode(int episodeNumber)
+        {
+            Items = episodeNumber == 2 ? Episode02Items : Episode01Items;
+        }
 
         public static BurikoOperationSpecification Get(short code)
         {
@@ -182,6 +189,26 @@ namespace Higurashi.IOS.Buriko
             result[145] = new BurikoOperationSpecification(145, "ModAddSEset", "sss");
             result[146] = new BurikoOperationSpecification(146, "ModAddAudioset", "ssssiiii");
             result[147] = new BurikoOperationSpecification(147, "ModGenericCall", "ss");
+            return result;
+        }
+
+        private static BurikoOperationSpecification?[] CreateEpisode02()
+        {
+            var result = new BurikoOperationSpecification?[256];
+            for (var rawCode = 0; rawCode <= 121; rawCode++)
+            {
+                result[rawCode] = Episode01Items[rawCode];
+            }
+
+            // Episode 2 added two engine operations before the 07th-Mod extension
+            // range. Keep raw lookup positions from its DLL while returning the
+            // episode-1 canonical codes consumed by UnityBurikoHost.
+            result[122] = new BurikoOperationSpecification(148, "SetValidityOfLoading", "b");
+            result[123] = new BurikoOperationSpecification(149, "ActivateScreenEffectForcedly", "b");
+            for (var rawCode = 124; rawCode <= 149; rawCode++)
+            {
+                result[rawCode] = Episode01Items[rawCode - 2];
+            }
             return result;
         }
     }

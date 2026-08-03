@@ -107,7 +107,9 @@ namespace Higurashi.IOS.Runtime
             // Screen.safeArea is bottom-left based; IMGUI is top-left based.
             var top = Screen.height - safe.yMax + 28f;
 
-            GUI.Label(new Rect(left, top, width, 52f), "Higurashi 01 iOS", _titleStyle);
+            var profile = HigurashiActiveChapter.Profile;
+            GUI.Label(new Rect(left, top, width, 52f),
+                "Higurashi " + profile.EpisodeCode + " iOS", _titleStyle);
             top += 66f;
             GUI.Label(
                 new Rect(left, top, width, 120f),
@@ -126,7 +128,8 @@ namespace Higurashi.IOS.Runtime
             }
             else if (!DataPackImportService.IsInstalled(Application.persistentDataPath))
             {
-                if (GUI.Button(new Rect(left, top, width, 56f), "Import Higurashi-01-data.zip"))
+                if (GUI.Button(new Rect(left, top, width, 56f),
+                        "Import " + profile.DataPackFileName))
                 {
                     _dataPack.BeginImport(Application.persistentDataPath);
                 }

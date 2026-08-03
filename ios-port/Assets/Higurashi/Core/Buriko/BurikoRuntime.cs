@@ -286,7 +286,9 @@ namespace Higurashi.IOS.Buriko
                 arguments[i] = ReadValue(reader);
             }
 
-            switch (operationCode)
+            // Catalog variants may normalize an episode-specific raw opcode to
+            // the canonical operation code used by the shared runtime/host.
+            switch (specification.Code)
             {
                 case 0:
                     Memory.SetLocalFlag(ReferenceName(arguments[0]), arguments[1].AsInt(Memory));

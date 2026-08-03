@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using Higurashi.IOS.Compatibility;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
@@ -13,8 +14,6 @@ namespace Higurashi.IOS.Editor
     {
         private const string GeneratedScenePath = "Assets/Generated/Bootstrap.unity";
         private const string AppIconPath = "Assets/Branding/AppIcon.png";
-        private const string DefaultBundleIdentifier = "com.local.higurashi01";
-
         public static void Build()
         {
             ConfigurePlayer();
@@ -52,10 +51,16 @@ namespace Higurashi.IOS.Editor
 
         private static void ConfigurePlayer()
         {
+            var chapterArgument = GetArgument("-chapterNumber");
+            if (!int.TryParse(chapterArgument, out var chapterNumber))
+            {
+                chapterNumber = 1;
+            }
+            var profile = HigurashiChapterProfiles.ForEpisode(chapterNumber);
             var bundleIdentifier = GetArgument("-bundleIdentifier");
             if (string.IsNullOrWhiteSpace(bundleIdentifier))
             {
-                bundleIdentifier = DefaultBundleIdentifier;
+                bundleIdentifier = profile.BundleIdentifier;
             }
 
             var buildNumber = GetArgument("-buildNumber");
@@ -67,7 +72,7 @@ namespace Higurashi.IOS.Editor
             EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.iOS, BuildTarget.iOS);
 
             PlayerSettings.companyName = "Personal Research";
-            PlayerSettings.productName = "HigurashiEp01";
+            PlayerSettings.productName = profile.ProductName;
             PlayerSettings.bundleVersion = "0.1.0";
             PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.iOS, bundleIdentifier);
             PlayerSettings.SetScriptingBackend(NamedBuildTarget.iOS, ScriptingImplementation.IL2CPP);
@@ -93,7 +98,7 @@ namespace Higurashi.IOS.Editor
             var icon = AssetDatabase.LoadAssetAtPath<Texture2D>(AppIconPath);
             if (icon == null)
             {
-                throw new FileNotFoundException("The extracted HigurashiEp01 app icon is missing.", AppIconPath);
+                throw new FileNotFoundException("The extracted Higurashi app icon is missing.", AppIconPath);
             }
 
             var sizes = PlayerSettings.GetIconSizes(NamedBuildTarget.iOS, IconKind.Application);
