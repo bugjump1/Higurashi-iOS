@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using Higurashi.IOS.Buriko;
 using Higurashi.IOS.Compatibility;
+using Higurashi.IOS.Runtime.Buriko;
 using UnityEngine;
 
 namespace Higurashi.IOS.Runtime
@@ -77,6 +79,14 @@ namespace Higurashi.IOS.Runtime
             else if (_host.TitleVisible)
             {
                 DrawTitleScreen();
+            }
+            else if (_host.FragmentChapterVisible)
+            {
+                DrawFragmentChapterScreen();
+            }
+            else if (_host.FragmentListVisible)
+            {
+                DrawFragmentListScreen();
             }
             else if (_host.ChapterPreviewVisible)
             {
@@ -425,6 +435,263 @@ namespace Higurashi.IOS.Runtime
             CaptureDialogueCheckpoint();
         }
 
+        private void DrawFragmentChapterScreen()
+        {
+            var safe = GetGuiSafeArea();
+            if (_saveLoadVisible)
+            {
+                DrawSaveLoadScreen();
+                return;
+            }
+
+            DrawModalShade(safe);
+            var scale = UiScale;
+            var panel = new Rect(safe.x + safe.width * 0.14f, safe.y + safe.height * 0.13f,
+                safe.width * 0.72f, safe.height * 0.74f);
+            DrawPcModalPanel(panel);
+            DrawSectionHeader(panel, "碎片编织");
+            var text =
+                "剧情将在这里进入碎片编织流程。\n\n" +
+                "进入碎片列表后，先轻触碎片查看解锁条件；\n" +
+                "满足条件的碎片可以阅读，读完会推动后续可阅读内容。\n\n" +
+                "所有可读碎片都需要依次阅读，不会出现选错路线。";
+            GUI.Label(new Rect(panel.x + 42f * scale, panel.y + 86f * scale,
+                panel.width - 84f * scale, panel.height - 210f * scale), text, _dialogueStyle);
+
+            var buttonWidth = Mathf.Min(360f * scale, panel.width * 0.42f);
+            var buttonHeight = 46f * scale;
+            var buttonY = panel.yMax - buttonHeight - 30f * scale;
+            var left = panel.center.x - buttonWidth - 12f * scale;
+            if (PcButton(new Rect(left, buttonY, buttonWidth, buttonHeight), "进入碎片列表", true))
+            {
+                EnterFragmentList();
+            }
+            if (PcButton(new Rect(panel.center.x + 12f * scale, buttonY,
+                    buttonWidth, buttonHeight), "保存与载入", true))
+            {
+                _saveLoadVisible = true;
+                SuppressInput();
+            }
+        }
+
+        private void DrawFragmentListScreen()
+        {
+            var safe = GetGuiSafeArea();
+            if (_saveLoadVisible)
+            {
+                DrawSaveLoadScreen();
+                return;
+            }
+
+            DrawModalShade(safe);
+            var scale = UiScale;
+            var panel = new Rect(safe.x + safe.width * 0.045f, safe.y + safe.height * 0.055f,
+                safe.width * 0.91f, safe.height * 0.89f);
+            DrawPcModalPanel(panel);
+            DrawSectionHeader(panel, "碎片列表");
+            var tutorialPending = PlayerPrefs.GetInt(FragmentTutorialSeenKey, 0) == 0;
+            var previousGuiEnabled = GUI.enabled;
+            if (tutorialPending)
+            {
+                GUI.enabled = false;
+            }
+
+            var entries = _host.GetVisibleFragments(_runtime.Memory);
+            var pageCount = Mathf.Max(1, Mathf.CeilToInt(entries.Count / 8f));
+            var page = Mathf.Clamp(_host.FragmentPage, 0, pageCount - 1);
+            var gridX = panel.x + 22f * scale;
+            var gridY = panel.y + 65f * scale;
+            var gridWidth = panel.width - 44f * scale;
+            var gridHeight = Mathf.Min(panel.height * 0.40f, 220f * scale);
+            const int columns = 4;
+            const int rows = 2;
+            var gap = 8f * scale;
+            var cardWidth = (gridWidth - gap * (columns - 1)) / columns;
+            var cardHeight = (gridHeight - gap * (rows - 1)) / rows;
+            var first = page * 8;
+            for (var i = 0; i < 8; i++)
+            {
+                var entryIndex = first + i;
+                if (entryIndex >= entries.Count)
+                {
+                    break;
+                }
+                var column = i % columns;
+                var row = i / columns;
+                var card = new Rect(gridX + column * (cardWidth + gap),
+                    gridY + row * (cardHeight + gap), cardWidth, cardHeight);
+                DrawFragmentEntry(card, entries[entryIndex]);
+            }
+
+            var footerHeight = 46f * scale;
+            var footerY = panel.yMax - footerHeight - 18f * scale;
+            var info = new Rect(panel.x + 22f * scale, gridY + gridHeight + 14f * scale,
+                panel.width - 44f * scale, footerY - gridY - gridHeight - 26f * scale);
+            DrawFragmentDetails(info);
+
+            var navWidth = Mathf.Min(142f * scale, panel.width * 0.18f);
+            if (page > 0 && PcButton(new Rect(panel.x + 22f * scale, footerY,
+                    navWidth, footerHeight), "上一页", true))
+            {
+                _host.ChangeFragmentPage(-1, _runtime.Memory);
+                SuppressInput();
+            }
+            else if (page == 0)
+            {
+                DrawDisabledPcButton(new Rect(panel.x + 22f * scale, footerY,
+                    navWidth, footerHeight), "上一页", true);
+            }
+
+            GUI.Label(new Rect(panel.center.x - 60f * scale, footerY - 25f * scale,
+                120f * scale, 24f * scale),
+                (page + 1).ToString() + " / " + pageCount.ToString(), _panelTitleStyle);
+            if (PcButton(new Rect(panel.center.x - 96f * scale, footerY,
+                    192f * scale, footerHeight), "返回总览", true))
+            {
+                ExitFragmentList();
+            }
+
+            var nextRect = new Rect(panel.xMax - 22f * scale - navWidth, footerY,
+                navWidth, footerHeight);
+            if (page < pageCount - 1 && PcButton(nextRect, "下一页", true))
+            {
+                _host.ChangeFragmentPage(1, _runtime.Memory);
+                SuppressInput();
+            }
+            else if (page >= pageCount - 1)
+            {
+                DrawDisabledPcButton(nextRect, "下一页", true);
+            }
+
+            GUI.enabled = previousGuiEnabled;
+            if (tutorialPending)
+            {
+                DrawFragmentTutorialIfNeeded();
+            }
+        }
+
+        private void DrawFragmentEntry(Rect rect, HigurashiFragmentDefinition entry)
+        {
+            var state = _host.GetFragmentViewState(entry, _runtime.Memory);
+            var available = _host.AreFragmentPrerequisitesMet(entry, _runtime.Memory);
+            var selected = _host.SelectedFragmentId == entry.Id;
+            var border = selected
+                ? new Color(0.92f, 0.08f, 0.03f, 1f)
+                : FragmentStateColor(state, available);
+            FillRect(rect, border);
+            var label = entry.Id.ToString("00") + "  " + FragmentStateLabel(state, available) +
+                "\n" + (entry.Title ?? string.Empty);
+            if (GUI.Button(Inset(rect, Mathf.Max(2f, 2f * UiScale)), label, _pcSmallButtonStyle))
+            {
+                if (selected)
+                {
+                    StartSelectedFragment();
+                }
+                else
+                {
+                    _host.SelectFragment(entry.Id, _runtime.Memory);
+                    SuppressInput();
+                }
+            }
+        }
+
+        private void DrawFragmentDetails(Rect rect)
+        {
+            DrawPcModalPanel(rect);
+            var scale = UiScale;
+            var entry = _host.GetSelectedFragment();
+            if (entry == null)
+            {
+                GUI.Label(Inset(rect, 18f * scale), "轻触上方碎片，查看它的状态和解锁条件。",
+                    _panelTitleStyle);
+                return;
+            }
+
+            var state = _host.GetFragmentViewState(entry, _runtime.Memory);
+            var available = _host.AreFragmentPrerequisitesMet(entry, _runtime.Memory);
+            var header = entry.Id.ToString("00") + "　" + (entry.Title ?? string.Empty) +
+                "　[" + FragmentStateLabel(state, available) + "]";
+            GUI.Label(new Rect(rect.x + 18f * scale, rect.y + 10f * scale,
+                rect.width - 36f * scale, 32f * scale), header, _panelTitleStyle);
+
+            var actionWidth = Mathf.Min(220f * scale, rect.width * 0.29f);
+            var textRect = new Rect(rect.x + 22f * scale, rect.y + 48f * scale,
+                rect.width - actionWidth - 58f * scale, rect.height - 58f * scale);
+            var detail = "说明：" + (entry.Description ?? string.Empty) + "\n\n前置碎片：\n" +
+                _host.FragmentPrerequisiteSummary(entry, _runtime.Memory);
+            GUI.Label(textRect, detail, _statusStyle);
+
+            var actionRect = new Rect(rect.xMax - actionWidth - 18f * scale,
+                rect.yMax - 52f * scale, actionWidth, 38f * scale);
+            var action = available ? "阅读此碎片" : "查看未解锁提示";
+            if (PcButton(actionRect, action, true))
+            {
+                StartSelectedFragment();
+            }
+        }
+
+        private void DrawFragmentTutorialIfNeeded()
+        {
+            if (PlayerPrefs.GetInt(FragmentTutorialSeenKey, 0) != 0)
+            {
+                return;
+            }
+
+            var safe = GetGuiSafeArea();
+            DrawModalShade(safe);
+            var scale = UiScale;
+            var panel = new Rect(safe.x + safe.width * 0.14f, safe.y + safe.height * 0.09f,
+                safe.width * 0.72f, safe.height * 0.82f);
+            DrawPcModalPanel(panel);
+            DrawSectionHeader(panel, "碎片操作说明");
+            var text =
+                "轻触一个碎片\n显示名称、状态与解锁条件。\n\n" +
+                "再次轻触该碎片，或按“阅读此碎片”\n进入已经满足条件的内容。\n\n" +
+                "灰色/锁定状态表示条件尚未满足；\n" +
+                "可用底部“上一页／下一页”浏览全部碎片。";
+            GUI.Label(new Rect(panel.x + 42f * scale, panel.y + 84f * scale,
+                panel.width - 84f * scale, panel.height - 155f * scale), text, _dialogueStyle);
+            if (PcButton(new Rect(panel.center.x - 160f * scale, panel.yMax - 58f * scale,
+                    320f * scale, 43f * scale), "我知道了", true))
+            {
+                PlayerPrefs.SetInt(FragmentTutorialSeenKey, 1);
+                PlayerPrefs.Save();
+                SuppressInput();
+            }
+        }
+
+        private static string FragmentStateLabel(HigurashiFragmentViewState state, bool available)
+        {
+            switch (state)
+            {
+                case HigurashiFragmentViewState.Viewed:
+                    return "已读";
+                case HigurashiFragmentViewState.BrokenButFixable:
+                    return "可读";
+                case HigurashiFragmentViewState.Broken:
+                    return "未解锁";
+                default:
+                    return available ? "可读" : "未解锁";
+            }
+        }
+
+        private static Color FragmentStateColor(HigurashiFragmentViewState state, bool available)
+        {
+            switch (state)
+            {
+                case HigurashiFragmentViewState.Viewed:
+                    return new Color(0.26f, 0.52f, 0.31f, 0.98f);
+                case HigurashiFragmentViewState.BrokenButFixable:
+                    return new Color(0.75f, 0.48f, 0.04f, 0.98f);
+                case HigurashiFragmentViewState.Broken:
+                    return new Color(0.22f, 0.22f, 0.24f, 0.98f);
+                default:
+                    return available
+                        ? new Color(0.70f, 0.06f, 0.03f, 0.98f)
+                        : new Color(0.22f, 0.22f, 0.24f, 0.98f);
+            }
+        }
+
         private void DrawMessageWindow()
         {
             var content = GetContentRect();
@@ -433,8 +700,18 @@ namespace Higurashi.IOS.Runtime
             var height = Mathf.Clamp(content.height * 0.16f, 112f * scale, 175f * scale);
             var rect = new Rect(content.x, content.yMax - height, content.width, height);
             var opacity = Mathf.Clamp01(_settings.windowOpacity / 100f);
-            FillRect(rect, new Color(0.005f, 0.005f, 0.008f,
-                Mathf.Lerp(0.30f, 0.76f, opacity) * windowFade));
+            if (_host.WindowBackgroundTexture != null)
+            {
+                var previous = GUI.color;
+                GUI.color = new Color(1f, 1f, 1f, opacity * windowFade);
+                GUI.DrawTexture(rect, _host.WindowBackgroundTexture, ScaleMode.StretchToFill, true);
+                GUI.color = previous;
+            }
+            else
+            {
+                FillRect(rect, new Color(0.005f, 0.005f, 0.008f,
+                    Mathf.Lerp(0.30f, 0.76f, opacity) * windowFade));
+            }
             FillRect(new Rect(rect.x, rect.y, rect.width, Mathf.Max(1f, scale)),
                 new Color(1f, 1f, 1f, 0.34f * windowFade));
 
@@ -1071,7 +1348,8 @@ namespace Higurashi.IOS.Runtime
                 // must reach HandleInput, where it can only skip the current movie.
                 return false;
             }
-            if (_host.TitleVisible || IsModalVisible || _host.ChoiceVisible)
+            if (_host.TitleVisible || _host.FragmentChapterVisible || _host.FragmentListVisible ||
+                IsModalVisible || _host.ChoiceVisible)
             {
                 return true;
             }
@@ -1139,6 +1417,14 @@ namespace Higurashi.IOS.Runtime
         private bool PcButton(Rect rect, string text, bool small = false)
         {
             return GUI.Button(rect, text, small ? _pcSmallButtonStyle : _pcButtonStyle);
+        }
+
+        private void DrawDisabledPcButton(Rect rect, string text, bool small = false)
+        {
+            var enabled = GUI.enabled;
+            GUI.enabled = false;
+            GUI.Button(rect, text, small ? _pcSmallButtonStyle : _pcButtonStyle);
+            GUI.enabled = enabled;
         }
 
         private void DrawPanel(Rect rect, Color color)

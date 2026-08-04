@@ -215,6 +215,27 @@ namespace Higurashi.IOS.Buriko
             }
         }
 
+        // Certain original UI states (the Episode 08 Fragment browser) begin a
+        // scenario script after the player chooses an item. Keep the active
+        // frame on the call stack so its instruction after the modal resumes
+        // exactly like the PC state machine.
+        public void CallScriptFromUi(string scriptName, string block = "main")
+        {
+            if (_current == null)
+            {
+                throw new InvalidOperationException("Buriko runtime has not been started.");
+            }
+            if (string.IsNullOrWhiteSpace(scriptName))
+            {
+                throw new ArgumentException("A script name is required.", nameof(scriptName));
+            }
+
+            CallScript(scriptName, string.IsNullOrWhiteSpace(block) ? "main" : block);
+            BlockReason = BurikoBlockReason.None;
+            _remainingWaitMilliseconds = 0;
+            LastError = null;
+        }
+
         public void AdvanceTime(int elapsedMilliseconds)
         {
             if (BlockReason != BurikoBlockReason.WaitForTime)
@@ -337,6 +358,12 @@ namespace Higurashi.IOS.Buriko
                     return BurikoValue.Null;
                 case 150:
                     Return();
+                    return BurikoValue.Null;
+                case 162:
+                    JumpSection(arguments[0].AsString(Memory));
+                    return BurikoValue.Null;
+                case 166:
+                    JumpScript(arguments[0].AsString(Memory), arguments[1].AsString(Memory));
                     return BurikoValue.Null;
                 case 127:
                     CallScript(arguments[0].AsString(Memory), arguments[1].AsString(Memory));

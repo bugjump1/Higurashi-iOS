@@ -16,6 +16,7 @@ namespace Higurashi.IOS.Runtime
     {
         private const string SettingsKey = "higurashi-ios-settings-v1";
         private const string HelpSeenKey = "higurashi-ios-help-seen-v1";
+        private const string FragmentTutorialSeenKey = "higurashi-ios-ep08-fragment-tutorial-seen-v1";
         private const string OpeningPreferenceKey = "higurashi-ios-opening-preference-v1";
         private const int SaveFileMagic = 0x31534748; // HGS1
         private const int SaveFileVersion = 1;
@@ -248,6 +249,7 @@ namespace Higurashi.IOS.Runtime
             }
 
             if (_host.TitleVisible || _host.ChapterPreviewVisible ||
+                _host.FragmentChapterVisible || _host.FragmentListVisible ||
                 IsModalVisible || _host.ChoiceVisible)
             {
                 return;
@@ -479,6 +481,53 @@ namespace Higurashi.IOS.Runtime
             DriveRuntime(false);
             CaptureDialogueCheckpoint();
             _showHelpWhenGameplayStarts = PlayerPrefs.GetInt(HelpSeenKey, 0) == 0;
+        }
+
+        private void EnterFragmentList()
+        {
+            if (_runtime == null || !_host.ResolveFragmentChapterToList(_runtime.Memory))
+            {
+                return;
+            }
+
+            _fastTraversal.Stop();
+            _autoMode = false;
+            _runtime.ResumeInput();
+            _suppressInputUntilFrame = Time.frameCount + 2;
+            DriveRuntime(false);
+            CaptureDialogueCheckpoint();
+        }
+
+        private void ExitFragmentList()
+        {
+            if (_runtime == null || !_host.ExitFragmentList(_runtime.Memory))
+            {
+                return;
+            }
+
+            _fastTraversal.Stop();
+            _autoMode = false;
+            _runtime.ResumeInput();
+            _suppressInputUntilFrame = Time.frameCount + 2;
+            DriveRuntime(false);
+            CaptureDialogueCheckpoint();
+        }
+
+        private void StartSelectedFragment()
+        {
+            if (_runtime == null ||
+                !_host.TryStartSelectedFragment(_runtime.Memory, out var scriptName))
+            {
+                return;
+            }
+
+            _fastTraversal.Stop();
+            _autoMode = false;
+            _host.StopVoices();
+            _runtime.CallScriptFromUi(scriptName);
+            _suppressInputUntilFrame = Time.frameCount + 2;
+            DriveRuntime(false);
+            CaptureDialogueCheckpoint();
         }
 
         private void SelectChoice(int index)
@@ -875,11 +924,19 @@ namespace Higurashi.IOS.Runtime
 
         private string SaveSummary()
         {
+            var fragmentProgress = HigurashiActiveChapter.Profile.EpisodeNumber == 8 && _runtime != null &&
+                (_host.FragmentChapterVisible || _host.FragmentListVisible ||
+                 _runtime.Memory.GetLocalFlag("LFragmentLoop") > 0 ||
+                 _runtime.Memory.GetLocalFlag("LFragmentRead") > 0);
+
             var text = string.IsNullOrEmpty(_host.Speaker)
                 ? _host.Dialogue
                 : _host.Speaker + "　" + _host.Dialogue;
             text = (text ?? string.Empty).Replace('\n', ' ').Replace('\r', ' ').Trim();
-            return text.Length <= 80 ? text : text.Substring(0, 80) + "…";
+            text = text.Length <= 80 ? text : text.Substring(0, 80) + "…";
+            return fragmentProgress
+                ? "已解锁碎片\n" + (string.IsNullOrEmpty(text) ? "碎片编织中" : text)
+                : text;
         }
 
         private sealed class SaveSlotInfo

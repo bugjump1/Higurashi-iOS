@@ -88,6 +88,12 @@ namespace Higurashi.IOS.Compatibility
             "189A0538BE429C9C66CC5F3B74D20ED2E945A50C64F2C50CCF1600121D6C8318",
             "higurashi-07", "minagoroshi", "皆杀篇");
 
+        public static readonly HigurashiChapterProfile Episode08 = new HigurashiChapterProfile(
+            8, "HigurashiEp08", "com.bugjump.higurashi.ep08", "HigurashiEp08_Data",
+            "Higurashi-08-data.zip", 2866008705L,
+            "F63B9B8BB4AA3BDEC9A28B7AF87E0F16267085E0377397AF340E801E91D4D6AE",
+            "higurashi-08", "matsuribayashi", "祭囃篇");
+
         public static HigurashiChapterProfile ForEpisode(int episodeNumber)
         {
             switch (episodeNumber)
@@ -99,6 +105,7 @@ namespace Higurashi.IOS.Compatibility
                 case 5: return Episode05;
                 case 6: return Episode06;
                 case 7: return Episode07;
+                case 8: return Episode08;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(episodeNumber), episodeNumber,
                         "This episode has not been configured yet.");
@@ -107,6 +114,10 @@ namespace Higurashi.IOS.Compatibility
 
         public static HigurashiChapterProfile ForProductName(string productName)
         {
+            if (string.Equals(productName, Episode08.ProductName, StringComparison.OrdinalIgnoreCase))
+            {
+                return Episode08;
+            }
             if (string.Equals(productName, Episode07.ProductName, StringComparison.OrdinalIgnoreCase))
             {
                 return Episode07;

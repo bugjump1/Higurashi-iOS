@@ -26,6 +26,7 @@ namespace Higurashi.IOS.Buriko
         private static readonly BurikoOperationSpecification?[] Episode05Items = CreateEpisode05();
         private static readonly BurikoOperationSpecification?[] Episode06Items = CreateEpisode06();
         private static readonly BurikoOperationSpecification?[] Episode07Items = CreateEpisode07();
+        private static readonly BurikoOperationSpecification?[] Episode08Items = CreateEpisode08();
         private static BurikoOperationSpecification?[] Items = Episode01Items;
 
         public static void ConfigureForEpisode(int episodeNumber)
@@ -49,6 +50,9 @@ namespace Higurashi.IOS.Buriko
                     break;
                 case 7:
                     Items = Episode07Items;
+                    break;
+                case 8:
+                    Items = Episode08Items;
                     break;
                 default:
                     Items = Episode01Items;
@@ -363,6 +367,29 @@ namespace Higurashi.IOS.Buriko
             for (var rawCode = 136; rawCode <= 161; rawCode++)
             {
                 result[rawCode] = Episode01Items[rawCode - 14];
+            }
+            return result;
+        }
+
+        private static BurikoOperationSpecification?[] CreateEpisode08()
+        {
+            var result = new BurikoOperationSpecification?[256];
+            for (var rawCode = 0; rawCode <= 135; rawCode++)
+            {
+                result[rawCode] = Episode07Items[rawCode];
+            }
+
+            // Matsuribayashi adds its Fragment-mode controls immediately before
+            // the 07th-Mod extension range. Keep their raw positions so the
+            // remaining Mod operations are not parsed with shifted signatures.
+            result[136] = new BurikoOperationSpecification(162, "ShiftSection", "s");
+            result[137] = new BurikoOperationSpecification(163, "FragmentViewChapterScreen", "");
+            result[138] = new BurikoOperationSpecification(164, "FragmentListScreen", "");
+            result[139] = new BurikoOperationSpecification(165, "SetWindowBackground", "s");
+            result[140] = new BurikoOperationSpecification(166, "JumpScriptSection", "ss");
+            for (var rawCode = 141; rawCode <= 166; rawCode++)
+            {
+                result[rawCode] = Episode01Items[rawCode - 19];
             }
             return result;
         }

@@ -30,8 +30,10 @@ internal static class Program
             Episode05OperationCatalogNormalizesShiftedCodes,
             Episode06OperationCatalogNormalizesShiftedCodes,
             Episode07OperationCatalogNormalizesShiftedCodes,
+            Episode08OperationCatalogNormalizesFragmentCodes,
             BurikoRuntimeExecutesDialogueAndFlags,
             BurikoRuntimeCallsAndReturnsFromScript,
+            BurikoRuntimeCallsFragmentScriptFromUi,
             BurikoRuntimeSnapshotRestoresExecutionAndMemory,
             BurikoRuntimePersistentStateRoundTrips,
             BurikoRuntimeHandlesModCrossScriptSectionCall,
@@ -176,6 +178,26 @@ internal static class Program
         BurikoOperationCatalog.ConfigureForEpisode(1);
     }
 
+    private static void Episode08OperationCatalogNormalizesFragmentCodes()
+    {
+        BurikoOperationCatalog.ConfigureForEpisode(8);
+        Equal((short)162, BurikoOperationCatalog.Get(136).Code);
+        Equal("ShiftSection", BurikoOperationCatalog.Get(136).Name);
+        Equal((short)163, BurikoOperationCatalog.Get(137).Code);
+        Equal("FragmentViewChapterScreen", BurikoOperationCatalog.Get(137).Name);
+        Equal((short)164, BurikoOperationCatalog.Get(138).Code);
+        Equal("FragmentListScreen", BurikoOperationCatalog.Get(138).Name);
+        Equal((short)165, BurikoOperationCatalog.Get(139).Code);
+        Equal("SetWindowBackground", BurikoOperationCatalog.Get(139).Name);
+        Equal((short)166, BurikoOperationCatalog.Get(140).Code);
+        Equal("JumpScriptSection", BurikoOperationCatalog.Get(140).Name);
+        Equal((short)127, BurikoOperationCatalog.Get(146).Code);
+        Equal("ModCallScriptSection", BurikoOperationCatalog.Get(146).Name);
+        Equal((short)147, BurikoOperationCatalog.Get(166).Code);
+        Equal("ModGenericCall", BurikoOperationCatalog.Get(166).Name);
+        BurikoOperationCatalog.ConfigureForEpisode(1);
+    }
+
     private static void ChapterProfilesHaveWholeZipFingerprints()
     {
         var episode01 = HigurashiChapterProfiles.ForEpisode(1);
@@ -239,6 +261,16 @@ internal static class Program
         Equal(2565499174L, episode07.ExpectedDataPackSize);
         Equal("189A0538BE429C9C66CC5F3B74D20ED2E945A50C64F2C50CCF1600121D6C8318",
             episode07.ExpectedDataPackSha256);
+
+        var episode08 = HigurashiChapterProfiles.ForEpisode(8);
+        Equal("HigurashiEp08", episode08.ProductName);
+        Equal("com.bugjump.higurashi.ep08", episode08.BundleIdentifier);
+        Equal("Higurashi-08-data.zip", episode08.DataPackFileName);
+        Equal("higurashi-08", episode08.GameId);
+        Equal("matsuribayashi", episode08.ChapterSlug);
+        Equal(2866008705L, episode08.ExpectedDataPackSize);
+        Equal("F63B9B8BB4AA3BDEC9A28B7AF87E0F16267085E0377397AF340E801E91D4D6AE",
+            episode08.ExpectedDataPackSha256);
     }
 
     private static void BurikoTextContinuationFollowsPreviousMode()
@@ -472,6 +504,40 @@ internal static class Program
 
         Equal(BurikoBlockReason.Completed, runtime.RunUntilBlocked());
         Equal(1, runtime.Memory.GetGlobalFlag("GFlowReached"));
+    }
+
+    private static void BurikoRuntimeCallsFragmentScriptFromUi()
+    {
+        var init = BuildBytecode(writer =>
+        {
+            WriteOperation(writer, 3, () =>
+            {
+                WriteReferenceValue(writer, "GReturnedFromFragment");
+                WriteIntValue(writer, 1);
+            });
+            writer.Write((short)0);
+        });
+        var fragment = BuildBytecode(writer =>
+        {
+            WriteOperation(writer, 3, () =>
+            {
+                WriteReferenceValue(writer, "GFragmentRead");
+                WriteIntValue(writer, 1);
+            });
+            writer.Write((short)0);
+        });
+
+        var runtime = new BurikoRuntime(
+            new DictionaryScriptRepository(
+                ("init", WrapScript(init)),
+                ("fragment", WrapScript(fragment))),
+            new CapturingHost());
+        runtime.Start();
+        runtime.CallScriptFromUi("fragment");
+
+        Equal(BurikoBlockReason.Completed, runtime.RunUntilBlocked());
+        Equal(1, runtime.Memory.GetGlobalFlag("GFragmentRead"));
+        Equal(1, runtime.Memory.GetGlobalFlag("GReturnedFromFragment"));
     }
 
     private static void BurikoRuntimeSnapshotRestoresExecutionAndMemory()

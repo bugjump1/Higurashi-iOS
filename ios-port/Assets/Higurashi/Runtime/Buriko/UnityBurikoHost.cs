@@ -16,6 +16,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         private const int PersistentStateMagic = 0x31504848; // HHP1
         private const int PersistentUiStateMagic = 0x32554948; // HIU2
         private const int PersistentVisualStateMagic = 0x33564948; // HIV3
+        private const int PersistentFragmentUiStateMagic = 0x34524948; // HIR4
         private readonly List<RuntimePathCascade> _artSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _bgmSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _seSets = new List<RuntimePathCascade>();
@@ -53,6 +54,13 @@ namespace Higurashi.IOS.Runtime.Buriko
         private Texture2D _fragmentTexture;
         private string _fragmentTextureName = string.Empty;
         private string _fragmentStyle = string.Empty;
+        private Texture2D _windowBackgroundTexture;
+        private string _windowBackgroundName = string.Empty;
+        private HigurashiFragmentCatalog _fragmentCatalog = HigurashiFragmentCatalog.Empty;
+        private bool _fragmentChapterVisible;
+        private bool _fragmentListVisible;
+        private int _fragmentPage;
+        private int _selectedFragmentId = -1;
         private float _fragmentStartedAt;
         private float _fragmentTransitionStartedAt;
         private float _fragmentTransitionDuration;
@@ -76,6 +84,10 @@ namespace Higurashi.IOS.Runtime.Buriko
         public bool CreditsVisible { get; private set; }
         public int CreditsPage { get; private set; }
         public bool ChapterPreviewVisible { get; private set; }
+        public bool FragmentChapterVisible => _fragmentChapterVisible;
+        public bool FragmentListVisible => _fragmentListVisible;
+        public int FragmentPage => _fragmentPage;
+        public int SelectedFragmentId => _selectedFragmentId;
         public bool GameplayUiVisible { get; private set; }
         public bool SavingEnabled { get; private set; } = true;
         public bool InterfaceEnabled { get; private set; } = true;
@@ -179,6 +191,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             }
         }
         public Texture2D FragmentTexture => _fragmentTexture;
+        public Texture2D WindowBackgroundTexture => _windowBackgroundTexture;
         public string FragmentStyle => _fragmentStyle;
         public float FragmentAnimationTime => Mathf.Max(0f, Time.unscaledTime - _fragmentStartedAt);
         public float FragmentOpacity
@@ -220,6 +233,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             _settings = settings ?? new HigurashiUserSettings();
             _streamingAssetsRoot = Path.Combine(installedGameDataRoot, "StreamingAssets");
             _assets = new UnityAssetLoader(installedGameDataRoot);
+            _fragmentCatalog = HigurashiFragmentCatalog.Load(_streamingAssetsRoot);
             _audio = gameObject.AddComponent<UnityAudioService>();
             _audio.Initialize(installedGameDataRoot, this);
             _videoPlayer = gameObject.AddComponent<VideoPlayer>();
@@ -423,6 +437,27 @@ namespace Higurashi.IOS.Runtime.Buriko
                     return AnimationResponse(Int(invocation, 13, memory) / 1000f,
                         invocation.Arguments[14].AsBool(memory));
                 case 161:
+                    return BurikoHostResponse.Continue;
+                case 163:
+                    _fragmentChapterVisible = true;
+                    _fragmentListVisible = false;
+                    _selectedFragmentId = -1;
+                    GameplayUiVisible = false;
+                    SetWindowVisibilityImmediate(false);
+                    return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
+                case 164:
+                    _fragmentChapterVisible = false;
+                    _fragmentListVisible = true;
+                    _fragmentPage = Mathf.Max(0, memory.GetLocalFlag("LFragmentPage"));
+                    _selectedFragmentId = -1;
+                    GameplayUiVisible = false;
+                    SetWindowVisibilityImmediate(false);
+                    return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
+                case 165:
+                    _windowBackgroundName = Text(invocation, 0, memory);
+                    _windowBackgroundTexture = string.IsNullOrWhiteSpace(_windowBackgroundName)
+                        ? null
+                        : LoadTexture(_windowBackgroundName, memory);
                     return BurikoHostResponse.Continue;
                 case 24:
                     ShowChoices(invocation, memory);
@@ -646,12 +681,18 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 89:
                     ChapterPreviewVisible = true;
                     _chapterPreviewAccepted = false;
+                    _fragmentChapterVisible = false;
+                    _fragmentListVisible = false;
+                    _selectedFragmentId = -1;
                     GameplayUiVisible = false;
                     SetWindowVisibilityImmediate(false);
                     return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
                 case 101:
                     TitleVisible = true;
                     ChapterPreviewVisible = false;
+                    _fragmentChapterVisible = false;
+                    _fragmentListVisible = false;
+                    _selectedFragmentId = -1;
                     GameplayUiVisible = false;
                     SetWindowVisibilityImmediate(false);
                     return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
@@ -748,6 +789,9 @@ namespace Higurashi.IOS.Runtime.Buriko
             memory.SetLocalFlag("LOCALWORK_NO_RESULT", 0);
             TitleVisible = false;
             ChapterPreviewVisible = false;
+            _fragmentChapterVisible = false;
+            _fragmentListVisible = false;
+            _selectedFragmentId = -1;
             GameplayUiVisible = false;
             SetWindowVisibilityImmediate(false);
             return true;
@@ -765,6 +809,137 @@ namespace Higurashi.IOS.Runtime.Buriko
             _chapterPreviewAccepted = start;
             SetWindowVisibilityImmediate(false);
             return true;
+        }
+
+        public bool ResolveFragmentChapterToList(BurikoMemory memory)
+        {
+            if (!_fragmentChapterVisible || memory == null)
+            {
+                return false;
+            }
+
+            memory.SetLocalFlag("TipsMode", 1);
+            _fragmentChapterVisible = false;
+            _fragmentListVisible = false;
+            _selectedFragmentId = -1;
+            SetWindowVisibilityImmediate(false);
+            return true;
+        }
+
+        public bool ExitFragmentList(BurikoMemory memory)
+        {
+            if (!_fragmentListVisible || memory == null)
+            {
+                return false;
+            }
+
+            memory.SetLocalFlag("LFragmentPage", _fragmentPage);
+            memory.SetLocalFlag("TipsMode", 0);
+            _fragmentListVisible = false;
+            _selectedFragmentId = -1;
+            SetWindowVisibilityImmediate(false);
+            return true;
+        }
+
+        internal IReadOnlyList<HigurashiFragmentDefinition> GetVisibleFragments(BurikoMemory memory)
+        {
+            return _fragmentCatalog.GetVisible(memory);
+        }
+
+        internal HigurashiFragmentDefinition GetSelectedFragment()
+        {
+            return _fragmentCatalog.Find(_selectedFragmentId);
+        }
+
+        internal HigurashiFragmentViewState GetFragmentViewState(
+            HigurashiFragmentDefinition entry,
+            BurikoMemory memory)
+        {
+            return _fragmentCatalog.GetViewState(entry, memory);
+        }
+
+        internal bool AreFragmentPrerequisitesMet(
+            HigurashiFragmentDefinition entry,
+            BurikoMemory memory)
+        {
+            return _fragmentCatalog.ArePrerequisitesMet(entry, memory);
+        }
+
+        internal string FragmentPrerequisiteSummary(
+            HigurashiFragmentDefinition entry,
+            BurikoMemory memory)
+        {
+            return _fragmentCatalog.BuildPrerequisiteSummary(entry, memory);
+        }
+
+        public bool SelectFragment(int id, BurikoMemory memory)
+        {
+            if (!_fragmentListVisible || memory == null)
+            {
+                return false;
+            }
+
+            var visible = _fragmentCatalog.GetVisible(memory);
+            for (var i = 0; i < visible.Count; i++)
+            {
+                if (visible[i].Id == id)
+                {
+                    _selectedFragmentId = id;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public void ChangeFragmentPage(int delta, BurikoMemory memory)
+        {
+            if (!_fragmentListVisible || memory == null)
+            {
+                return;
+            }
+
+            var pageCount = Math.Max(1,
+                Mathf.CeilToInt(_fragmentCatalog.GetVisible(memory).Count / 8f));
+            _fragmentPage = Mathf.Clamp(_fragmentPage + delta, 0, pageCount - 1);
+            _selectedFragmentId = -1;
+        }
+
+        public bool TryStartSelectedFragment(BurikoMemory memory, out string scriptName)
+        {
+            scriptName = string.Empty;
+            if (!_fragmentListVisible || memory == null)
+            {
+                return false;
+            }
+
+            var entry = GetSelectedFragment();
+            if (entry == null)
+            {
+                return false;
+            }
+
+            var available = _fragmentCatalog.ArePrerequisitesMet(entry, memory);
+            if (available)
+            {
+                if (memory.GetLocalFlag(HigurashiFragmentCatalog.FragmentReadFlag(entry.Id)) == 0)
+                {
+                    memory.SetLocalFlag("LFragmentRead", memory.GetLocalFlag("LFragmentRead") + 1);
+                }
+                memory.SetLocalFlag(HigurashiFragmentCatalog.FragmentReadFlag(entry.Id), 1);
+                memory.SetLocalFlag(HigurashiFragmentCatalog.FragmentStatusFlag(entry.Id), 1);
+                scriptName = entry.Script;
+            }
+            else
+            {
+                memory.SetLocalFlag(HigurashiFragmentCatalog.FragmentStatusFlag(entry.Id), 2);
+                scriptName = "kakera_miss";
+            }
+
+            memory.SetLocalFlag("LFragmentPage", _fragmentPage);
+            _fragmentListVisible = false;
+            _selectedFragmentId = -1;
+            SetWindowVisibilityImmediate(false);
+            return !string.IsNullOrWhiteSpace(scriptName);
         }
 
         public bool CompleteCredits()
@@ -897,6 +1072,10 @@ namespace Higurashi.IOS.Runtime.Buriko
                 GameplayUiVisible,
                 ChapterPreviewVisible,
                 _chapterPreviewAccepted,
+                _fragmentChapterVisible,
+                _fragmentListVisible,
+                _fragmentPage,
+                _selectedFragmentId,
                 _appendNext,
                 _lastVoiceChannel,
                 _lastVoiceCharacter,
@@ -909,7 +1088,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                 WindowHeight,
                 ScreenAspect,
                 _fragmentTextureName,
-                _fragmentStyle);
+                _fragmentStyle,
+                _windowBackgroundName);
         }
 
         public void WritePersistentState(Stream output)
@@ -963,6 +1143,12 @@ namespace Higurashi.IOS.Runtime.Buriko
                 }
                 writer.Write(_fragmentTextureName ?? string.Empty);
                 writer.Write(_fragmentStyle ?? string.Empty);
+                writer.Write(_windowBackgroundName ?? string.Empty);
+                writer.Write(PersistentFragmentUiStateMagic);
+                writer.Write(_fragmentChapterVisible);
+                writer.Write(_fragmentListVisible);
+                writer.Write(_fragmentPage);
+                writer.Write(_selectedFragmentId);
             }
         }
 
@@ -972,6 +1158,12 @@ namespace Higurashi.IOS.Runtime.Buriko
             var hasPersistedAppendState = false;
             _fragmentTextureName = string.Empty;
             _fragmentStyle = string.Empty;
+            _windowBackgroundName = string.Empty;
+            _windowBackgroundTexture = null;
+            _fragmentChapterVisible = false;
+            _fragmentListVisible = false;
+            _fragmentPage = 0;
+            _selectedFragmentId = -1;
             using (var reader = new BinaryReader(input, System.Text.Encoding.UTF8, true))
             {
                 if (reader.ReadInt32() != PersistentStateMagic)
@@ -1054,6 +1246,28 @@ namespace Higurashi.IOS.Runtime.Buriko
                                 }
                                 _fragmentTextureName = reader.ReadString();
                                 _fragmentStyle = reader.ReadString();
+                                // The window skin was added after the fragment tail.
+                                // Keep saves made before that addition readable.
+                                if (input.Length > input.Position)
+                                {
+                                    _windowBackgroundName = reader.ReadString();
+                                }
+                                if (input.Length - input.Position >= sizeof(int))
+                                {
+                                    var fragmentUiTailPosition = input.Position;
+                                    if (reader.ReadInt32() == PersistentFragmentUiStateMagic &&
+                                        input.Length - input.Position >= 10)
+                                    {
+                                        _fragmentChapterVisible = reader.ReadBoolean();
+                                        _fragmentListVisible = reader.ReadBoolean();
+                                        _fragmentPage = Math.Max(0, reader.ReadInt32());
+                                        _selectedFragmentId = reader.ReadInt32();
+                                    }
+                                    else
+                                    {
+                                        input.Position = fragmentUiTailPosition;
+                                    }
+                                }
                             }
                             else
                             {
@@ -1073,6 +1287,10 @@ namespace Higurashi.IOS.Runtime.Buriko
             if (!hasPersistedUiState)
             {
                 ChapterPreviewVisible = false;
+                _fragmentChapterVisible = false;
+                _fragmentListVisible = false;
+                _fragmentPage = 0;
+                _selectedFragmentId = -1;
                 GameplayUiVisible = !TitleVisible;
                 _chapterPreviewAccepted = GameplayUiVisible;
                 SavingEnabled = !TitleVisible;
@@ -1087,6 +1305,9 @@ namespace Higurashi.IOS.Runtime.Buriko
             _fragmentTexture = string.IsNullOrWhiteSpace(_fragmentTextureName)
                 ? null
                 : LoadTexture(_fragmentTextureName, memory);
+            _windowBackgroundTexture = string.IsNullOrWhiteSpace(_windowBackgroundName)
+                ? null
+                : LoadTexture(_windowBackgroundName, memory);
             _fragmentStartedAt = Time.unscaledTime;
             _fragmentTransitionDuration = 0f;
             _fragmentTransitionFrom = _fragmentTexture != null ? 1f : 0f;
@@ -1144,6 +1365,10 @@ namespace Higurashi.IOS.Runtime.Buriko
             ChapterPreviewVisible = snapshot.ChapterPreviewVisible;
             GameplayUiVisible = snapshot.GameplayUiVisible;
             _chapterPreviewAccepted = snapshot.ChapterPreviewAccepted;
+            _fragmentChapterVisible = snapshot.FragmentChapterVisible;
+            _fragmentListVisible = snapshot.FragmentListVisible;
+            _fragmentPage = snapshot.FragmentPage;
+            _selectedFragmentId = snapshot.SelectedFragmentId;
             _appendNext = snapshot.AppendNext;
             _lastVoiceChannel = snapshot.LastVoiceChannel;
             _lastVoiceCharacter = snapshot.LastVoiceCharacter;
@@ -1170,6 +1395,10 @@ namespace Higurashi.IOS.Runtime.Buriko
             _fragmentTexture = string.IsNullOrWhiteSpace(_fragmentTextureName)
                 ? null
                 : LoadTexture(_fragmentTextureName, memory);
+            _windowBackgroundName = snapshot.WindowBackgroundName;
+            _windowBackgroundTexture = string.IsNullOrWhiteSpace(_windowBackgroundName)
+                ? null
+                : LoadTexture(_windowBackgroundName, memory);
             _fragmentStartedAt = Time.unscaledTime;
             _fragmentTransitionDuration = 0f;
             _fragmentTransitionFrom = _fragmentTexture != null ? 1f : 0f;
@@ -1190,6 +1419,9 @@ namespace Higurashi.IOS.Runtime.Buriko
             _fragmentTexture = string.IsNullOrWhiteSpace(_fragmentTextureName)
                 ? null
                 : LoadTexture(_fragmentTextureName, memory);
+            _windowBackgroundTexture = string.IsNullOrWhiteSpace(_windowBackgroundName)
+                ? null
+                : LoadTexture(_windowBackgroundName, memory);
             foreach (var pair in _layers)
             {
                 pair.Value.Texture = LoadTexture(pair.Value.TextureName, memory);
@@ -2268,6 +2500,10 @@ namespace Higurashi.IOS.Runtime.Buriko
             bool gameplayUiVisible,
             bool chapterPreviewVisible,
             bool chapterPreviewAccepted,
+            bool fragmentChapterVisible,
+            bool fragmentListVisible,
+            int fragmentPage,
+            int selectedFragmentId,
             bool appendNext,
             int lastVoiceChannel,
             int lastVoiceCharacter,
@@ -2280,7 +2516,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             int windowHeight,
             string screenAspect,
             string fragmentTextureName,
-            string fragmentStyle)
+            string fragmentStyle,
+            string windowBackgroundName)
         {
             BackgroundName = backgroundName;
             Layers = layers;
@@ -2294,6 +2531,10 @@ namespace Higurashi.IOS.Runtime.Buriko
             GameplayUiVisible = gameplayUiVisible;
             ChapterPreviewVisible = chapterPreviewVisible;
             ChapterPreviewAccepted = chapterPreviewAccepted;
+            FragmentChapterVisible = fragmentChapterVisible;
+            FragmentListVisible = fragmentListVisible;
+            FragmentPage = Math.Max(0, fragmentPage);
+            SelectedFragmentId = selectedFragmentId;
             AppendNext = appendNext;
             LastVoiceChannel = lastVoiceChannel;
             LastVoiceCharacter = lastVoiceCharacter;
@@ -2307,6 +2548,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             ScreenAspect = screenAspect;
             FragmentTextureName = fragmentTextureName ?? string.Empty;
             FragmentStyle = fragmentStyle ?? string.Empty;
+            WindowBackgroundName = windowBackgroundName ?? string.Empty;
         }
 
         public string BackgroundName { get; }
@@ -2321,6 +2563,10 @@ namespace Higurashi.IOS.Runtime.Buriko
         public bool GameplayUiVisible { get; }
         public bool ChapterPreviewVisible { get; }
         public bool ChapterPreviewAccepted { get; }
+        public bool FragmentChapterVisible { get; }
+        public bool FragmentListVisible { get; }
+        public int FragmentPage { get; }
+        public int SelectedFragmentId { get; }
         public bool AppendNext { get; }
         public int LastVoiceChannel { get; }
         public int LastVoiceCharacter { get; }
@@ -2334,6 +2580,189 @@ namespace Higurashi.IOS.Runtime.Buriko
         public string ScreenAspect { get; }
         public string FragmentTextureName { get; }
         public string FragmentStyle { get; }
+        public string WindowBackgroundName { get; }
+    }
+
+    internal enum HigurashiFragmentViewState
+    {
+        Unviewed,
+        Broken,
+        BrokenButFixable,
+        Viewed
+    }
+
+    [Serializable]
+    internal sealed class HigurashiFragmentDefinition
+    {
+        public int Id;
+        public string Title;
+        public string Description;
+        public string TitleJp;
+        public string DescriptionJp;
+        public string Script;
+        public int[] Prereqs;
+    }
+
+    [Serializable]
+    internal sealed class HigurashiFragmentCatalogDocument
+    {
+        public HigurashiFragmentDefinition[] Items;
+    }
+
+    internal sealed class HigurashiFragmentCatalog
+    {
+        private readonly List<HigurashiFragmentDefinition> _entries;
+
+        private HigurashiFragmentCatalog(IEnumerable<HigurashiFragmentDefinition> entries)
+        {
+            _entries = new List<HigurashiFragmentDefinition>();
+            if (entries == null)
+            {
+                return;
+            }
+            foreach (var entry in entries)
+            {
+                if (entry != null && entry.Id > 0 && !string.IsNullOrWhiteSpace(entry.Script))
+                {
+                    entry.Prereqs = entry.Prereqs ?? new int[0];
+                    _entries.Add(entry);
+                }
+            }
+            _entries.Sort((left, right) => left.Id.CompareTo(right.Id));
+        }
+
+        public static HigurashiFragmentCatalog Empty { get; } =
+            new HigurashiFragmentCatalog(new HigurashiFragmentDefinition[0]);
+
+        public static HigurashiFragmentCatalog Load(string streamingAssetsRoot)
+        {
+            var path = Path.Combine(streamingAssetsRoot ?? string.Empty, "Data", "fragmentdata.txt");
+            if (!File.Exists(path))
+            {
+                return Empty;
+            }
+
+            try
+            {
+                var json = File.ReadAllText(path);
+                var document = JsonUtility.FromJson<HigurashiFragmentCatalogDocument>(
+                    "{\"Items\":" + json + "}");
+                return document == null || document.Items == null
+                    ? Empty
+                    : new HigurashiFragmentCatalog(document.Items);
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("Unable to load Higurashi fragment data: " + exception.Message);
+                return Empty;
+            }
+        }
+
+        public HigurashiFragmentDefinition Find(int id)
+        {
+            for (var i = 0; i < _entries.Count; i++)
+            {
+                if (_entries[i].Id == id)
+                {
+                    return _entries[i];
+                }
+            }
+            return null;
+        }
+
+        public List<HigurashiFragmentDefinition> GetVisible(BurikoMemory memory)
+        {
+            var result = new List<HigurashiFragmentDefinition>();
+            if (memory == null)
+            {
+                return result;
+            }
+
+            for (var i = 0; i < _entries.Count; i++)
+            {
+                var entry = _entries[i];
+                if (entry.Id <= 50 ||
+                    (entry.Id == 51 && ArePrerequisitesMet(entry, memory)) ||
+                    (entry.Id == 52 && memory.GetGlobalFlag("GFlag_GameClear") != 0 &&
+                     memory.GetLocalFlag("LFragmentMiss") == 0 &&
+                     ArePrerequisitesMet(entry, memory)))
+                {
+                    result.Add(entry);
+                }
+            }
+            return result;
+        }
+
+        public bool ArePrerequisitesMet(HigurashiFragmentDefinition entry, BurikoMemory memory)
+        {
+            if (entry == null || memory == null)
+            {
+                return false;
+            }
+            for (var i = 0; i < entry.Prereqs.Length; i++)
+            {
+                if (memory.GetLocalFlag(FragmentReadFlag(entry.Prereqs[i])) == 0)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        public HigurashiFragmentViewState GetViewState(
+            HigurashiFragmentDefinition entry,
+            BurikoMemory memory)
+        {
+            var isAvailable = ArePrerequisitesMet(entry, memory);
+            var state = memory == null ? 0 : memory.GetLocalFlag(FragmentStatusFlag(entry.Id));
+            if (state == 1)
+            {
+                return HigurashiFragmentViewState.Viewed;
+            }
+            if (state == 2)
+            {
+                return isAvailable
+                    ? HigurashiFragmentViewState.BrokenButFixable
+                    : HigurashiFragmentViewState.Broken;
+            }
+            return HigurashiFragmentViewState.Unviewed;
+        }
+
+        public string BuildPrerequisiteSummary(HigurashiFragmentDefinition entry, BurikoMemory memory)
+        {
+            if (entry == null)
+            {
+                return string.Empty;
+            }
+            if (entry.Prereqs.Length == 0)
+            {
+                return "无需前置条件。";
+            }
+
+            var lines = new List<string>();
+            for (var i = 0; i < entry.Prereqs.Length; i++)
+            {
+                var prerequisiteId = entry.Prereqs[i];
+                var prerequisite = Find(prerequisiteId);
+                var title = prerequisite == null || string.IsNullOrEmpty(prerequisite.Title)
+                    ? "碎片 " + prerequisiteId.ToString("00")
+                    : prerequisite.Title;
+                var met = memory != null &&
+                          memory.GetLocalFlag(FragmentReadFlag(prerequisiteId)) != 0;
+                lines.Add((met ? "✓ " : "○ ") + title);
+            }
+            return string.Join("\n", lines.ToArray());
+        }
+
+        public static string FragmentReadFlag(int id)
+        {
+            return "FragmentRead" + id.ToString("00");
+        }
+
+        public static string FragmentStatusFlag(int id)
+        {
+            return "FragmentStatus" + id.ToString("00");
+        }
     }
 
     internal sealed class UnityAssetLoader
