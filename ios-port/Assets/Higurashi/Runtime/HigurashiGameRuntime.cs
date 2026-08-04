@@ -19,6 +19,10 @@ namespace Higurashi.IOS.Runtime
         private const string OpeningPreferenceKey = "higurashi-ios-opening-preference-v1";
         private const int SaveFileMagic = 0x31534748; // HGS1
         private const int SaveFileVersion = 1;
+        // This is a read-only summary slot in the save/load UI. Every successful
+        // save path mirrors its current state here, so Continue and quick load
+        // always have one unambiguous latest save to use.
+        private const int LatestSaveSlot = 1;
         private readonly FastTraversalController _fastTraversal = new FastTraversalController(10f);
         private readonly DataPackImportService _dataPack = new DataPackImportService();
         private readonly CheckpointTimeline<RuntimeCheckpoint> _timeline =
@@ -594,7 +598,7 @@ namespace Higurashi.IOS.Runtime
                    _runtime.BlockReason != BurikoBlockReason.Completed;
         }
 
-        private void SaveGame(int slot, bool showToast = true)
+        private void SaveGame(int slot, bool showToast = true, bool updateLatest = true)
         {
             if (!CanSaveGame())
             {
@@ -607,28 +611,11 @@ namespace Higurashi.IOS.Runtime
 
             try
             {
-                var directory = Path.Combine(Application.persistentDataPath, "Saves");
-                Directory.CreateDirectory(directory);
-                var path = SaveSlotPath(slot);
-                var temporaryPath = path + ".tmp";
-                using (var stream = new FileStream(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None))
-                using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, true))
+                WriteSaveGame(slot);
+                if (updateLatest && slot != LatestSaveSlot)
                 {
-                    writer.Write(SaveFileMagic);
-                    writer.Write(SaveFileVersion);
-                    writer.Write(DateTime.UtcNow.Ticks);
-                    writer.Write(_runtime.CurrentScriptName ?? string.Empty);
-                    writer.Write(_runtime.CurrentLine);
-                    writer.Write(SaveSummary());
-                    _runtime.WritePersistentState(stream);
-                    _host.WritePersistentState(stream);
-                    stream.Flush();
+                    WriteSaveGame(LatestSaveSlot);
                 }
-                if (File.Exists(path))
-                {
-                    File.Delete(path);
-                }
-                File.Move(temporaryPath, path);
                 if (showToast)
                 {
                     ShowToast(SaveCompletedMessage(slot));
@@ -642,6 +629,32 @@ namespace Higurashi.IOS.Runtime
                     ShowToast("保存失败");
                 }
             }
+        }
+
+        private void WriteSaveGame(int slot)
+        {
+            var directory = Path.Combine(Application.persistentDataPath, "Saves");
+            Directory.CreateDirectory(directory);
+            var path = SaveSlotPath(slot);
+            var temporaryPath = path + ".tmp";
+            using (var stream = new FileStream(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var writer = new BinaryWriter(stream, System.Text.Encoding.UTF8, true))
+            {
+                writer.Write(SaveFileMagic);
+                writer.Write(SaveFileVersion);
+                writer.Write(DateTime.UtcNow.Ticks);
+                writer.Write(_runtime.CurrentScriptName ?? string.Empty);
+                writer.Write(_runtime.CurrentLine);
+                writer.Write(SaveSummary());
+                _runtime.WritePersistentState(stream);
+                _host.WritePersistentState(stream);
+                stream.Flush();
+            }
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+            File.Move(temporaryPath, path);
         }
 
         private void LoadGame(int slot)
@@ -787,13 +800,14 @@ namespace Higurashi.IOS.Runtime
 
         private void SaveQuickGame()
         {
-            SaveGame(FindOldestOrEmptySlot(101, 103), false);
-            SaveGame(1);
+            SaveGame(FindOldestOrEmptySlot(101, 103));
         }
 
         private void LoadLatestQuickGame()
         {
-            var slot = ReadSaveSlotInfo(1) != null ? 1 : FindLatestSlot(101, 103);
+            var slot = ReadSaveSlotInfo(LatestSaveSlot) != null
+                ? LatestSaveSlot
+                : FindLatestSlot(101, 103);
             if (slot < 0 && ReadSaveSlotInfo(0) != null)
             {
                 slot = 0;
@@ -842,7 +856,7 @@ namespace Higurashi.IOS.Runtime
         {
             if (slot >= 201) return "自动保存完成";
             if (slot >= 101) return "快速保存完成";
-            if (slot == 0 || slot == 1) return "快速保存完成";
+            if (slot == 0 || slot == LatestSaveSlot) return "最新保存已更新";
             return "已保存到文件 " + (slot - 1).ToString("00");
         }
 
@@ -850,7 +864,7 @@ namespace Higurashi.IOS.Runtime
         {
             if (slot >= 201) return "已读取自动存档 " + (slot - 200);
             if (slot >= 101) return "已读取快速存档 " + (slot - 100);
-            if (slot == 0 || slot == 1) return "已读取最新快速存档";
+            if (slot == 0 || slot == LatestSaveSlot) return "已读取最新保存";
             return "已读取文件 " + (slot - 1).ToString("00");
         }
 

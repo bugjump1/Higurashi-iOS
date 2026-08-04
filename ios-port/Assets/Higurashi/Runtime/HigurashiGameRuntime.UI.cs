@@ -740,7 +740,7 @@ namespace Higurashi.IOS.Runtime
             var scale = UiScale;
             GUI.Box(rect, GUIContent.none, _slotStyle);
             var info = ReadSaveSlotInfo(slot);
-            var canSave = CanSaveGame() && slot != 1;
+            var canSave = CanSaveGame() && slot != LatestSaveSlot;
             var buttonWidth = 82f * scale;
             var buttonGap = 6f * scale;
             var buttonCount = info == null ? (canSave ? 1 : 0) : (canSave ? 3 : 2);
@@ -750,8 +750,8 @@ namespace Higurashi.IOS.Runtime
             var textX = rect.x + 14f * scale;
             var textWidth = rect.width - 28f * scale - controlsWidth;
             GUI.Label(new Rect(textX, rect.y + 7f * scale, textWidth, 29f * scale),
-                slot == 1
-                    ? "最新快速存档"
+                slot == LatestSaveSlot
+                    ? "最新保存"
                     : "文件 " + (slot - 1).ToString("00", CultureInfo.InvariantCulture),
                 _speakerStyle);
             GUI.Label(new Rect(textX, rect.y + 35f * scale, textWidth, rect.height - 40f * scale),
@@ -790,8 +790,8 @@ namespace Higurashi.IOS.Runtime
                     try
                     {
                         File.Delete(SaveSlotPath(slot));
-                        ShowToast(slot == 1
-                            ? "已删除最新快速存档"
+                        ShowToast(slot == LatestSaveSlot
+                            ? "已删除最新保存"
                             : "已删除文件 " + (slot - 1).ToString("00", CultureInfo.InvariantCulture));
                     }
                     catch (Exception exception)
