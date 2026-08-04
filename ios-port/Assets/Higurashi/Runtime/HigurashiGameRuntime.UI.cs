@@ -778,25 +778,34 @@ namespace Higurashi.IOS.Runtime
 
             var left = safe.x + 34f * scale;
             var top = safe.y + 22f * scale;
+            var isEpisodeEight = HigurashiActiveChapter.Profile.EpisodeNumber == 8;
             DrawShadowLabel(new Rect(left, top, safe.width * 0.52f, 64f * scale),
-                "YCX STUDIOS 汉化组", _titleStyle);
+                isEpisodeEight ? "参与人员" : "YCX STUDIOS 汉化组", _titleStyle);
             GUI.Label(new Rect(safe.xMax - safe.width * 0.38f - 30f * scale,
                     safe.y + 26f * scale, safe.width * 0.38f, 82f * scale),
                 "寒蝉鸣泣之时\n" + HigurashiActiveChapter.Profile.ChineseChapterTitle,
                 _panelTitleStyle);
             top += 88f * scale;
-            var credits =
-                "参与人员\n" +
-                "原翻译：mayurina（里娜），srwfe（繁），纯真な工房（简），NNET，雪\n" +
-                "原润色：61y，晴，只是路人，Mize\n" +
-                "监制：ycx\n技术：ycx\n翻译：ycx\n" +
-                "校对＆润色：ycx，ReKo，DoSun，Xuee\n" +
-                "美工：ycx\n测试：ycx";
+            var credits = isEpisodeEight
+                ? "翻译：990，麻生早纪\n" +
+                  "校对：枝瀬愛\n" +
+                  "程序：饭\n" +
+                  "润色：990，麻生早纪\n" +
+                  "特别鸣谢：蝉吧全体吧友，DS，DB，GPT"
+                : "参与人员\n" +
+                  "原翻译：mayurina（里娜），srwfe（繁），纯真な工房（简），NNET，雪\n" +
+                  "原润色：61y，晴，只是路人，Mize\n" +
+                  "监制：ycx\n技术：ycx\n翻译：ycx\n" +
+                  "校对＆润色：ycx，ReKo，DoSun，Xuee\n" +
+                  "美工：ycx\n测试：ycx";
             GUI.Label(new Rect(left, top, safe.width * 0.72f, safe.height * 0.62f), credits, _dialogueStyle);
-            DrawShadowLabel(new Rect(safe.x, safe.yMax - 145f * scale, safe.width, 58f * scale),
-                "简体中文版汉化补丁 Ver 1.4", _titleStyle);
-            GUI.Label(new Rect(safe.x, safe.yMax - 82f * scale, safe.width, 38f * scale),
-                "哔哩哔哩专栏　×　其乐 KeyLol　共同发布", _panelTitleStyle);
+            if (!isEpisodeEight)
+            {
+                DrawShadowLabel(new Rect(safe.x, safe.yMax - 145f * scale, safe.width, 58f * scale),
+                    "简体中文版汉化补丁 Ver 1.4", _titleStyle);
+                GUI.Label(new Rect(safe.x, safe.yMax - 82f * scale, safe.width, 38f * scale),
+                    "哔哩哔哩专栏　×　其乐 KeyLol　共同发布", _panelTitleStyle);
+            }
             GUI.Label(new Rect(safe.x, safe.yMax - 42f * scale, safe.width, 30f * scale),
                 "轻触屏幕继续", _statusStyle);
         }
