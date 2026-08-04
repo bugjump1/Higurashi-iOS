@@ -15,6 +15,7 @@ namespace Higurashi.IOS.Runtime.Buriko
     {
         private const int PersistentStateMagic = 0x31504848; // HHP1
         private const int PersistentUiStateMagic = 0x32554948; // HIU2
+        private const int PersistentVisualStateMagic = 0x33564948; // HIV3
         private readonly List<RuntimePathCascade> _artSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _bgmSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _seSets = new List<RuntimePathCascade>();
@@ -49,6 +50,14 @@ namespace Higurashi.IOS.Runtime.Buriko
         private float _windowTransitionDuration;
         private float _windowTransitionFrom = 1f;
         private float _windowTransitionTo = 1f;
+        private Texture2D _fragmentTexture;
+        private string _fragmentTextureName = string.Empty;
+        private string _fragmentStyle = string.Empty;
+        private float _fragmentStartedAt;
+        private float _fragmentTransitionStartedAt;
+        private float _fragmentTransitionDuration;
+        private float _fragmentTransitionFrom;
+        private float _fragmentTransitionTo;
         private bool _appendNext;
         private int _currentVoiceCharacter = -1;
         private int _lastVoiceChannel = -1;
@@ -169,6 +178,27 @@ namespace Higurashi.IOS.Runtime.Buriko
                     0xFF);
             }
         }
+        public Texture2D FragmentTexture => _fragmentTexture;
+        public string FragmentStyle => _fragmentStyle;
+        public float FragmentAnimationTime => Mathf.Max(0f, Time.unscaledTime - _fragmentStartedAt);
+        public float FragmentOpacity
+        {
+            get
+            {
+                if (_fragmentTexture == null)
+                {
+                    return 0f;
+                }
+                if (_fragmentTransitionDuration <= 0f)
+                {
+                    return _fragmentTransitionTo;
+                }
+                var progress = Mathf.Clamp01(
+                    (Time.unscaledTime - _fragmentTransitionStartedAt) / _fragmentTransitionDuration);
+                return Mathf.Lerp(_fragmentTransitionFrom, _fragmentTransitionTo,
+                    -(Mathf.Cos(Mathf.PI * progress) - 1f) * 0.5f);
+            }
+        }
 
         private int VisibleDialogueLength
         {
@@ -204,6 +234,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         private void Update()
         {
             UpdateWindowTransition();
+            UpdateFragmentTransition();
             UpdateLipSync();
         }
 
@@ -373,6 +404,26 @@ namespace Higurashi.IOS.Runtime.Buriko
                     return new BurikoHostResponse(
                         BurikoValue.FromInt(UnityEngine.Random.Range(0, exclusiveMaximum)));
                 }
+                case 157:
+                {
+                    var duration = Int(invocation, 2, memory) / 1000f;
+                    StartFragment(Text(invocation, 0, memory), Text(invocation, 1, memory),
+                        duration, memory);
+                    return AnimationResponse(duration, true);
+                }
+                case 158:
+                    StopFragment(Int(invocation, 0, memory) / 1000f);
+                    return BurikoHostResponse.Continue;
+                case 159:
+                    DrawFixedSizeSprite(invocation, memory, false);
+                    return AnimationResponse(Int(invocation, 16, memory) / 1000f,
+                        invocation.Arguments[17].AsBool(memory));
+                case 160:
+                    DrawFixedSizeSprite(invocation, memory, true);
+                    return AnimationResponse(Int(invocation, 13, memory) / 1000f,
+                        invocation.Arguments[14].AsBool(memory));
+                case 161:
+                    return BurikoHostResponse.Continue;
                 case 24:
                     ShowChoices(invocation, memory);
                     return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Choice);
@@ -856,7 +907,9 @@ namespace Higurashi.IOS.Runtime.Buriko
                 WindowY,
                 WindowWidth,
                 WindowHeight,
-                ScreenAspect);
+                ScreenAspect,
+                _fragmentTextureName,
+                _fragmentStyle);
         }
 
         public void WritePersistentState(Stream output)
@@ -900,6 +953,16 @@ namespace Higurashi.IOS.Runtime.Buriko
                 writer.Write(ChapterPreviewVisible);
                 writer.Write(_chapterPreviewAccepted);
                 writer.Write(_appendNext);
+                writer.Write(PersistentVisualStateMagic);
+                writer.Write(_layers.Count);
+                foreach (var pair in _layers)
+                {
+                    writer.Write(pair.Key);
+                    writer.Write(pair.Value.OverrideWidth);
+                    writer.Write(pair.Value.OverrideHeight);
+                }
+                writer.Write(_fragmentTextureName ?? string.Empty);
+                writer.Write(_fragmentStyle ?? string.Empty);
             }
         }
 
@@ -907,6 +970,8 @@ namespace Higurashi.IOS.Runtime.Buriko
         {
             var hasPersistedUiState = false;
             var hasPersistedAppendState = false;
+            _fragmentTextureName = string.Empty;
+            _fragmentStyle = string.Empty;
             using (var reader = new BinaryReader(input, System.Text.Encoding.UTF8, true))
             {
                 if (reader.ReadInt32() != PersistentStateMagic)
@@ -968,6 +1033,33 @@ namespace Higurashi.IOS.Runtime.Buriko
                             hasPersistedAppendState = true;
                         }
                         hasPersistedUiState = true;
+
+                        if (input.Length - input.Position >= sizeof(int))
+                        {
+                            var visualTailPosition = input.Position;
+                            if (reader.ReadInt32() == PersistentVisualStateMagic)
+                            {
+                                var visualLayerCount = ReadCount(reader, 10000,
+                                    "visual presentation layer");
+                                for (var i = 0; i < visualLayerCount; i++)
+                                {
+                                    var id = reader.ReadInt32();
+                                    var overrideWidth = reader.ReadInt32();
+                                    var overrideHeight = reader.ReadInt32();
+                                    if (_layers.TryGetValue(id, out var visualLayer))
+                                    {
+                                        visualLayer.OverrideWidth = Math.Max(0, overrideWidth);
+                                        visualLayer.OverrideHeight = Math.Max(0, overrideHeight);
+                                    }
+                                }
+                                _fragmentTextureName = reader.ReadString();
+                                _fragmentStyle = reader.ReadString();
+                            }
+                            else
+                            {
+                                input.Position = visualTailPosition;
+                            }
+                        }
                     }
                     else
                     {
@@ -992,6 +1084,13 @@ namespace Higurashi.IOS.Runtime.Buriko
             _previousBackgroundTexture = null;
             _backgroundTransitionMask = null;
             _backgroundTransitionDuration = 0f;
+            _fragmentTexture = string.IsNullOrWhiteSpace(_fragmentTextureName)
+                ? null
+                : LoadTexture(_fragmentTextureName, memory);
+            _fragmentStartedAt = Time.unscaledTime;
+            _fragmentTransitionDuration = 0f;
+            _fragmentTransitionFrom = _fragmentTexture != null ? 1f : 0f;
+            _fragmentTransitionTo = _fragmentTransitionFrom;
             _blockingAnimationUntil = 0f;
             _previousSceneLayers.Clear();
             _dialogueRevealForced = true;
@@ -1066,6 +1165,15 @@ namespace Higurashi.IOS.Runtime.Buriko
             _backgroundTransitionMask = null;
             _backgroundTransitionDuration = 0f;
             _blockingAnimationUntil = 0f;
+            _fragmentTextureName = snapshot.FragmentTextureName;
+            _fragmentStyle = snapshot.FragmentStyle;
+            _fragmentTexture = string.IsNullOrWhiteSpace(_fragmentTextureName)
+                ? null
+                : LoadTexture(_fragmentTextureName, memory);
+            _fragmentStartedAt = Time.unscaledTime;
+            _fragmentTransitionDuration = 0f;
+            _fragmentTransitionFrom = _fragmentTexture != null ? 1f : 0f;
+            _fragmentTransitionTo = _fragmentTransitionFrom;
             _previousSceneLayers.Clear();
             _layers.Clear();
             for (var i = 0; i < snapshot.Layers.Length; i++)
@@ -1079,6 +1187,9 @@ namespace Higurashi.IOS.Runtime.Buriko
         public void ReloadVisualAssets(BurikoMemory memory)
         {
             _backgroundTexture = LoadTexture(_backgroundName, memory);
+            _fragmentTexture = string.IsNullOrWhiteSpace(_fragmentTextureName)
+                ? null
+                : LoadTexture(_fragmentTextureName, memory);
             foreach (var pair in _layers)
             {
                 pair.Value.Texture = LoadTexture(pair.Value.TextureName, memory);
@@ -1289,7 +1400,9 @@ namespace Higurashi.IOS.Runtime.Buriko
             BurikoMemory memory,
             bool isBustshot,
             float alpha = 1f,
-            float duration = 0f)
+            float duration = 0f,
+            int overrideWidth = 0,
+            int overrideHeight = 0)
         {
             Texture2D previousTexture = null;
             float previousX = x;
@@ -1298,12 +1411,16 @@ namespace Higurashi.IOS.Runtime.Buriko
             float previousAlpha = 0f;
             var previousIsBustshot = isBustshot;
             var previousIsCentered = isBustshot || (x == 0 && y == 0);
+            var previousOverrideWidth = 0;
+            var previousOverrideHeight = 0;
             if (duration > 0f && _layers.TryGetValue(id, out var previous))
             {
                 previousTexture = previous.Texture;
                 previous.GetRenderState(out previousX, out previousY, out previousZ, out previousAlpha);
                 previousIsBustshot = previous.IsBustshot;
                 previousIsCentered = previous.IsCentered;
+                previousOverrideWidth = previous.OverrideWidth;
+                previousOverrideHeight = previous.OverrideHeight;
             }
 
             _layers[id] = new PresentationLayer
@@ -1331,6 +1448,10 @@ namespace Higurashi.IOS.Runtime.Buriko
                 PreviousAlpha = previousAlpha,
                 PreviousIsBustshot = previousIsBustshot,
                 PreviousIsCentered = previousIsCentered,
+                OverrideWidth = Math.Max(0, overrideWidth),
+                OverrideHeight = Math.Max(0, overrideHeight),
+                PreviousOverrideWidth = previousOverrideWidth,
+                PreviousOverrideHeight = previousOverrideHeight,
                 EaseType = duration > 0f ? 13 : 0
             };
         }
@@ -1438,6 +1559,47 @@ namespace Higurashi.IOS.Runtime.Buriko
             changed.LipSyncBaseName = previous.LipSyncBaseName;
             changed.LipSyncRestName = previous.LipSyncRestName;
             changed.LipSyncFrame = previous.LipSyncFrame;
+        }
+
+        private void DrawFixedSizeSprite(
+            BurikoOperationInvocation invocation,
+            BurikoMemory memory,
+            bool filtering)
+        {
+            var id = Int(invocation, 0, memory);
+            if (filtering)
+            {
+                DrawLayer(
+                    id,
+                    Text(invocation, 1, memory),
+                    Int(invocation, 4, memory),
+                    Int(invocation, 5, memory),
+                    0,
+                    Int(invocation, 12, memory),
+                    memory,
+                    false,
+                    1f,
+                    Int(invocation, 13, memory) / 1000f,
+                    Int(invocation, 6, memory),
+                    Int(invocation, 7, memory));
+                SetLayerMask(id, Text(invocation, 2, memory),
+                    Int(invocation, 3, memory), false, memory);
+                return;
+            }
+
+            DrawLayer(
+                id,
+                Text(invocation, 1, memory),
+                Int(invocation, 3, memory),
+                Int(invocation, 4, memory),
+                Int(invocation, 5, memory),
+                Int(invocation, 15, memory),
+                memory,
+                false,
+                1f - Int(invocation, 14, memory) / 256f,
+                Int(invocation, 16, memory) / 1000f,
+                Int(invocation, 8, memory),
+                Int(invocation, 9, memory));
         }
 
         private void FadeBustshot(BurikoOperationInvocation invocation, BurikoMemory memory)
@@ -1788,6 +1950,59 @@ namespace Higurashi.IOS.Runtime.Buriko
             WindowVisible = _windowTransitionTo > 0f;
         }
 
+        private void StartFragment(
+            string textureName,
+            string style,
+            float duration,
+            BurikoMemory memory)
+        {
+            _fragmentTextureName = textureName ?? string.Empty;
+            _fragmentTexture = LoadTexture(textureName, memory);
+            _fragmentStyle = style ?? string.Empty;
+            _fragmentStartedAt = Time.unscaledTime;
+            _fragmentTransitionStartedAt = Time.unscaledTime;
+            _fragmentTransitionDuration = Mathf.Max(0f, duration);
+            _fragmentTransitionFrom = 0f;
+            _fragmentTransitionTo = 1f;
+        }
+
+        private void StopFragment(float duration)
+        {
+            if (_fragmentTexture == null)
+            {
+                return;
+            }
+
+            _fragmentTransitionFrom = FragmentOpacity;
+            _fragmentTransitionTo = 0f;
+            _fragmentTransitionStartedAt = Time.unscaledTime;
+            _fragmentTransitionDuration = Mathf.Max(0f, duration);
+            if (_fragmentTransitionDuration <= 0f)
+            {
+                _fragmentTexture = null;
+                _fragmentTextureName = string.Empty;
+                _fragmentStyle = string.Empty;
+            }
+        }
+
+        private void UpdateFragmentTransition()
+        {
+            if (_fragmentTexture == null || _fragmentTransitionDuration <= 0f ||
+                Time.unscaledTime - _fragmentTransitionStartedAt < _fragmentTransitionDuration)
+            {
+                return;
+            }
+
+            _fragmentTransitionDuration = 0f;
+            _fragmentTransitionFrom = _fragmentTransitionTo;
+            if (_fragmentTransitionTo <= 0f)
+            {
+                _fragmentTexture = null;
+                _fragmentTextureName = string.Empty;
+                _fragmentStyle = string.Empty;
+            }
+        }
+
         private void StartScreenShake(int vector, int level, int attenuation, float swing,
             float duration)
         {
@@ -1809,6 +2024,14 @@ namespace Higurashi.IOS.Runtime.Buriko
             _windowTransitionDuration = 0f;
             _windowTransitionFrom = _windowTransitionTo;
             WindowVisible = _windowTransitionTo > 0f;
+            _fragmentTransitionDuration = 0f;
+            _fragmentTransitionFrom = _fragmentTransitionTo;
+            if (_fragmentTransitionTo <= 0f)
+            {
+                _fragmentTexture = null;
+                _fragmentTextureName = string.Empty;
+                _fragmentStyle = string.Empty;
+            }
             foreach (var pair in _layers)
             {
                 pair.Value.CompleteTransition();
@@ -1852,6 +2075,10 @@ namespace Higurashi.IOS.Runtime.Buriko
         public float PreviousAlpha;
         public bool PreviousIsBustshot;
         public bool PreviousIsCentered;
+        public int OverrideWidth;
+        public int OverrideHeight;
+        public int PreviousOverrideWidth;
+        public int PreviousOverrideHeight;
         public Texture2D MaskTexture;
         public string MaskName;
         public float MaskFuzziness = 0.45f;
@@ -1897,6 +2124,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             TransitionStartedAt = Time.unscaledTime;
             TransitionDuration = 0f;
             PreviousTexture = null;
+            PreviousOverrideWidth = 0;
+            PreviousOverrideHeight = 0;
             if (Alpha <= 0f)
             {
                 MaskTexture = null;
@@ -1964,6 +2193,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                 Alpha = Alpha,
                 IsBustshot = IsBustshot,
                 IsCentered = IsCentered,
+                OverrideWidth = OverrideWidth,
+                OverrideHeight = OverrideHeight,
                 CharacterId = CharacterId,
                 LipSyncBaseName = LipSyncBaseName,
                 LipSyncRestName = LipSyncRestName,
@@ -2047,7 +2278,9 @@ namespace Higurashi.IOS.Runtime.Buriko
             int windowY,
             int windowWidth,
             int windowHeight,
-            string screenAspect)
+            string screenAspect,
+            string fragmentTextureName,
+            string fragmentStyle)
         {
             BackgroundName = backgroundName;
             Layers = layers;
@@ -2072,6 +2305,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             WindowWidth = windowWidth;
             WindowHeight = windowHeight;
             ScreenAspect = screenAspect;
+            FragmentTextureName = fragmentTextureName ?? string.Empty;
+            FragmentStyle = fragmentStyle ?? string.Empty;
         }
 
         public string BackgroundName { get; }
@@ -2097,6 +2332,8 @@ namespace Higurashi.IOS.Runtime.Buriko
         public int WindowWidth { get; }
         public int WindowHeight { get; }
         public string ScreenAspect { get; }
+        public string FragmentTextureName { get; }
+        public string FragmentStyle { get; }
     }
 
     internal sealed class UnityAssetLoader

@@ -153,7 +153,8 @@ namespace Higurashi.IOS.Runtime
                     var previousLayer = _orderedLayers[i];
                     previousLayer.GetRenderState(out var x, out var y, out var z, out var alpha);
                     DrawPresentationTexture(content, previousLayer.Texture, x, y, z, alpha,
-                        previousLayer.IsCentered, screenScale);
+                        previousLayer.IsCentered, screenScale, false,
+                        previousLayer.OverrideWidth, previousLayer.OverrideHeight);
                 }
             }
             if (_host.BackgroundTexture != null)
@@ -191,7 +192,8 @@ namespace Higurashi.IOS.Runtime
                     DrawPresentationTexture(content, layer.PreviousTexture,
                         layer.PreviousX, layer.PreviousY, layer.PreviousZ,
                         layer.PreviousAlpha * (1f - layer.TransitionProgress),
-                        layer.PreviousIsCentered, screenScale);
+                        layer.PreviousIsCentered, screenScale, false,
+                        layer.PreviousOverrideWidth, layer.PreviousOverrideHeight);
                 }
                 layer.GetRenderState(out var layerX, out var layerY, out var layerZ, out var layerAlpha);
                 if (layer.MaskTexture != null && layer.TransitionProgress < 1f)
@@ -202,14 +204,53 @@ namespace Higurashi.IOS.Runtime
                     DrawMaskedPresentationTexture(content, layer.Texture, layer.MaskTexture,
                         layerX, layerY, layerZ, layer.MaskReverse ? layer.FromAlpha : layer.Alpha,
                         layer.IsCentered, screenScale, maskProgress, layer.MaskFuzziness,
-                        IsCinemaMatte(layer.TextureName));
+                        IsCinemaMatte(layer.TextureName), layer.OverrideWidth, layer.OverrideHeight);
                 }
                 else
                 {
                     DrawPresentationTexture(content, layer.Texture, layerX, layerY, layerZ,
-                        layerAlpha, layer.IsCentered, screenScale, IsCinemaMatte(layer.TextureName));
+                        layerAlpha, layer.IsCentered, screenScale, IsCinemaMatte(layer.TextureName),
+                        layer.OverrideWidth, layer.OverrideHeight);
                 }
             }
+
+            if (_host.FragmentTexture != null && _host.FragmentOpacity > 0f)
+            {
+                DrawFragmentEffect(content);
+            }
+        }
+
+        private void DrawFragmentEffect(Rect content)
+        {
+            var texture = _host.FragmentTexture;
+            var opacity = Mathf.Clamp01(_host.FragmentOpacity);
+            var time = _host.FragmentAnimationTime;
+            var cube = _host.FragmentStyle.IndexOf("Cube", StringComparison.OrdinalIgnoreCase) >= 0;
+            var weird = _host.FragmentStyle.IndexOf("Weird", StringComparison.OrdinalIgnoreCase) >= 0;
+            var previousColor = GUI.color;
+            var previousMatrix = GUI.matrix;
+            for (var i = 0; i < 6; i++)
+            {
+                var column = i % 3;
+                var row = i / 3;
+                var phase = time * (0.24f + i * 0.017f) + i * 1.31f;
+                var centerX = content.x + content.width * ((column + 0.5f) / 3f) +
+                              Mathf.Sin(phase) * content.width * (weird ? 0.10f : 0.045f);
+                var centerY = content.y + content.height * ((row + 0.5f) / 2f) +
+                              Mathf.Cos(phase * 0.83f) * content.height * (cube ? 0.035f : 0.07f);
+                var width = content.width * (cube ? 0.30f : 0.38f) *
+                            (weird ? 0.72f + (i % 3) * 0.16f : 1f);
+                var height = content.height * (cube ? 0.42f : 0.56f) *
+                             (weird ? 0.78f + (i & 1) * 0.18f : 1f);
+                var rect = new Rect(centerX - width * 0.5f, centerY - height * 0.5f, width, height);
+                GUI.matrix = previousMatrix;
+                GUIUtility.RotateAroundPivot(Mathf.Sin(phase * 0.7f) * (weird ? 22f : 9f), rect.center);
+                GUI.color = new Color(1f, 1f, 1f, opacity * (0.34f + i * 0.045f));
+                GUI.DrawTextureWithTexCoords(rect, texture,
+                    new Rect(i / 6f, 0f, 1f / 6f, 1f), true);
+            }
+            GUI.matrix = previousMatrix;
+            GUI.color = previousColor;
         }
 
         private void DrawMaskedBackgroundTexture(Rect content, Texture2D texture, Texture2D mask,
@@ -255,10 +296,12 @@ namespace Higurashi.IOS.Runtime
 
         private static void DrawPresentationTexture(Rect content, Texture2D texture,
             float layerX, float layerY, float layerZ, float alpha, bool centered, float screenScale,
-            bool cropTransparentEdges = false)
+            bool cropTransparentEdges = false, int overrideWidth = 0, int overrideHeight = 0)
         {
-            var canonicalHeight = Mathf.Min(texture.height, 480f);
-            var canonicalWidth = texture.width * canonicalHeight / texture.height;
+            var canonicalHeight = overrideHeight > 0 ? overrideHeight : Mathf.Min(texture.height, 480f);
+            var canonicalWidth = overrideWidth > 0
+                ? overrideWidth
+                : texture.width * canonicalHeight / texture.height;
             var depthScale = Mathf.Max(0.05f, 1f - layerZ / 400f);
             var width = canonicalWidth * screenScale * depthScale;
             var height = canonicalHeight * screenScale * depthScale;
@@ -292,10 +335,13 @@ namespace Higurashi.IOS.Runtime
 
         private void DrawMaskedPresentationTexture(Rect content, Texture2D texture, Texture2D mask,
             float layerX, float layerY, float layerZ, float alpha, bool centered,
-            float screenScale, float progress, float fuzziness, bool cropTransparentEdges = false)
+            float screenScale, float progress, float fuzziness, bool cropTransparentEdges = false,
+            int overrideWidth = 0, int overrideHeight = 0)
         {
-            var canonicalHeight = Mathf.Min(texture.height, 480f);
-            var canonicalWidth = texture.width * canonicalHeight / texture.height;
+            var canonicalHeight = overrideHeight > 0 ? overrideHeight : Mathf.Min(texture.height, 480f);
+            var canonicalWidth = overrideWidth > 0
+                ? overrideWidth
+                : texture.width * canonicalHeight / texture.height;
             var depthScale = Mathf.Max(0.05f, 1f - layerZ / 400f);
             var width = canonicalWidth * screenScale * depthScale;
             var height = canonicalHeight * screenScale * depthScale;

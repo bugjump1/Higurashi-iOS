@@ -25,6 +25,7 @@ namespace Higurashi.IOS.Buriko
         private static readonly BurikoOperationSpecification?[] Episode04Items = CreateEpisode04();
         private static readonly BurikoOperationSpecification?[] Episode05Items = CreateEpisode05();
         private static readonly BurikoOperationSpecification?[] Episode06Items = CreateEpisode06();
+        private static readonly BurikoOperationSpecification?[] Episode07Items = CreateEpisode07();
         private static BurikoOperationSpecification?[] Items = Episode01Items;
 
         public static void ConfigureForEpisode(int episodeNumber)
@@ -45,6 +46,9 @@ namespace Higurashi.IOS.Buriko
                     break;
                 case 6:
                     Items = Episode06Items;
+                    break;
+                case 7:
+                    Items = Episode07Items;
                     break;
                 default:
                     Items = Episode01Items;
@@ -340,6 +344,25 @@ namespace Higurashi.IOS.Buriko
             for (var rawCode = 131; rawCode <= 156; rawCode++)
             {
                 result[rawCode] = Episode01Items[rawCode - 9];
+            }
+            return result;
+        }
+
+        private static BurikoOperationSpecification?[] CreateEpisode07()
+        {
+            var result = new BurikoOperationSpecification?[256];
+            for (var rawCode = 0; rawCode <= 130; rawCode++)
+            {
+                result[rawCode] = Episode06Items[rawCode];
+            }
+            result[131] = new BurikoOperationSpecification(157, "DrawFragment", "ssi");
+            result[132] = new BurikoOperationSpecification(158, "StopFragment", "i");
+            result[133] = new BurikoOperationSpecification(159, "DrawSpriteFixedSize", "issiiiiiiiibbiiiib");
+            result[134] = new BurikoOperationSpecification(160, "DrawSpriteWithFilteringFixedSize", "issiiiiibbiiiib");
+            result[135] = new BurikoOperationSpecification(161, "Update", "");
+            for (var rawCode = 136; rawCode <= 161; rawCode++)
+            {
+                result[rawCode] = Episode01Items[rawCode - 14];
             }
             return result;
         }
