@@ -12,6 +12,7 @@ namespace Higurashi.IOS.Input
         private const double ThreeFingerJoinWindowSeconds = 0.20;
         private const double TapMaximumSeconds = 0.45;
         private const float ThreeFingerHorizontalThreshold = 0.15f;
+        private const float SingleFingerHorizontalThreshold = 0.12f;
         private const float VerticalSwipeThreshold = 0.12f;
 
         private readonly HashSet<int> _threeFingerIds = new HashSet<int>();
@@ -187,6 +188,14 @@ namespace Higurashi.IOS.Input
                     return dy > 0
                         ? NovelInputAction.OpenHistory
                         : NovelInputAction.ToggleTextWindow;
+                }
+
+                if (normalizedX >= SingleFingerHorizontalThreshold &&
+                    normalizedX > normalizedY * 1.3f)
+                {
+                    return dx > 0
+                        ? NovelInputAction.PreviousTextBox
+                        : NovelInputAction.Advance;
                 }
 
                 var maximumTapTravel = Math.Max(16f, Math.Min(screenWidth, screenHeight) * 0.03f);

@@ -14,6 +14,7 @@ namespace Higurashi.IOS.Input
         OpenMenu,
         StartFastForward,
         StartFastRewind,
+        PreviousTextBox,
         StopFastTraversal
     }
 }

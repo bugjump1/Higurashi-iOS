@@ -12,6 +12,8 @@ internal static class Program
         var tests = new Action[]
         {
             SingleTapAdvances,
+            SingleFingerLeftSwipeAdvances,
+            SingleFingerRightSwipeReturnsToPreviousTextBox,
             SwipeUpOpensHistory,
             ThreeFingerLeftStartsFastForward,
             ThreeFingerRightStartsFastRewind,
@@ -176,6 +178,22 @@ internal static class Program
         Equal((short)147, BurikoOperationCatalog.Get(161).Code);
         Equal("ModGenericCall", BurikoOperationCatalog.Get(161).Name);
         BurikoOperationCatalog.ConfigureForEpisode(1);
+    }
+
+    private static void SingleFingerLeftSwipeAdvances()
+    {
+        var input = new TouchGestureInterpreter();
+        Frame(input, 0, false, P(1, 800, 300, PointerPhase.Began));
+        Equal(NovelInputAction.Advance,
+            Frame(input, 0.2, false, P(1, 500, 310, PointerPhase.Ended)));
+    }
+
+    private static void SingleFingerRightSwipeReturnsToPreviousTextBox()
+    {
+        var input = new TouchGestureInterpreter();
+        Frame(input, 0, false, P(1, 200, 300, PointerPhase.Began));
+        Equal(NovelInputAction.PreviousTextBox,
+            Frame(input, 0.2, false, P(1, 500, 290, PointerPhase.Ended)));
     }
 
     private static void Episode08OperationCatalogNormalizesFragmentCodes()

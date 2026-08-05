@@ -19,6 +19,7 @@ namespace Higurashi.IOS.Runtime
         private const string FragmentTutorialSeenKey = "higurashi-ios-ep08-fragment-tutorial-seen-v1";
         private const string OpeningPreferenceKey = "higurashi-ios-opening-preference-v1";
         private const string TipsMenuUnlockedKeyPrefix = "higurashi-ios-tips-menu-unlocked-ep";
+        private const string TipsUnlockedChapterKeyPrefix = "higurashi-ios-tips-unlocked-chapter-ep";
         private const string ChapterJumpUnlockedKeyPrefix = "higurashi-ios-chapter-jump-unlocked-ep";
         private const int SaveFileMagic = 0x31534748; // HGS1
         private const int SaveFileVersion = 1;
@@ -52,7 +53,12 @@ namespace Higurashi.IOS.Runtime
         private bool _initializationAttempted;
         private RuntimeCheckpoint _titleCheckpoint;
         private RuntimeCheckpoint _tipsLibraryReturnCheckpoint;
+        private RuntimeCheckpoint _storyChoiceCheckpoint;
         private int _tipsLibraryReturnCallDepth;
+        private string _storyChoiceScript = string.Empty;
+        private int _storyChoiceLine = -1;
+        private bool _badEndingPlaybackActive;
+        private bool _badEndingDecisionVisible;
         private Vector2 _historyScroll;
         private bool _historyAutoScrollPending;
         private GUIStyle _dialogueStyle;
@@ -64,9 +70,37 @@ namespace Higurashi.IOS.Runtime
         private string TipsMenuUnlockedKey => TipsMenuUnlockedKeyPrefix +
             HigurashiActiveChapter.Profile.EpisodeNumber.ToString("00");
 
-        private bool IsTipsMenuUnlocked => PlayerPrefs.GetInt(TipsMenuUnlockedKey, 0) != 0;
+        private string TipsMenuUnlockMarkerPath => Path.Combine(Application.persistentDataPath,
+            "tips-menu-unlocked-ep" + HigurashiActiveChapter.Profile.EpisodeNumber.ToString("00") + ".flag");
+
+        private bool IsTipsMenuUnlocked
+        {
+            get
+            {
+                if (File.Exists(TipsMenuUnlockMarkerPath))
+                {
+                    return true;
+                }
+
+                // LiveContainer can retain PlayerPrefs even when an app is
+                // reinstalled. Only migrate the old preference when this app
+                // also has a real save file; a clean installation stays locked.
+                var saveDirectory = Path.Combine(Application.persistentDataPath, "Saves");
+                if (PlayerPrefs.GetInt(TipsMenuUnlockedKey, 0) != 0 &&
+                    Directory.Exists(saveDirectory) &&
+                    Directory.GetFiles(saveDirectory, "slot-*.hgs").Length > 0)
+                {
+                    UnlockTipsMenu();
+                    return true;
+                }
+                return false;
+            }
+        }
 
         private string ChapterJumpUnlockedKey => ChapterJumpUnlockedKeyPrefix +
+            HigurashiActiveChapter.Profile.EpisodeNumber.ToString("00");
+
+        private string TipsUnlockedChapterKey => TipsUnlockedChapterKeyPrefix +
             HigurashiActiveChapter.Profile.EpisodeNumber.ToString("00");
 
         private void Awake()
@@ -125,6 +159,12 @@ namespace Higurashi.IOS.Runtime
             }
 
             _touchInput.FastTraversalActive = _fastTraversal.IsActive;
+            if (_host != null && _host.MovieVisible && _fastTraversal.IsActive)
+            {
+                _fastTraversal.Stop();
+                _autoMode = false;
+                _touchInput.FastTraversalActive = false;
+            }
             UpdateHistoryTouchScroll();
             _fastTraversal.Tick(Time.unscaledDeltaTime, this);
             if (_showHelpWhenGameplayStarts && _host != null && _host.GameplayUiVisible &&
@@ -158,6 +198,10 @@ namespace Higurashi.IOS.Runtime
                     }
                 }
             }
+
+            UpdateChapterJumpUnlockProgress();
+            CaptureStoryChoiceCheckpointIfNeeded();
+            UpdateBadEndingDecision();
         }
 
         private void OnApplicationPause(bool paused)
@@ -242,8 +286,10 @@ namespace Higurashi.IOS.Runtime
 
             if (_host.MovieVisible)
             {
-                if (action == NovelInputAction.Advance)
+                if (action == NovelInputAction.Advance ||
+                    action == NovelInputAction.StopFastTraversal)
                 {
+                    _fastTraversal.Stop();
                     _host.CompleteMovie();
                 }
                 return;
@@ -309,6 +355,10 @@ namespace Higurashi.IOS.Runtime
                         }
                     }
                     break;
+                case NovelInputAction.PreviousTextBox:
+                    _fastTraversal.Stop();
+                    StepBackwardToPreviousTextBox();
+                    break;
                 case NovelInputAction.OpenHistory:
                     _fastTraversal.Stop();
                     _host.HistoryVisible = true;
@@ -343,10 +393,19 @@ namespace Higurashi.IOS.Runtime
                 return false;
             }
 
+            if (_host.MovieVisible)
+            {
+                _fastTraversal.Stop();
+                _autoMode = false;
+                return false;
+            }
+
             if (_timeline.TryMoveNext(out var existing))
             {
+                var previousPresentation = _host.CaptureSnapshot();
                 _host.StopVoices();
                 RestoreCheckpoint(existing);
+                _host.ReplayRestoredCheckpointAnimations(previousPresentation, _runtime.Memory);
                 if (!_fastTraversal.IsActive)
                 {
                     _host.ReplayRestoredVoice(_runtime.Memory);
@@ -413,6 +472,29 @@ namespace Higurashi.IOS.Runtime
             return true;
         }
 
+        private bool StepBackwardToPreviousTextBox()
+        {
+            if (_runtime == null || !_timeline.TryMovePrevious(out var checkpoint))
+            {
+                return false;
+            }
+
+            // WaitForInput continuation checkpoints are the first half of a
+            // text box which will later receive another line. A one-finger
+            // rewind targets the previous completed text box instead.
+            while (checkpoint.Presentation.AppendNext &&
+                   _timeline.TryMovePrevious(out var previous))
+            {
+                checkpoint = previous;
+            }
+
+            _host.StopVoices();
+            RestoreCheckpoint(checkpoint);
+            _host.CompleteDialogueReveal();
+            _host.ReplayRestoredVoice(_runtime.Memory);
+            return true;
+        }
+
         private void DriveRuntime(bool skipTimedWaits)
         {
             for (var boundaryCount = 0; boundaryCount < 1000; boundaryCount++)
@@ -439,6 +521,8 @@ namespace Higurashi.IOS.Runtime
 
                 CaptureDialogueCheckpoint();
                 CaptureTitleCheckpointIfNeeded();
+                CaptureStoryChoiceCheckpointIfNeeded();
+                UpdateBadEndingDecision();
                 if (_runtime.BlockReason == BurikoBlockReason.Faulted)
                 {
                     _runtimeStatus = FormatRuntimeFault();
@@ -486,9 +570,211 @@ namespace Higurashi.IOS.Runtime
         {
             _runtime.RestoreSnapshot(checkpoint.Runtime);
             _host.RestoreSnapshot(checkpoint.Presentation, _runtime.Memory);
+            _host.ApplySettings(_runtime.Memory);
             _host.RestoreBgmState(checkpoint.BgmState, _runtime.Memory);
             _capturedDialogueSerial = _host.DialogueSerial;
             _runtimeStatus = "Restored " + _runtime.CurrentScriptName + ":" + _runtime.CurrentLine;
+        }
+
+        private void CaptureStoryChoiceCheckpointIfNeeded()
+        {
+            if (_runtime == null || _host == null || !_host.ChoiceVisible ||
+                _host.IsOpeningChoice || !_host.GameplayUiVisible ||
+                !_host.SavingEnabled || !_host.InterfaceEnabled ||
+                _runtime.BlockReason != BurikoBlockReason.Choice)
+            {
+                return;
+            }
+
+            if (_storyChoiceCheckpoint != null &&
+                string.Equals(_storyChoiceScript, _runtime.CurrentScriptName,
+                    StringComparison.OrdinalIgnoreCase) &&
+                _storyChoiceLine == _runtime.CurrentLine)
+            {
+                return;
+            }
+
+            _storyChoiceCheckpoint = new RuntimeCheckpoint(
+                _runtime.CaptureSnapshot(),
+                _host.CaptureSnapshot(),
+                _host.CaptureBgmState());
+            _storyChoiceScript = _runtime.CurrentScriptName ?? string.Empty;
+            _storyChoiceLine = _runtime.CurrentLine;
+            _badEndingPlaybackActive = false;
+            _badEndingDecisionVisible = false;
+
+            try
+            {
+                // A branch choice is itself a safe resume point. Persist it in
+                // the rotating auto-save group and mirror it to Latest Save so
+                // quitting at the decision cannot lose the preceding chapter.
+                WriteSaveGame(FindOldestOrEmptySlot(201, 203));
+                WriteSaveGame(LatestSaveSlot);
+                _dialoguesSinceAutoSave = 0;
+                _lastAutoSaveAt = Time.unscaledTime;
+                ShowToast("已在剧情选项前自动保存");
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("Unable to auto-save story choice: " + exception);
+                ShowToast("选项前自动保存失败");
+            }
+        }
+
+        private void UpdateBadEndingDecision()
+        {
+            if (_runtime == null || _host == null || _badEndingDecisionVisible)
+            {
+                return;
+            }
+
+            var script = _runtime.CurrentScriptName ?? string.Empty;
+            if (script.IndexOf("badend", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                script.IndexOf("bad_end", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                _badEndingPlaybackActive = true;
+            }
+
+            if (!_badEndingPlaybackActive || _storyChoiceCheckpoint == null ||
+                !_host.TitleVisible)
+            {
+                return;
+            }
+
+            _badEndingPlaybackActive = false;
+            _badEndingDecisionVisible = true;
+            _fastTraversal.Stop();
+            _autoMode = false;
+            _host.StopAllAudio();
+            CloseAllModals();
+            SuppressInput();
+        }
+
+        private void ReturnToStoryChoice()
+        {
+            if (_storyChoiceCheckpoint == null)
+            {
+                _badEndingDecisionVisible = false;
+                ShowToast("选项前状态不可用，请读取自动存档");
+                return;
+            }
+
+            _host.StopAllAudio();
+            _fastTraversal.Stop();
+            _autoMode = false;
+            _timeline.Clear();
+            RestoreCheckpoint(_storyChoiceCheckpoint);
+            _timeline.Push(_storyChoiceCheckpoint);
+            _badEndingPlaybackActive = false;
+            _badEndingDecisionVisible = false;
+            CloseAllModals();
+            SuppressInput();
+        }
+
+        private void AcceptBadEndingAndReturnToTitle()
+        {
+            ResetStoryChoiceState();
+            CloseAllModals();
+            SuppressInput();
+        }
+
+        private void ResetStoryChoiceState()
+        {
+            _storyChoiceCheckpoint = null;
+            _storyChoiceScript = string.Empty;
+            _storyChoiceLine = -1;
+            _badEndingPlaybackActive = false;
+            _badEndingDecisionVisible = false;
+        }
+
+        private void UnlockTipsMenu()
+        {
+            try
+            {
+                File.WriteAllText(TipsMenuUnlockMarkerPath, "unlocked");
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("Unable to write TIPS unlock marker: " + exception.Message);
+            }
+            PlayerPrefs.SetInt(TipsMenuUnlockedKey, 1);
+            PlayerPrefs.Save();
+        }
+
+        private void UpdateChapterJumpUnlockProgress()
+        {
+            if (_runtime == null || _host == null || _host.TitleVisible)
+            {
+                return;
+            }
+
+            var chapter = _host.CurrentChapterNumber;
+            if (_host.GameplayUiVisible && !_host.TipsChapterVisible &&
+                !_host.TipsListVisible && !_host.TipReading)
+            {
+                chapter++;
+            }
+            if (chapter <= PlayerPrefs.GetInt(ChapterJumpUnlockedKey, 0))
+            {
+                return;
+            }
+
+            PlayerPrefs.SetInt(ChapterJumpUnlockedKey, chapter);
+            PlayerPrefs.Save();
+        }
+
+        private void UnlockTipsThroughChapter(int chapter)
+        {
+            chapter = Math.Max(0, chapter);
+            if (chapter <= PlayerPrefs.GetInt(TipsUnlockedChapterKey, 0))
+            {
+                return;
+            }
+            PlayerPrefs.SetInt(TipsUnlockedChapterKey, chapter);
+            PlayerPrefs.Save();
+        }
+
+        private int GetTipsUnlockedChapter()
+        {
+            var stored = PlayerPrefs.GetInt(TipsUnlockedChapterKey, -1);
+            if (stored >= 0)
+            {
+                return stored;
+            }
+            var migrated = IsTipsMenuUnlocked
+                ? Math.Max(_host == null ? 0 : _host.CurrentChapterNumber,
+                    PlayerPrefs.GetInt(ChapterJumpUnlockedKey, 0))
+                : 0;
+            PlayerPrefs.SetInt(TipsUnlockedChapterKey, migrated);
+            PlayerPrefs.Save();
+            return migrated;
+        }
+
+        private void UnlockNextChapterFromPortCredit()
+        {
+            if (_host == null)
+            {
+                return;
+            }
+            var sections = _host.GetChapterJumpSections();
+            if (sections.Count <= 0)
+            {
+                ShowToast("当前篇章没有可用的章节跳跃入口");
+                return;
+            }
+
+            var activeChapter = Math.Max(1, Math.Max(_host.CurrentChapterNumber + 1,
+                PlayerPrefs.GetInt(ChapterJumpUnlockedKey, 0)));
+            var tipsChapter = Math.Min(activeChapter, sections.Count);
+            var jumpChapter = Math.Min(activeChapter + 1, sections.Count);
+            UnlockTipsMenu();
+            UnlockTipsThroughChapter(tipsChapter);
+            if (jumpChapter > PlayerPrefs.GetInt(ChapterJumpUnlockedKey, 0))
+            {
+                PlayerPrefs.SetInt(ChapterJumpUnlockedKey, jumpChapter);
+                PlayerPrefs.Save();
+            }
+            ShowToast("隐藏解锁：第" + jumpChapter + "章跳跃／第" + tipsChapter + "章 TIPS");
         }
 
         private void StartGame()
@@ -498,6 +784,7 @@ namespace Higurashi.IOS.Runtime
                 return;
             }
 
+            ResetStoryChoiceState();
             _runtime.ResumeInput();
             _suppressInputUntilFrame = Time.frameCount + 2;
             DriveRuntime(false);
@@ -566,10 +853,18 @@ namespace Higurashi.IOS.Runtime
 
         private void ContinuePastTips()
         {
+            var nextChapter = _host == null ? 0 : _host.CurrentChapterNumber + 1;
             if (_runtime == null || !_host.ContinuePastTips(_runtime.Memory))
             {
                 return;
             }
+
+            if (nextChapter > PlayerPrefs.GetInt(ChapterJumpUnlockedKey, 0))
+            {
+                PlayerPrefs.SetInt(ChapterJumpUnlockedKey, nextChapter);
+                PlayerPrefs.Save();
+            }
+            UnlockTipsThroughChapter(Math.Max(0, nextChapter - 1));
 
             _runtime.ResumeInput();
             _suppressInputUntilFrame = Time.frameCount + 2;
@@ -579,7 +874,8 @@ namespace Higurashi.IOS.Runtime
 
         private void OpenTipsLibrary()
         {
-            if (_runtime == null || !_host.OpenTipsLibrary(_runtime.Memory))
+            if (_runtime == null || !_host.OpenTipsLibrary(_runtime.Memory,
+                    GetTipsUnlockedChapter()))
             {
                 return;
             }
@@ -838,9 +1134,14 @@ namespace Higurashi.IOS.Runtime
                     // from the pre-load scene cannot leak into the loaded scene.
                     _host.StopAllAudio();
                     _runtime.ReadPersistentState(stream);
+                    // Art/audio choices are app-wide preferences. An older save
+                    // restores story flags, but must not override the sprite set
+                    // currently shown in Settings.
+                    _host.ApplySettings(_runtime.Memory);
                     _host.ReadPersistentState(stream, _runtime.Memory);
                 }
                 _timeline.Clear();
+                ResetStoryChoiceState();
                 _capturedDialogueSerial = _host.DialogueSerial;
                 _timeline.Push(new RuntimeCheckpoint(
                     _runtime.CaptureSnapshot(),
@@ -1007,6 +1308,7 @@ namespace Higurashi.IOS.Runtime
             _showHelpWhenGameplayStarts = false;
             _fastTraversal.Stop();
             _timeline.Clear();
+            ResetStoryChoiceState();
             RestoreCheckpoint(_titleCheckpoint);
             CloseAllModals();
             _suppressInputUntilFrame = Time.frameCount + 2;

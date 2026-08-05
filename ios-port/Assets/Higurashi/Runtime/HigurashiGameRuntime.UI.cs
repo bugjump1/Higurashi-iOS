@@ -15,6 +15,8 @@ namespace Higurashi.IOS.Runtime
         private GUIStyle _pcSmallButtonStyle;
         private GUIStyle _historyStyle;
         private GUIStyle _panelTitleStyle;
+        private GUIStyle _saveSummaryStyle;
+        private GUIStyle _tipCardStyle;
         private GUIStyle _slotStyle;
         private GUIStyle _sliderStyle;
         private GUIStyle _sliderThumbStyle;
@@ -41,11 +43,14 @@ namespace Higurashi.IOS.Runtime
         private bool _extrasVisible;
         private bool _chapterJumpVisible;
         private readonly List<string> _chapterJumpSections = new List<string>();
+        private Vector2 _chapterJumpScroll;
         private int _tipsChapterAutoSavedChapter = -1;
+        private int _portCreditTapCount;
+        private float _portCreditTapDeadline;
 
         private bool IsModalVisible =>
             _settingsVisible || _helpVisible || _systemMenuVisible || _saveLoadVisible ||
-            _extrasVisible || _chapterJumpVisible;
+            _extrasVisible || _chapterJumpVisible || _badEndingDecisionVisible;
 
         private float UiScale => Mathf.Clamp(GetGuiSafeArea().height / 900f, 0.8f, 2.2f);
 
@@ -81,6 +86,10 @@ namespace Higurashi.IOS.Runtime
             else if (_host.CreditsVisible)
             {
                 DrawCreditsScreen();
+            }
+            else if (_badEndingDecisionVisible)
+            {
+                DrawBadEndingDecision();
             }
             else if (_host.TitleVisible)
             {
@@ -118,7 +127,7 @@ namespace Higurashi.IOS.Runtime
                 }
                 else if (_host.GameplayUiVisible && _host.WindowVisible)
                 {
-                    if (_host.SavingEnabled)
+                    if (_host.SavingEnabled || _host.TipReading)
                     {
                         DrawMessageWindow();
                     }
@@ -176,7 +185,8 @@ namespace Higurashi.IOS.Runtime
                 {
                     var previousLayer = _orderedLayers[i];
                     previousLayer.GetRenderState(out var x, out var y, out var z, out var alpha);
-                    DrawPresentationTexture(content, previousLayer.Texture, x, y, z, alpha,
+                    DrawPresentationTexture(content, previousLayer.Texture, x, y, z,
+                        alpha * (1f - backgroundProgress),
                         previousLayer.IsCentered, screenScale, false,
                         previousLayer.OverrideWidth, previousLayer.OverrideHeight);
                 }
@@ -211,13 +221,30 @@ namespace Higurashi.IOS.Runtime
             for (var i = 0; i < _orderedLayers.Count; i++)
             {
                 var layer = _orderedLayers[i];
+                if (IsFullFrameBlack(layer.TextureName))
+                {
+                    DrawFullFrameBlackLayer(content, layer);
+                    continue;
+                }
                 if (layer.PreviousTexture != null && layer.TransitionProgress < 1f)
                 {
-                    DrawPresentationTexture(content, layer.PreviousTexture,
-                        layer.PreviousX, layer.PreviousY, layer.PreviousZ,
-                        layer.PreviousAlpha * (1f - layer.TransitionProgress),
-                        layer.PreviousIsCentered, screenScale, false,
-                        layer.PreviousOverrideWidth, layer.PreviousOverrideHeight);
+                    if (IsFullFrameBlack(layer.PreviousTexture.name))
+                    {
+                        var previousColor = GUI.color;
+                        GUI.color = new Color(1f, 1f, 1f,
+                            layer.PreviousAlpha * (1f - layer.TransitionProgress));
+                        GUI.DrawTexture(content, layer.PreviousTexture,
+                            ScaleMode.StretchToFill, true);
+                        GUI.color = previousColor;
+                    }
+                    else
+                    {
+                        DrawPresentationTexture(content, layer.PreviousTexture,
+                            layer.PreviousX, layer.PreviousY, layer.PreviousZ,
+                            layer.PreviousAlpha * (1f - layer.TransitionProgress),
+                            layer.PreviousIsCentered, screenScale, false,
+                            layer.PreviousOverrideWidth, layer.PreviousOverrideHeight);
+                    }
                 }
                 layer.GetRenderState(out var layerX, out var layerY, out var layerZ, out var layerAlpha);
                 if (layer.MaskTexture != null && layer.TransitionProgress < 1f)
@@ -388,6 +415,12 @@ namespace Higurashi.IOS.Runtime
                 StringComparison.OrdinalIgnoreCase);
         }
 
+        private static bool IsFullFrameBlack(string textureName)
+        {
+            return string.Equals(Path.GetFileNameWithoutExtension(textureName), "black",
+                StringComparison.OrdinalIgnoreCase);
+        }
+
         private void DrawMaskedTexture(Rect destination, Texture texture, Texture mask, Rect source,
             float progress, float fuzziness, float alpha)
         {
@@ -457,12 +490,9 @@ namespace Higurashi.IOS.Runtime
                 return;
             }
 
-            if (PlayerPrefs.GetInt(TipsMenuUnlockedKey, 0) == 0)
-            {
-                PlayerPrefs.SetInt(TipsMenuUnlockedKey, 1);
-                PlayerPrefs.Save();
-            }
+            UnlockTipsMenu();
             var currentChapter = _host.CurrentChapterNumber;
+            UnlockTipsThroughChapter(currentChapter);
             if (currentChapter > PlayerPrefs.GetInt(ChapterJumpUnlockedKey, 0))
             {
                 PlayerPrefs.SetInt(ChapterJumpUnlockedKey, currentChapter);
@@ -515,10 +545,10 @@ namespace Higurashi.IOS.Runtime
             {
                 ContinuePastTips();
             }
-            GUI.Label(new Rect(safe.center.x - safe.width * 0.36f, y + height + 18f * scale,
-                    safe.width * 0.72f, 48f * scale),
+            GUI.Label(new Rect(safe.x, y + height + 18f * scale,
+                    safe.width, 48f * scale),
                 "按“继续”进入下一章；之后仍可从主菜单的“追加内容”打开 TIPS。",
-                _statusStyle);
+                _panelTitleStyle);
         }
 
         private void DrawTipsListScreen()
@@ -533,13 +563,9 @@ namespace Higurashi.IOS.Runtime
             var scale = UiScale;
             FillRect(safe, Color.black);
             var content = GetContentRect();
-            if (_host.TipsBackgroundTexture != null)
-            {
-                GUI.DrawTexture(content, _host.TipsBackgroundTexture, ScaleMode.StretchToFill, true);
-            }
             var panel = new Rect(content.x + content.width * 0.03f, content.y + content.height * 0.035f,
                 content.width * 0.94f, content.height * 0.93f);
-            FillRect(panel, new Color(0.10f, 0.04f, 0.025f, 0.26f));
+            FillRect(panel, new Color(0.025f, 0.025f, 0.028f, 0.98f));
             DrawSectionHeader(panel, _host.TipsLibraryStandalone ? "TIPS 菜单" : "TIPS");
             var entries = _host.GetVisibleTips(_runtime.Memory);
             var pageCount = Mathf.Max(1, Mathf.CeilToInt(entries.Count / 8f));
@@ -581,8 +607,9 @@ namespace Higurashi.IOS.Runtime
             }
 
             var footerY = panel.yMax - 46f * scale;
-            var navWidth = Mathf.Min(150f * scale, panel.width * 0.19f);
-            if (page > 0 && PcButton(new Rect(panel.x + 26f * scale, footerY, navWidth, 34f * scale),
+            var navWidth = Mathf.Min(150f * scale, panel.width * 0.17f);
+            if (page > 0 && PcButton(new Rect(panel.xMax - navWidth * 2f - 38f * scale,
+                    footerY, navWidth, 34f * scale),
                     "上一页", true))
             {
                 _host.ChangeTipsPage(-1, _runtime.Memory);
@@ -603,23 +630,55 @@ namespace Higurashi.IOS.Runtime
             }
         }
 
+        private void DrawFullFrameBlackLayer(Rect content, PresentationLayer layer)
+        {
+            var progress = layer.TransitionProgress;
+            if (layer.PreviousTexture != null && progress < 1f &&
+                !IsFullFrameBlack(layer.PreviousTexture.name))
+            {
+                DrawPresentationTexture(content, layer.PreviousTexture,
+                    layer.PreviousX, layer.PreviousY, layer.PreviousZ,
+                    layer.PreviousAlpha * (1f - progress), layer.PreviousIsCentered,
+                    content.height / 480f, false,
+                    layer.PreviousOverrideWidth, layer.PreviousOverrideHeight);
+            }
+
+            layer.GetRenderState(out _, out _, out _, out var alpha);
+            if (layer.MaskTexture != null && progress < 1f)
+            {
+                var maskProgress = layer.MaskReverse ? 1f - progress : progress;
+                DrawMaskedTexture(content, layer.Texture, layer.MaskTexture,
+                    new Rect(0f, 0f, 1f, 1f), maskProgress,
+                    layer.MaskFuzziness, layer.MaskReverse ? layer.FromAlpha : layer.Alpha);
+                return;
+            }
+
+            var previous = GUI.color;
+            GUI.color = new Color(1f, 1f, 1f, Mathf.Clamp01(alpha));
+            GUI.DrawTexture(content, layer.Texture, ScaleMode.StretchToFill, true);
+            GUI.color = previous;
+        }
+
         private void DrawTipEntry(Rect rect, HigurashiTipDefinition entry)
         {
             var selected = _host.SelectedTipId == entry.Id;
-            FillRect(rect, selected ? new Color(0.76f, 0.03f, 0.02f, 0.96f) :
-                new Color(0.12f, 0.015f, 0.015f, 0.88f));
+            FillRect(rect, new Color(0.12f, 0.015f, 0.015f, 0.96f));
             var preview = _host.GetTipPreview(entry, _runtime.Memory, selected);
             if (preview != null)
             {
                 GUI.DrawTexture(rect, preview, ScaleMode.StretchToFill, true);
-                FillRect(rect, new Color(0f, 0f, 0f, selected ? 0.12f : 0.32f));
+                FillRect(rect, new Color(0f, 0f, 0f, selected ? 0.04f : 0.16f));
             }
             else
             {
                 FillRect(rect, new Color(0.12f, 0.015f, 0.015f, 0.88f));
             }
+            var caption = new Rect(rect.x, rect.y + rect.height * 0.58f,
+                rect.width, rect.height * 0.42f);
+            FillRect(caption, new Color(0f, 0f, 0f, selected ? 0.68f : 0.78f));
             var label = "TIPS " + (entry.Id + 1).ToString("00") + "\n" + entry.DisplayTitle;
-            if (GUI.Button(Inset(rect, 2f * UiScale), label, _pcSmallButtonStyle))
+            GUI.Label(Inset(caption, 4f * UiScale), label, _tipCardStyle);
+            if (GUI.Button(rect, GUIContent.none, GUIStyle.none))
             {
                 if (selected)
                 {
@@ -708,15 +767,11 @@ namespace Higurashi.IOS.Runtime
                 var rowHeight = 52f * scale;
                 var rows = Mathf.CeilToInt(unlocked / (float)columns);
                 var content = new Rect(0f, 0f, list.width, rows * (rowHeight + gap));
-                var scroll = GUI.BeginScrollView(list, Vector2.zero, content);
+                _chapterJumpScroll = GUI.BeginScrollView(list, _chapterJumpScroll, content);
                 for (var i = 0; i < unlocked; i++)
                 {
                     var section = _chapterJumpSections[i];
                     var label = "第" + (i + 1) + "天";
-                    if (section.IndexOf('_') >= 0)
-                    {
-                        label += "（分支）";
-                    }
                     var column = i % columns;
                     var row = i / columns;
                     var button = new Rect(column * (list.width / columns) + gap * 0.5f,
@@ -1036,7 +1091,9 @@ namespace Higurashi.IOS.Runtime
             var speakerHeight = string.IsNullOrEmpty(_host.Speaker) ? 0f : 39f * scale;
             var dialogueHeight = _dialogueStyle.CalcHeight(new GUIContent(layoutText), dialogueWidth);
             var minimumHeight = Mathf.Max(content.height * 0.18f, 132f * scale);
-            var maximumHeight = Mathf.Max(minimumHeight, content.height * 0.34f);
+            // Long PC text boxes can contain several appended lines. Let the
+            // window grow before clipping instead of cutting the last line.
+            var maximumHeight = Mathf.Max(minimumHeight, content.height * 0.48f);
             var height = Mathf.Clamp(speakerHeight + dialogueHeight + 26f * scale,
                 minimumHeight, maximumHeight);
             var rect = new Rect(content.x, content.yMax - height, content.width, height);
@@ -1224,13 +1281,38 @@ namespace Higurashi.IOS.Runtime
                 "iOS版移植", _portTitleStyle);
             DrawOutlinedLabel(new Rect(safe.x, portY + 31f * scale, safe.width, 27f * scale),
                 "贴吧@bugjump bilibili@Hyperion233", _portSubtitleStyle);
+            if (GUI.Button(new Rect(safe.x, portY - 4f * scale,
+                    safe.width, 66f * scale), GUIContent.none, GUIStyle.none))
+            {
+                RegisterPortCreditTap();
+            }
             GUI.Label(new Rect(safe.x, safe.yMax - 43f * scale, safe.width, 30f * scale),
                 "(C) 龙骑士07 / 07th Expansion", _panelTitleStyle);
         }
 
+        private void RegisterPortCreditTap()
+        {
+            if (Time.unscaledTime > _portCreditTapDeadline)
+            {
+                _portCreditTapCount = 0;
+            }
+            _portCreditTapDeadline = Time.unscaledTime + 2.5f;
+            _portCreditTapCount++;
+            if (_portCreditTapCount < 5)
+            {
+                SuppressInput();
+                return;
+            }
+            _portCreditTapCount = 0;
+            _portCreditTapDeadline = 0f;
+            UnlockNextChapterFromPortCredit();
+            SuppressInput();
+        }
+
         private void DrawGameplayControls()
         {
-            if (!_host.GameplayUiVisible || !_host.SavingEnabled || !_host.InterfaceEnabled ||
+            if (!_host.GameplayUiVisible || (!_host.SavingEnabled && !_host.TipReading) ||
+                !_host.InterfaceEnabled ||
                 IsModalVisible || _host.ChoiceVisible ||
                 _host.CreditsVisible || _host.ChapterPreviewVisible || _host.HistoryVisible)
             {
@@ -1274,19 +1356,22 @@ namespace Higurashi.IOS.Runtime
                 SuppressInput();
             }
 
-            var quickWidth = 150f * scale;
-            var quickY = safe.yMax - 43f * scale;
-            if (PcButton(new Rect(safe.xMax - quickWidth * 2f - 22f * scale, quickY,
-                    quickWidth, 35f * scale), "快速保存", true))
+            if (_host.SavingEnabled)
             {
-                SaveQuickGame();
-                SuppressInput();
-            }
-            if (PcButton(new Rect(safe.xMax - quickWidth - 12f * scale, quickY,
-                    quickWidth, 35f * scale), "快速读取", true))
-            {
-                LoadLatestQuickGame();
-                SuppressInput();
+                var quickWidth = 150f * scale;
+                var quickY = safe.yMax - 43f * scale;
+                if (PcButton(new Rect(safe.xMax - quickWidth * 2f - 22f * scale, quickY,
+                        quickWidth, 35f * scale), "快速保存", true))
+                {
+                    SaveQuickGame();
+                    SuppressInput();
+                }
+                if (PcButton(new Rect(safe.xMax - quickWidth - 12f * scale, quickY,
+                        quickWidth, 35f * scale), "快速读取", true))
+                {
+                    LoadLatestQuickGame();
+                    SuppressInput();
+                }
             }
         }
 
@@ -1361,7 +1446,7 @@ namespace Higurashi.IOS.Runtime
 
             GUI.Label(new Rect(panel.x + 34f * scale, panel.y + 115f * scale,
                     panel.width * 0.43f, panel.height * 0.55f),
-                "触控快捷操作\n\n单指轻触　推进剧情\n上划　查看记录\n下划　隐藏／显示文本框\n三指左→右　快速回退\n三指右→左　快速前进\n快进中任意触摸　停止",
+                "触控快捷操作\n\n单指轻触／右→左　推进剧情\n单指左→右　回到上一文本框\n上划　查看记录\n下划　隐藏／显示文本框\n三指左→右　快速回退\n三指右→左　快速前进\n快进中任意触摸　停止",
                 _dialogueStyle);
         }
 
@@ -1447,11 +1532,11 @@ namespace Higurashi.IOS.Runtime
                     ? "最新保存"
                     : "文件 " + (slot - 1).ToString("00", CultureInfo.InvariantCulture),
                 _speakerStyle);
-            GUI.Label(new Rect(textX, rect.y + 35f * scale, textWidth, rect.height - 40f * scale),
+            GUI.Label(new Rect(textX, rect.y + 29f * scale, textWidth, rect.height - 31f * scale),
                 info == null
                     ? "— 空存档 —"
-                    : info.Timestamp.ToString("yyyy-MM-dd HH:mm") + "\n" + info.Summary,
-                _statusStyle);
+                    : info.Timestamp.ToString("MM-dd HH:mm") + "  " + info.Summary,
+                _saveSummaryStyle);
 
             var buttonX = rect.xMax - controlsWidth - 10f * scale;
             if (canSave && PcButton(new Rect(buttonX, rect.center.y - 19f * scale,
@@ -1511,9 +1596,12 @@ namespace Higurashi.IOS.Runtime
             DrawPcModalPanel(panel);
             DrawSectionHeader(panel, "系统设置");
 
-            var x = panel.x + 34f * scale;
+            var innerX = panel.x + 34f * scale;
+            var innerWidth = panel.width - 68f * scale;
+            var columnGap = 24f * scale;
+            var width = (innerWidth - columnGap) * 0.5f;
+            var x = innerX;
             var y = panel.y + 82f * scale;
-            var width = panel.width - 68f * scale;
             var buttonHeight = 45f * scale;
             var artName = _host.ArtSets.Count == 0
                 ? "CG"
@@ -1554,6 +1642,8 @@ namespace Higurashi.IOS.Runtime
             }
             y += buttonHeight + 15f * scale;
 
+            x = innerX + width + columnGap;
+            y = panel.y + 82f * scale;
             var previousBgmVolume = _settings.bgmVolume;
             DrawSliderRow(x, ref y, width, "背景音乐音量", ref _settings.bgmVolume, 0, 100);
             if (_settings.bgmVolume != previousBgmVolume)
@@ -1566,7 +1656,8 @@ namespace Higurashi.IOS.Runtime
             DrawSliderRow(x, ref y, width, "文本速度", ref _settings.textSpeed, 0, 100);
             DrawSliderRow(x, ref y, width, "自动播放速度", ref _settings.autoSpeed, 0, 100);
 
-            if (PcButton(new Rect(x, panel.yMax - 56f * scale, width, 43f * scale), "保存并返回", true))
+            if (PcButton(new Rect(innerX, panel.yMax - 56f * scale,
+                    innerWidth, 43f * scale), "保存并返回", true))
             {
                 _host.ApplySettings(_runtime.Memory);
                 SaveSettings();
@@ -1603,11 +1694,13 @@ namespace Higurashi.IOS.Runtime
             DrawPcModalPanel(panel);
             DrawSectionHeader(panel, "操作说明");
             var text =
-                "单指轻触\n推进到下一句台词\n\n" +
-                "单指向上滑动\n打开剧情记录\n\n" +
-                "单指向下滑动\n隐藏或显示文本框\n\n" +
-                "三指从左向右滑动\n逐句快速回退\n\n" +
-                "三指从右向左滑动\n逐句快速前进；任意触摸立即停止";
+                "单指轻触／右→左　推进剧情\n" +
+                "单指左→右　回到上一完整文本框，并恢复画面与声音\n" +
+                "单指上划　打开剧情记录\n" +
+                "单指下划　隐藏或显示文本框\n" +
+                "三指左→右　逐句快速回退\n" +
+                "三指右→左　逐句快速前进\n" +
+                "快速前进／回退中任意触摸　立即停止";
             GUI.Label(new Rect(panel.x + 42f * scale, panel.y + 84f * scale,
                 panel.width - 84f * scale, panel.height - 155f * scale), text, _dialogueStyle);
             if (PcButton(new Rect(panel.center.x - 160f * scale, panel.yMax - 58f * scale,
@@ -1703,6 +1796,38 @@ namespace Higurashi.IOS.Runtime
             }
         }
 
+        private void DrawBadEndingDecision()
+        {
+            var safe = GetGuiSafeArea();
+            DrawModalShade(safe);
+            var scale = UiScale;
+            var width = Mathf.Min(760f * scale, safe.width - 64f * scale);
+            var height = Mathf.Min(310f * scale, safe.height - 54f * scale);
+            var panel = new Rect(safe.center.x - width * 0.5f,
+                safe.center.y - height * 0.5f, width, height);
+            DrawPcModalPanel(panel);
+            DrawSectionHeader(panel, "坏结局");
+
+            GUI.Label(new Rect(panel.x + 38f * scale, panel.y + 82f * scale,
+                    panel.width - 76f * scale, 62f * scale),
+                "本路线已结束。可以返回刚才的剧情选项重新选择，或返回主菜单。",
+                _dialogueStyle);
+
+            var gap = 18f * scale;
+            var buttonWidth = (panel.width - 76f * scale - gap) * 0.5f;
+            var buttonY = panel.yMax - 72f * scale;
+            if (PcButton(new Rect(panel.x + 38f * scale, buttonY,
+                    buttonWidth, 46f * scale), "回到选项", true))
+            {
+                ReturnToStoryChoice();
+            }
+            if (PcButton(new Rect(panel.x + 38f * scale + buttonWidth + gap,
+                    buttonY, buttonWidth, 46f * scale), "返回主菜单", true))
+            {
+                AcceptBadEndingAndReturnToTitle();
+            }
+        }
+
         private void DrawImportScreen()
         {
             var safe = GetGuiSafeArea();
@@ -1770,7 +1895,8 @@ namespace Higurashi.IOS.Runtime
             {
                 return true;
             }
-            if (!_host.GameplayUiVisible || !_host.SavingEnabled || !_host.InterfaceEnabled)
+            if (!_host.GameplayUiVisible || (!_host.SavingEnabled && !_host.TipReading) ||
+                !_host.InterfaceEnabled)
             {
                 return false;
             }
@@ -1961,6 +2087,7 @@ namespace Higurashi.IOS.Runtime
                 TextAnchor.MiddleCenter, FontStyle.Bold, Color.white);
             _speakerStyle = MakeStyle(FontPixels(0.029f, 25, 47) * textScale,
                 TextAnchor.MiddleLeft, FontStyle.Bold, new Color(1f, 0.18f, 0.12f));
+            _speakerStyle.richText = true;
             _dialogueStyle = MakeStyle(FontPixels(0.032f, 29, 54) * textScale,
                 TextAnchor.UpperLeft, FontStyle.Normal, Color.white);
             _dialogueStyle.wordWrap = true;
@@ -1972,6 +2099,12 @@ namespace Higurashi.IOS.Runtime
             _statusStyle = MakeStyle(FontPixels(0.021f, 19, 35) * textScale,
                 TextAnchor.UpperLeft, FontStyle.Normal, new Color(0.92f, 0.92f, 0.92f));
             _statusStyle.wordWrap = true;
+            _saveSummaryStyle = MakeStyle(FontPixels(0.015f, 13, 24) * textScale,
+                TextAnchor.UpperLeft, FontStyle.Normal, new Color(0.92f, 0.92f, 0.92f));
+            _saveSummaryStyle.wordWrap = true;
+            _tipCardStyle = MakeStyle(FontPixels(0.015f, 13, 23) * textScale,
+                TextAnchor.MiddleCenter, FontStyle.Bold, Color.white);
+            _tipCardStyle.wordWrap = true;
             _panelTitleStyle = MakeStyle(FontPixels(0.026f, 23, 43) * textScale,
                 TextAnchor.MiddleCenter, FontStyle.Bold, Color.white);
             _sectionHeaderStyle = MakeStyle(FontPixels(0.027f, 24, 44) * textScale,

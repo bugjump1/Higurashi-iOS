@@ -71,6 +71,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         private int _tipsPage;
         private int _selectedTipId = -1;
         private bool _tipReading;
+        private int _tipsVisibleChapterOverride = -1;
         private Texture2D _tipsBackgroundTexture;
         private int _fragmentPage;
         private int _selectedFragmentId = -1;
@@ -103,6 +104,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         public bool TipsChapterVisible => _tipsChapterVisible;
         public bool TipsListVisible => _tipsListVisible;
         public bool TipsLibraryStandalone => _tipsLibraryStandalone;
+        public bool TipReading => _tipReading;
         public int TipsPage => _tipsPage;
         public int SelectedTipId => _selectedTipId;
         public int CurrentChapterNumber => _memory == null ? 0 : Math.Max(0, _memory.GetLocalFlag("ChapterNumber"));
@@ -740,6 +742,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                     return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
                 case 86:
                     _tipReading = false;
+                    _tipsVisibleChapterOverride = -1;
                     _tipsBackgroundTexture = LoadTexture("ex_tips", memory);
                     _tipsChapterVisible = false;
                     _tipsListVisible = true;
@@ -752,6 +755,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                     return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
                 case 87:
                     _tipReading = false;
+                    _tipsVisibleChapterOverride = -1;
                     _tipsChapterVisible = true;
                     _tipsListVisible = false;
                     _tipsLibraryStandalone = false;
@@ -940,7 +944,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             return true;
         }
 
-        public bool OpenTipsLibrary(BurikoMemory memory)
+        public bool OpenTipsLibrary(BurikoMemory memory, int unlockedChapter)
         {
             if (memory == null || _tipsCatalog.IsEmpty)
             {
@@ -953,6 +957,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             _tipsScope = 1;
             _tipsPage = 0;
             _selectedTipId = -1;
+            _tipsVisibleChapterOverride = Math.Max(0, unlockedChapter);
             TitleVisible = false;
             _tipsBackgroundTexture = LoadTexture("ex_tips", memory);
             GameplayUiVisible = true;
@@ -979,6 +984,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 _tipsChapterVisible = true;
                 _tipReading = false;
                 SavingEnabled = true;
+                _tipsVisibleChapterOverride = -1;
                 GameplayUiVisible = false;
                 SetWindowVisibilityImmediate(false);
             }
@@ -1035,13 +1041,13 @@ namespace Higurashi.IOS.Runtime.Buriko
 
         private static int CompareChapterJumpSections(string left, string right)
         {
-            var leftNumber = ChapterJumpNumber(left);
-            var rightNumber = ChapterJumpNumber(right);
+            var leftNumber = GetChapterJumpNumber(left);
+            var rightNumber = GetChapterJumpNumber(right);
             var result = leftNumber.CompareTo(rightNumber);
             return result != 0 ? result : string.Compare(left, right, StringComparison.OrdinalIgnoreCase);
         }
 
-        private static int ChapterJumpNumber(string section)
+        internal static int GetChapterJumpNumber(string section)
         {
             if (string.IsNullOrWhiteSpace(section) || section.Length <= 3)
             {
@@ -1061,7 +1067,7 @@ namespace Higurashi.IOS.Runtime.Buriko
 
         internal IReadOnlyList<HigurashiTipDefinition> GetVisibleTips(BurikoMemory memory)
         {
-            return _tipsCatalog.GetVisible(memory, _tipsScope);
+            return _tipsCatalog.GetVisible(memory, _tipsScope, _tipsVisibleChapterOverride);
         }
 
         internal HigurashiTipDefinition GetSelectedTip()
@@ -1083,6 +1089,16 @@ namespace Higurashi.IOS.Runtime.Buriko
                 return null;
             }
 
+            var episode = HigurashiActiveChapter.Profile.EpisodeNumber;
+            var sprite = (episode == 1 ? "tips" : "tips_") + entry.Id.ToString("000") +
+                         (selected ? "_hover" : "_normal");
+            var bundled = Resources.Load<Texture2D>(
+                "TipsPreviews/ep" + episode.ToString("00") + "/" + sprite);
+            if (bundled != null)
+            {
+                return bundled;
+            }
+
             var name = selected && !string.IsNullOrWhiteSpace(entry.SelectedPreviewName)
                 ? entry.SelectedPreviewName
                 : entry.PreviewName;
@@ -1096,7 +1112,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             {
                 return false;
             }
-            var visible = _tipsCatalog.GetVisible(memory, _tipsScope);
+            var visible = _tipsCatalog.GetVisible(memory, _tipsScope, _tipsVisibleChapterOverride);
             for (var i = 0; i < visible.Count; i++)
             {
                 if (visible[i].Id == id)
@@ -1114,7 +1130,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             {
                 return;
             }
-            var pageCount = Math.Max(1, Mathf.CeilToInt(_tipsCatalog.GetVisible(memory, _tipsScope).Count / 8f));
+            var pageCount = Math.Max(1, Mathf.CeilToInt(
+                _tipsCatalog.GetVisible(memory, _tipsScope, _tipsVisibleChapterOverride).Count / 8f));
             _tipsPage = Mathf.Clamp(_tipsPage + delta, 0, pageCount - 1);
             _selectedTipId = -1;
         }
@@ -1395,6 +1412,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             return new UnityBurikoHostSnapshot(
                 _backgroundName,
                 layers,
+                _history.ToArray(),
+                _historyVoices.ToArray(),
                 Speaker,
                 Dialogue,
                 WindowVisible,
@@ -1423,6 +1442,88 @@ namespace Higurashi.IOS.Runtime.Buriko
                 _fragmentTextureName,
                 _fragmentStyle,
                 _windowBackgroundName);
+        }
+
+        public void ReplayRestoredCheckpointAnimations(
+            UnityBurikoHostSnapshot previous,
+            BurikoMemory memory)
+        {
+            if (previous == null)
+            {
+                return;
+            }
+
+            const float replayDuration = 0.28f;
+            var now = Time.unscaledTime;
+            _dialogueRevealStartIndex = 0;
+            _dialogueRevealStartedAt = now;
+            _dialogueRevealForced = false;
+
+            var backgroundChanged = !string.Equals(previous.BackgroundName, _backgroundName,
+                StringComparison.OrdinalIgnoreCase);
+            _previousBackgroundTexture = backgroundChanged
+                ? LoadTexture(previous.BackgroundName, memory)
+                : null;
+            _backgroundTransitionMask = null;
+            _backgroundTransitionStartedAt = now;
+            _backgroundTransitionDuration = backgroundChanged ? replayDuration : 0f;
+
+            var previousLayers = new Dictionary<int, PresentationLayer>();
+            for (var i = 0; i < previous.Layers.Length; i++)
+            {
+                previousLayers[previous.Layers[i].Id] = previous.Layers[i];
+            }
+
+            _previousSceneLayers.Clear();
+            foreach (var pair in _layers)
+            {
+                var current = pair.Value;
+                if (!previousLayers.TryGetValue(pair.Key, out var old))
+                {
+                    current.FromAlpha = 0f;
+                    current.TransitionStartedAt = now;
+                    current.TransitionDuration = replayDuration;
+                    continue;
+                }
+
+                previousLayers.Remove(pair.Key);
+                var sameTexture = string.Equals(old.TextureName, current.TextureName,
+                    StringComparison.OrdinalIgnoreCase);
+                current.FromX = old.X;
+                current.FromY = old.Y;
+                current.FromZ = old.Z;
+                current.FromAlpha = sameTexture ? old.Alpha : 0f;
+                current.TransitionStartedAt = now;
+                current.TransitionDuration = replayDuration;
+                if (!sameTexture)
+                {
+                    current.PreviousTexture = LoadTexture(old.TextureName, memory);
+                    current.PreviousX = old.X;
+                    current.PreviousY = old.Y;
+                    current.PreviousZ = old.Z;
+                    current.PreviousAlpha = old.Alpha;
+                    current.PreviousIsBustshot = old.IsBustshot;
+                    current.PreviousIsCentered = old.IsCentered;
+                    current.PreviousOverrideWidth = old.OverrideWidth;
+                    current.PreviousOverrideHeight = old.OverrideHeight;
+                }
+            }
+
+            foreach (var pair in previousLayers)
+            {
+                var old = pair.Value.CloneWithoutTexture();
+                old.Texture = LoadTexture(old.TextureName, memory);
+                if (old.Texture != null)
+                {
+                    _previousSceneLayers.Add(old);
+                }
+            }
+            if (_previousSceneLayers.Count > 0 && _previousBackgroundTexture == null)
+            {
+                _previousBackgroundTexture = _backgroundTexture;
+                _backgroundTransitionStartedAt = now;
+                _backgroundTransitionDuration = replayDuration;
+            }
         }
 
         public void WritePersistentState(Stream output)
@@ -1845,6 +1946,18 @@ namespace Higurashi.IOS.Runtime.Buriko
             _fragmentTransitionFrom = _fragmentTexture != null ? 1f : 0f;
             _fragmentTransitionTo = _fragmentTransitionFrom;
             _previousSceneLayers.Clear();
+            _history.Clear();
+            _history.AddRange(snapshot.History);
+            _historyVoices.Clear();
+            _historyVoices.AddRange(snapshot.HistoryVoices);
+            while (_historyVoices.Count < _history.Count)
+            {
+                _historyVoices.Add(HistoryVoiceCue.None);
+            }
+            if (_historyVoices.Count > _history.Count)
+            {
+                _historyVoices.RemoveRange(_history.Count, _historyVoices.Count - _history.Count);
+            }
             _layers.Clear();
             for (var i = 0; i < snapshot.Layers.Length; i++)
             {
@@ -2937,6 +3050,8 @@ namespace Higurashi.IOS.Runtime.Buriko
         public UnityBurikoHostSnapshot(
             string backgroundName,
             PresentationLayer[] layers,
+            string[] history,
+            HistoryVoiceCue[] historyVoices,
             string speaker,
             string dialogue,
             bool windowVisible,
@@ -2968,6 +3083,8 @@ namespace Higurashi.IOS.Runtime.Buriko
         {
             BackgroundName = backgroundName;
             Layers = layers;
+            History = history ?? Array.Empty<string>();
+            HistoryVoices = historyVoices ?? Array.Empty<HistoryVoiceCue>();
             Speaker = speaker;
             Dialogue = dialogue;
             WindowVisible = windowVisible;
@@ -3000,6 +3117,8 @@ namespace Higurashi.IOS.Runtime.Buriko
 
         public string BackgroundName { get; }
         public PresentationLayer[] Layers { get; }
+        public string[] History { get; }
+        public HistoryVoiceCue[] HistoryVoices { get; }
         public string Speaker { get; }
         public string Dialogue { get; }
         public bool WindowVisible { get; }
@@ -3272,7 +3391,12 @@ namespace Higurashi.IOS.Runtime.Buriko
                 var path = Path.Combine(installedGameDataRoot ?? string.Empty, "tips.json");
                 if (!File.Exists(path))
                 {
-                    return Empty;
+                    path = Path.Combine(installedGameDataRoot ?? string.Empty,
+                        "StreamingAssets", "Data", "tips.txt");
+                    if (!File.Exists(path))
+                    {
+                        return Empty;
+                    }
                 }
                 var json = File.ReadAllText(path);
                 var start = json.IndexOf('[');
@@ -3283,9 +3407,13 @@ namespace Higurashi.IOS.Runtime.Buriko
                 }
                 var document = JsonUtility.FromJson<HigurashiTipsCatalogDocument>(
                     "{\"Items\":" + json.Substring(start, end - start + 1) + "}");
-                return document == null || document.Items == null
-                    ? Empty
-                    : new HigurashiTipsCatalog(document.Items);
+                if (document == null || document.Items == null)
+                {
+                    return Empty;
+                }
+                HigurashiTipsLocalization.Apply(
+                    HigurashiActiveChapter.Profile.EpisodeNumber, document.Items);
+                return new HigurashiTipsCatalog(document.Items);
             }
             catch (Exception exception)
             {
@@ -3329,10 +3457,15 @@ namespace Higurashi.IOS.Runtime.Buriko
             return "tips/" + prefix + number.ToString("000");
         }
 
-        public List<HigurashiTipDefinition> GetVisible(BurikoMemory memory, int scope)
+        public List<HigurashiTipDefinition> GetVisible(
+            BurikoMemory memory,
+            int scope,
+            int chapterOverride = -1)
         {
             var result = new List<HigurashiTipDefinition>();
-            var chapter = memory == null ? 0 : Math.Max(0, memory.GetLocalFlag("ChapterNumber"));
+            var chapter = chapterOverride >= 0
+                ? chapterOverride
+                : (memory == null ? 0 : Math.Max(0, memory.GetLocalFlag("ChapterNumber")));
             for (var i = 0; i < _entries.Count; i++)
             {
                 var entry = _entries[i];
@@ -3344,6 +3477,96 @@ namespace Higurashi.IOS.Runtime.Buriko
                 }
             }
             return result;
+        }
+    }
+
+    [Serializable]
+    internal sealed class HigurashiTipsLocalizationDocument
+    {
+        public HigurashiTipsLocalizationEntry[] Items;
+    }
+
+    [Serializable]
+    internal sealed class HigurashiTipsLocalizationEntry
+    {
+        public int Episode;
+        public int Id;
+        public string Title;
+    }
+
+    internal static class HigurashiTipsLocalization
+    {
+        private static HigurashiTipsLocalizationEntry[] _items;
+
+        public static void Apply(int episode, HigurashiTipDefinition[] entries)
+        {
+            EnsureLoaded();
+            if (_items == null)
+            {
+                return;
+            }
+            for (var i = 0; i < entries.Length; i++)
+            {
+                if (entries[i].UnlockChapter <= 0)
+                {
+                    entries[i].UnlockChapter = GetUnlockChapter(episode, entries[i].Id);
+                }
+                for (var j = 0; j < _items.Length; j++)
+                {
+                    if (_items[j].Episode == episode && _items[j].Id == entries[i].Id &&
+                        !string.IsNullOrWhiteSpace(_items[j].Title))
+                    {
+                        entries[i].Title = _items[j].Title;
+                        break;
+                    }
+                }
+            }
+        }
+
+        private static int GetUnlockChapter(int episode, int id)
+        {
+            int[] chapters;
+            int firstId;
+            switch (episode)
+            {
+                case 5:
+                    firstId = 1;
+                    chapters = new[] { 1, 2, 3, 4, 4, 5, 6, 7, 7, 8, 8, 8,
+                        9, 9, 9, 10, 10, 11, 12, 12, 13, 14, 14 };
+                    break;
+                case 6:
+                    firstId = 24;
+                    chapters = new[] { 1, 2, 3, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13 };
+                    break;
+                case 7:
+                    firstId = 38;
+                    chapters = new[] { 1, 2, 3, 4, 5, 6, 6, 7, 7, 8, 10, 11, 12 };
+                    break;
+                case 8:
+                    return id == 51 ? 10 : int.MaxValue;
+                default:
+                    return 0;
+            }
+            var index = id - firstId;
+            return index >= 0 && index < chapters.Length ? chapters[index] : int.MaxValue;
+        }
+
+        private static void EnsureLoaded()
+        {
+            if (_items != null)
+            {
+                return;
+            }
+            var asset = Resources.Load<TextAsset>("TipsPreviews/titles");
+            if (asset == null)
+            {
+                _items = Array.Empty<HigurashiTipsLocalizationEntry>();
+                return;
+            }
+            var document = JsonUtility.FromJson<HigurashiTipsLocalizationDocument>(asset.text);
+            _items = document == null || document.Items == null
+                ? Array.Empty<HigurashiTipsLocalizationEntry>()
+                : document.Items;
         }
     }
 
@@ -3409,7 +3632,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         }
     }
 
-    internal readonly struct HistoryVoiceCue
+    public readonly struct HistoryVoiceCue
     {
         public static HistoryVoiceCue None { get; } = new HistoryVoiceCue(-1, -1, string.Empty, 0f);
 

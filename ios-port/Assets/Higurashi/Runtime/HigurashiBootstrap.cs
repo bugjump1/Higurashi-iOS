@@ -77,6 +77,9 @@ namespace Higurashi.IOS.Runtime
                 case NovelInputAction.Advance:
                     StepForward();
                     break;
+                case NovelInputAction.PreviousTextBox:
+                    StepBackward();
+                    break;
             }
         }
 
