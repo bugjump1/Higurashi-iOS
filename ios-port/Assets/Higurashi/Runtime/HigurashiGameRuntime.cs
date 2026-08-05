@@ -19,6 +19,7 @@ namespace Higurashi.IOS.Runtime
         private const string FragmentTutorialSeenKey = "higurashi-ios-ep08-fragment-tutorial-seen-v1";
         private const string OpeningPreferenceKey = "higurashi-ios-opening-preference-v1";
         private const string TipsMenuUnlockedKeyPrefix = "higurashi-ios-tips-menu-unlocked-ep";
+        private const string ChapterJumpUnlockedKeyPrefix = "higurashi-ios-chapter-jump-unlocked-ep";
         private const int SaveFileMagic = 0x31534748; // HGS1
         private const int SaveFileVersion = 1;
         // This is a read-only summary slot in the save/load UI. Every successful
@@ -64,6 +65,9 @@ namespace Higurashi.IOS.Runtime
             HigurashiActiveChapter.Profile.EpisodeNumber.ToString("00");
 
         private bool IsTipsMenuUnlocked => PlayerPrefs.GetInt(TipsMenuUnlockedKey, 0) != 0;
+
+        private string ChapterJumpUnlockedKey => ChapterJumpUnlockedKeyPrefix +
+            HigurashiActiveChapter.Profile.EpisodeNumber.ToString("00");
 
         private void Awake()
         {
@@ -597,8 +601,12 @@ namespace Higurashi.IOS.Runtime
                 return;
             }
 
-            if (!standalone)
+            if (!standalone && !_host.TipsChapterVisible)
             {
+                // Standalone and in-flow TIPS use different return states. The
+                // in-flow list closes back to the four-button chapter screen;
+                // resuming the script here would skip that screen and enter the
+                // next chapter.
                 _runtime.ResumeInput();
                 DriveRuntime(false);
             }

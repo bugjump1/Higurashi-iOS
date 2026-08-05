@@ -237,6 +237,24 @@ namespace Higurashi.IOS.Buriko
             LastError = null;
         }
 
+        public void JumpToSectionFromUi(string sectionName)
+        {
+            if (_current == null)
+            {
+                throw new InvalidOperationException("Buriko runtime has not been started.");
+            }
+            if (string.IsNullOrWhiteSpace(sectionName))
+            {
+                throw new ArgumentException("A section name is required.", nameof(sectionName));
+            }
+
+            _callStack.Clear();
+            _current.JumpToBlock(sectionName);
+            BlockReason = BurikoBlockReason.None;
+            _remainingWaitMilliseconds = 0;
+            LastError = null;
+        }
+
         public void AdvanceTime(int elapsedMilliseconds)
         {
             if (BlockReason != BurikoBlockReason.WaitForTime)

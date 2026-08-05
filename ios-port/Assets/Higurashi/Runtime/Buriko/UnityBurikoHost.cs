@@ -70,6 +70,8 @@ namespace Higurashi.IOS.Runtime.Buriko
         private int _tipsScope;
         private int _tipsPage;
         private int _selectedTipId = -1;
+        private bool _tipReading;
+        private Texture2D _tipsBackgroundTexture;
         private int _fragmentPage;
         private int _selectedFragmentId = -1;
         private float _fragmentStartedAt;
@@ -103,6 +105,8 @@ namespace Higurashi.IOS.Runtime.Buriko
         public bool TipsLibraryStandalone => _tipsLibraryStandalone;
         public int TipsPage => _tipsPage;
         public int SelectedTipId => _selectedTipId;
+        public int CurrentChapterNumber => _memory == null ? 0 : Math.Max(0, _memory.GetLocalFlag("ChapterNumber"));
+        public Texture2D TipsBackgroundTexture => _tipsBackgroundTexture;
         public int FragmentPage => _fragmentPage;
         public int SelectedFragmentId => _selectedFragmentId;
         public bool GameplayUiVisible { get; private set; }
@@ -358,7 +362,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             switch (invocation.Specification.Code)
             {
                 case 13:
-                    SavingEnabled = invocation.Arguments[0].AsBool(memory);
+                    SavingEnabled = !_tipReading && invocation.Arguments[0].AsBool(memory);
                     return BurikoHostResponse.Continue;
                 case 85:
                     InterfaceEnabled = invocation.Arguments[0].AsBool(memory);
@@ -735,6 +739,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                     SetWindowVisibilityImmediate(false);
                     return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
                 case 86:
+                    _tipReading = false;
+                    _tipsBackgroundTexture = LoadTexture("ex_tips", memory);
                     _tipsChapterVisible = false;
                     _tipsListVisible = true;
                     _tipsLibraryStandalone = false;
@@ -745,6 +751,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                     SetWindowVisibilityImmediate(false);
                     return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
                 case 87:
+                    _tipReading = false;
                     _tipsChapterVisible = true;
                     _tipsListVisible = false;
                     _tipsLibraryStandalone = false;
@@ -910,6 +917,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             memory.SetLocalFlag("LOCALWORK_NO_RESULT", 1);
             _tipsChapterVisible = false;
             _selectedTipId = -1;
+            _tipReading = false;
+            SavingEnabled = true;
             SetWindowVisibilityImmediate(false);
             return true;
         }
@@ -925,6 +934,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             memory.SetLocalFlag("LOCALWORK_NO_RESULT", 0);
             _tipsChapterVisible = false;
             _selectedTipId = -1;
+            _tipReading = false;
+            SavingEnabled = true;
             SetWindowVisibilityImmediate(false);
             return true;
         }
@@ -942,6 +953,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             _tipsScope = 1;
             _tipsPage = 0;
             _selectedTipId = -1;
+            TitleVisible = false;
+            _tipsBackgroundTexture = LoadTexture("ex_tips", memory);
             GameplayUiVisible = true;
             SetWindowVisibilityImmediate(false);
             return true;
@@ -960,16 +973,90 @@ namespace Higurashi.IOS.Runtime.Buriko
             _selectedTipId = -1;
             if (!standalone)
             {
-                memory.SetLocalFlag("TipsMode", 0);
-                memory.SetLocalFlag("LOCALWORK_NO_RESULT", 0);
+                // Closing the list in the original PC flow returns to the
+                // four-button chapter screen. Clearing TipsMode here would
+                // resume flow.txt and accidentally enter the next chapter.
+                _tipsChapterVisible = true;
+                _tipReading = false;
+                SavingEnabled = true;
+                GameplayUiVisible = false;
                 SetWindowVisibilityImmediate(false);
             }
             else
             {
+                _tipReading = false;
+                SavingEnabled = true;
+                TitleVisible = true;
                 GameplayUiVisible = true;
                 SetWindowVisibilityImmediate(true);
             }
             return true;
+        }
+
+        internal IReadOnlyList<string> GetChapterJumpSections()
+        {
+            var result = new List<string>();
+            var candidates = new[]
+            {
+                Path.Combine(_streamingAssetsRoot ?? string.Empty, "CompiledChineseScripts", "flow.mg"),
+                Path.Combine(_streamingAssetsRoot ?? string.Empty, "CompiledUpdateScripts", "flow.mg"),
+                Path.Combine(_streamingAssetsRoot ?? string.Empty, "CompiledScripts", "flow.mg")
+            };
+
+            for (var i = 0; i < candidates.Length; i++)
+            {
+                if (!File.Exists(candidates[i]))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var container = CompiledScriptContainer.ReadFile(candidates[i]);
+                    foreach (var pair in container.Blocks)
+                    {
+                        if (pair.Key.StartsWith("Day", StringComparison.OrdinalIgnoreCase) &&
+                            !result.Contains(pair.Key))
+                        {
+                            result.Add(pair.Key);
+                        }
+                    }
+                    break;
+                }
+                catch (Exception exception)
+                {
+                    Debug.LogWarning("Unable to read chapter jump sections: " + exception.Message);
+                }
+            }
+
+            result.Sort(CompareChapterJumpSections);
+            return result;
+        }
+
+        private static int CompareChapterJumpSections(string left, string right)
+        {
+            var leftNumber = ChapterJumpNumber(left);
+            var rightNumber = ChapterJumpNumber(right);
+            var result = leftNumber.CompareTo(rightNumber);
+            return result != 0 ? result : string.Compare(left, right, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static int ChapterJumpNumber(string section)
+        {
+            if (string.IsNullOrWhiteSpace(section) || section.Length <= 3)
+            {
+                return int.MaxValue;
+            }
+
+            var end = 3;
+            while (end < section.Length && char.IsDigit(section[end]))
+            {
+                end++;
+            }
+
+            return int.TryParse(section.Substring(3, end - 3), out var number)
+                ? number
+                : int.MaxValue;
         }
 
         internal IReadOnlyList<HigurashiTipDefinition> GetVisibleTips(BurikoMemory memory)
@@ -980,6 +1067,27 @@ namespace Higurashi.IOS.Runtime.Buriko
         internal HigurashiTipDefinition GetSelectedTip()
         {
             return _tipsCatalog.Find(_selectedTipId);
+        }
+
+        internal Texture2D GetTipPreview(HigurashiTipDefinition entry, BurikoMemory memory)
+        {
+            return entry == null || string.IsNullOrWhiteSpace(entry.PreviewName)
+                ? null
+                : LoadTexture(entry.PreviewName, memory);
+        }
+
+        internal Texture2D GetTipPreview(HigurashiTipDefinition entry, BurikoMemory memory, bool selected)
+        {
+            if (entry == null)
+            {
+                return null;
+            }
+
+            var name = selected && !string.IsNullOrWhiteSpace(entry.SelectedPreviewName)
+                ? entry.SelectedPreviewName
+                : entry.PreviewName;
+            var texture = LoadTexture(name, memory);
+            return texture ?? LoadTexture(entry.PreviewName, memory);
         }
 
         public bool SelectTip(int id, BurikoMemory memory)
@@ -1006,7 +1114,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             {
                 return;
             }
-            var pageCount = Math.Max(1, Mathf.CeilToInt(_tipsCatalog.GetVisible(memory, _tipsScope).Count / 6f));
+            var pageCount = Math.Max(1, Mathf.CeilToInt(_tipsCatalog.GetVisible(memory, _tipsScope).Count / 8f));
             _tipsPage = Mathf.Clamp(_tipsPage + delta, 0, pageCount - 1);
             _selectedTipId = -1;
         }
@@ -1027,6 +1135,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             scriptName = tip.Script;
             _tipsListVisible = false;
             _selectedTipId = -1;
+            _tipReading = true;
+            SavingEnabled = false;
             if (!_tipsLibraryStandalone)
             {
                 memory.SetLocalFlag("TipsMode", _tipsScope + 3);
@@ -1041,6 +1151,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             _tipsChapterVisible = false;
             _tipsListVisible = true;
             _tipsLibraryStandalone = true;
+            _tipReading = false;
             _tipsScope = 1;
             _tipsPage = 0;
             _selectedTipId = -1;
@@ -3115,6 +3226,9 @@ namespace Higurashi.IOS.Runtime.Buriko
         public int UnlockChapter;
         public string Title;
         public string TitleJp;
+        public string Description;
+        [NonSerialized] public string PreviewName;
+        [NonSerialized] public string SelectedPreviewName;
 
         public string DisplayTitle => !string.IsNullOrWhiteSpace(Title)
             ? Title
@@ -3136,6 +3250,10 @@ namespace Higurashi.IOS.Runtime.Buriko
             {
                 if (entry != null && entry.Id >= 0 && !string.IsNullOrWhiteSpace(entry.Script))
                 {
+                    entry.PreviewName = BuildPreviewName(entry.Script);
+                    entry.SelectedPreviewName = string.IsNullOrWhiteSpace(entry.PreviewName)
+                        ? string.Empty
+                        : entry.PreviewName + "_j";
                     _entries.Add(entry);
                 }
             }
@@ -3186,6 +3304,29 @@ namespace Higurashi.IOS.Runtime.Buriko
                 }
             }
             return null;
+        }
+
+        private static string BuildPreviewName(string script)
+        {
+            var marker = "_tips_";
+            var index = script == null ? -1 : script.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (index < 0)
+            {
+                return string.Empty;
+            }
+            var suffix = script.Substring(index + marker.Length);
+            if (!int.TryParse(suffix, out var number))
+            {
+                return string.Empty;
+            }
+            var prefix = script.Substring(0, index);
+            if (prefix.StartsWith("_", StringComparison.Ordinal))
+            {
+                // Episodes 05-07 use gettip_<arc><number>.png while the
+                // first four arcs use <arc><number>.png.
+                prefix = "gettip_" + prefix.Substring(1);
+            }
+            return "tips/" + prefix + number.ToString("000");
         }
 
         public List<HigurashiTipDefinition> GetVisible(BurikoMemory memory, int scope)
