@@ -28,6 +28,7 @@ namespace Higurashi.IOS.Buriko
         public Exception LastError { get; private set; }
         public string CurrentScriptName => _current?.Name;
         public int CurrentLine => _current?.LineNumber ?? 0;
+        public int CallDepth => _callStack.Count + (_current == null ? 0 : 1);
 
         public void Start(string scriptName = "init")
         {

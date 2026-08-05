@@ -11,6 +11,7 @@ internal static class Program
         }
 
         var startFromTitle = false;
+        var stopAtTips = false;
         var episodeNumber = 1;
         var directories = new List<string>();
         for (var i = 0; i < args.Length; i++)
@@ -18,6 +19,10 @@ internal static class Program
             if (args[i] == "--start")
             {
                 startFromTitle = true;
+            }
+            else if (args[i] == "--until-tips")
+            {
+                stopAtTips = true;
             }
             else if (args[i] == "--episode" && i + 1 < args.Length)
             {
@@ -35,7 +40,7 @@ internal static class Program
         }
 
         BurikoOperationCatalog.ConfigureForEpisode(episodeNumber);
-        var host = new ProbeHost(startFromTitle);
+        var host = new ProbeHost(startFromTitle, stopAtTips);
         var runtime = new BurikoRuntime(
             new DirectoryBurikoScriptRepository(directories.ToArray()), host);
         runtime.Start("init");
@@ -49,7 +54,7 @@ internal static class Program
                     runtime.AdvanceTime(int.MaxValue);
                     break;
                 case BurikoBlockReason.WaitForInput:
-                    if (startFromTitle && host.DialogueCount >= 5)
+                    if (startFromTitle && !stopAtTips && host.DialogueCount >= 5)
                     {
                         Console.WriteLine("Runtime reached five real dialogue checkpoints after title.");
                         PrintSummary(runtime, host);
@@ -92,10 +97,12 @@ internal static class Program
     private sealed class ProbeHost : IBurikoHost
     {
         private readonly bool _startFromTitle;
+        private readonly bool _stopAtTips;
 
-        public ProbeHost(bool startFromTitle)
+        public ProbeHost(bool startFromTitle, bool stopAtTips)
         {
             _startFromTitle = startFromTitle;
+            _stopAtTips = stopAtTips;
         }
 
         public long OperationCount { get; private set; }
@@ -136,6 +143,20 @@ internal static class Program
                     if (_startFromTitle)
                     {
                         memory.SetLocalFlag("LOCALWORK_NO_RESULT", 1);
+                    }
+                    break;
+                case 86:
+                    LastBoundary = "ShowTips(" + invocation.Arguments[0].AsInt(memory) + ")";
+                    if (_stopAtTips)
+                    {
+                        return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
+                    }
+                    break;
+                case 87:
+                    LastBoundary = "ShowChapterScreen";
+                    if (_stopAtTips)
+                    {
+                        return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
                     }
                     break;
             }

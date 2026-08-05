@@ -18,6 +18,7 @@ namespace Higurashi.IOS.Runtime
         private const string HelpSeenKey = "higurashi-ios-help-seen-v1";
         private const string FragmentTutorialSeenKey = "higurashi-ios-ep08-fragment-tutorial-seen-v1";
         private const string OpeningPreferenceKey = "higurashi-ios-opening-preference-v1";
+        private const string TipsMenuUnlockedKeyPrefix = "higurashi-ios-tips-menu-unlocked-ep";
         private const int SaveFileMagic = 0x31534748; // HGS1
         private const int SaveFileVersion = 1;
         // This is a read-only summary slot in the save/load UI. Every successful
@@ -49,6 +50,8 @@ namespace Higurashi.IOS.Runtime
         private float _nextAutoAdvanceAt;
         private bool _initializationAttempted;
         private RuntimeCheckpoint _titleCheckpoint;
+        private RuntimeCheckpoint _tipsLibraryReturnCheckpoint;
+        private int _tipsLibraryReturnCallDepth;
         private Vector2 _historyScroll;
         private bool _historyAutoScrollPending;
         private GUIStyle _dialogueStyle;
@@ -56,6 +59,11 @@ namespace Higurashi.IOS.Runtime
         private GUIStyle _titleStyle;
         private GUIStyle _statusStyle;
         private Texture2D _solidWhite;
+
+        private string TipsMenuUnlockedKey => TipsMenuUnlockedKeyPrefix +
+            HigurashiActiveChapter.Profile.EpisodeNumber.ToString("00");
+
+        private bool IsTipsMenuUnlocked => PlayerPrefs.GetInt(TipsMenuUnlockedKey, 0) != 0;
 
         private void Awake()
         {
@@ -410,6 +418,15 @@ namespace Higurashi.IOS.Runtime
                     _runtime.RunUntilBlocked();
                 }
 
+                if (_tipsLibraryReturnCheckpoint != null &&
+                    _runtime.CallDepth <= _tipsLibraryReturnCallDepth)
+                {
+                    RestoreCheckpoint(_tipsLibraryReturnCheckpoint);
+                    _tipsLibraryReturnCheckpoint = null;
+                    _host.ReopenTipsLibrary();
+                    return;
+                }
+
                 if (_runtime.BlockReason == BurikoBlockReason.WaitForTime && skipTimedWaits)
                 {
                     _runtime.AdvanceTime(int.MaxValue);
@@ -465,6 +482,7 @@ namespace Higurashi.IOS.Runtime
         {
             _runtime.RestoreSnapshot(checkpoint.Runtime);
             _host.RestoreSnapshot(checkpoint.Presentation, _runtime.Memory);
+            _host.RestoreBgmState(checkpoint.BgmState, _runtime.Memory);
             _capturedDialogueSerial = _host.DialogueSerial;
             _runtimeStatus = "Restored " + _runtime.CurrentScriptName + ":" + _runtime.CurrentLine;
         }
@@ -519,6 +537,92 @@ namespace Higurashi.IOS.Runtime
                 !_host.TryStartSelectedFragment(_runtime.Memory, out var scriptName))
             {
                 return;
+            }
+
+            _fastTraversal.Stop();
+            _autoMode = false;
+            _host.StopVoices();
+            _runtime.CallScriptFromUi(scriptName);
+            _suppressInputUntilFrame = Time.frameCount + 2;
+            DriveRuntime(false);
+            CaptureDialogueCheckpoint();
+        }
+
+        private void EnterChapterTips(bool allUnlocked)
+        {
+            if (_runtime == null || !_host.ResolveTipsChapterToList(_runtime.Memory, allUnlocked))
+            {
+                return;
+            }
+
+            _runtime.ResumeInput();
+            _suppressInputUntilFrame = Time.frameCount + 2;
+            DriveRuntime(false);
+        }
+
+        private void ContinuePastTips()
+        {
+            if (_runtime == null || !_host.ContinuePastTips(_runtime.Memory))
+            {
+                return;
+            }
+
+            _runtime.ResumeInput();
+            _suppressInputUntilFrame = Time.frameCount + 2;
+            DriveRuntime(false);
+            CaptureDialogueCheckpoint();
+        }
+
+        private void OpenTipsLibrary()
+        {
+            if (_runtime == null || !_host.OpenTipsLibrary(_runtime.Memory))
+            {
+                return;
+            }
+
+            _systemMenuVisible = false;
+            _fastTraversal.Stop();
+            SuppressInput();
+        }
+
+        private void ExitTipsLibrary()
+        {
+            if (_runtime == null || _host == null)
+            {
+                return;
+            }
+            var standalone = _host.TipsLibraryStandalone;
+            if (!_host.ExitTips(_runtime.Memory))
+            {
+                return;
+            }
+
+            if (!standalone)
+            {
+                _runtime.ResumeInput();
+                DriveRuntime(false);
+            }
+            SuppressInput();
+        }
+
+        private void StartSelectedTip()
+        {
+            if (_runtime == null || _host == null)
+            {
+                return;
+            }
+
+            var standalone = _host.TipsLibraryStandalone;
+            if (!_host.TryStartSelectedTip(_runtime.Memory, out var scriptName))
+            {
+                return;
+            }
+
+            if (standalone)
+            {
+                _tipsLibraryReturnCheckpoint = new RuntimeCheckpoint(
+                    _runtime.CaptureSnapshot(), _host.CaptureSnapshot(), _host.CaptureBgmState());
+                _tipsLibraryReturnCallDepth = _runtime.CallDepth;
             }
 
             _fastTraversal.Stop();
@@ -877,7 +981,7 @@ namespace Higurashi.IOS.Runtime
             {
                 return;
             }
-            SaveGame(FindOldestOrEmptySlot(201, 203), false);
+            SaveGame(FindOldestOrEmptySlot(201, 203), showToast: false);
             _dialoguesSinceAutoSave = 0;
             _lastAutoSaveAt = Time.unscaledTime;
         }
@@ -896,7 +1000,6 @@ namespace Higurashi.IOS.Runtime
             _fastTraversal.Stop();
             _timeline.Clear();
             RestoreCheckpoint(_titleCheckpoint);
-            _host.RestoreBgmState(_titleCheckpoint.BgmState, _runtime.Memory);
             CloseAllModals();
             _suppressInputUntilFrame = Time.frameCount + 2;
         }

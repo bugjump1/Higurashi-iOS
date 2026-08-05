@@ -16,6 +16,7 @@ namespace Higurashi.IOS.Compatibility
         public int artSetIndex = 1;
         public int audioPresetIndex;
         public int censorshipLevel = 2;
+        public int bgmVolume = 100;
         public int voiceVolume = 75;
         public int windowOpacity = 50;
         public int textScale = 100;
