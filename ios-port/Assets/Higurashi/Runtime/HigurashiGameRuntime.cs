@@ -41,6 +41,7 @@ namespace Higurashi.IOS.Runtime
         private int _capturedDialogueSerial;
         private int _dialoguesSinceAutoSave;
         private float _lastAutoSaveAt;
+        private float _nextSaveProgressScanAt;
         private int _suppressInputUntilFrame;
         private bool _settingsVisible;
         private bool _helpVisible;
@@ -202,6 +203,12 @@ namespace Higurashi.IOS.Runtime
             UpdateChapterJumpUnlockProgress();
             CaptureStoryChoiceCheckpointIfNeeded();
             UpdateBadEndingDecision();
+            if (_host != null && _host.TitleVisible &&
+                Time.unscaledTime >= _nextSaveProgressScanAt)
+            {
+                _nextSaveProgressScanAt = Time.unscaledTime + 2f;
+                RefreshUnlockProgressFromSaves();
+            }
         }
 
         private void OnApplicationPause(bool paused)
@@ -268,6 +275,7 @@ namespace Higurashi.IOS.Runtime
                 _host.ApplySettings(_runtime.Memory);
                 _capturedDialogueSerial = _host.DialogueSerial;
                 _lastAutoSaveAt = Time.unscaledTime;
+                RefreshUnlockProgressFromSaves();
                 _runtimeStatus = "Ready";
             }
             catch (Exception exception)
@@ -610,6 +618,7 @@ namespace Higurashi.IOS.Runtime
                 // quitting at the decision cannot lose the preceding chapter.
                 WriteSaveGame(FindOldestOrEmptySlot(201, 203));
                 WriteSaveGame(LatestSaveSlot);
+                RefreshUnlockProgressFromSaves();
                 _dialoguesSinceAutoSave = 0;
                 _lastAutoSaveAt = Time.unscaledTime;
                 ShowToast("已在剧情选项前自动保存");
@@ -701,6 +710,83 @@ namespace Higurashi.IOS.Runtime
             PlayerPrefs.Save();
         }
 
+        private void RefreshUnlockProgressFromSaves()
+        {
+            if (_host == null)
+            {
+                return;
+            }
+
+            var sectionCount = _host.GetChapterJumpSections().Count;
+            if (sectionCount <= 0)
+            {
+                return;
+            }
+
+            var highestJump = Mathf.Clamp(
+                PlayerPrefs.GetInt(ChapterJumpUnlockedKey, 0), 0, sectionCount);
+            var highestTips = Mathf.Clamp(
+                PlayerPrefs.GetInt(TipsUnlockedChapterKey, 0), 0, sectionCount);
+            var saveDirectory = Path.Combine(Application.persistentDataPath, "Saves");
+            if (Directory.Exists(saveDirectory))
+            {
+                var paths = Directory.GetFiles(saveDirectory, "slot-*.hgs");
+                for (var i = 0; i < paths.Length; i++)
+                {
+                    if (!TryReadSavedChapter(paths[i], out var chapter))
+                    {
+                        continue;
+                    }
+
+                    highestJump = Math.Max(highestJump,
+                        Mathf.Clamp(chapter + 1, 0, sectionCount));
+                    highestTips = Math.Max(highestTips,
+                        Mathf.Clamp(chapter, 0, sectionCount));
+                }
+            }
+
+            var changed = false;
+            if (highestJump > PlayerPrefs.GetInt(ChapterJumpUnlockedKey, 0))
+            {
+                PlayerPrefs.SetInt(ChapterJumpUnlockedKey, highestJump);
+                changed = true;
+            }
+            if (highestTips > PlayerPrefs.GetInt(TipsUnlockedChapterKey, 0))
+            {
+                PlayerPrefs.SetInt(TipsUnlockedChapterKey, highestTips);
+                changed = true;
+            }
+            if (highestTips > 0 && !IsTipsMenuUnlocked)
+            {
+                UnlockTipsMenu();
+                changed = false; // UnlockTipsMenu already flushes PlayerPrefs.
+            }
+            if (changed)
+            {
+                PlayerPrefs.Save();
+            }
+        }
+
+        private static bool TryReadSavedChapter(string path, out int chapter)
+        {
+            chapter = 0;
+            try
+            {
+                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                           FileShare.ReadWrite))
+                using (var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, true))
+                {
+                    ReadSaveHeader(reader);
+                    return BurikoRuntime.TryReadPersistentLocalFlag(
+                        stream, "ChapterNumber", out chapter);
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private void UpdateChapterJumpUnlockProgress()
         {
             if (_runtime == null || _host == null || _host.TitleVisible)
@@ -743,7 +829,7 @@ namespace Higurashi.IOS.Runtime
             }
             var migrated = IsTipsMenuUnlocked
                 ? Math.Max(_host == null ? 0 : _host.CurrentChapterNumber,
-                    PlayerPrefs.GetInt(ChapterJumpUnlockedKey, 0))
+                    Math.Max(0, PlayerPrefs.GetInt(ChapterJumpUnlockedKey, 0) - 1))
                 : 0;
             PlayerPrefs.SetInt(TipsUnlockedChapterKey, migrated);
             PlayerPrefs.Save();
@@ -874,13 +960,14 @@ namespace Higurashi.IOS.Runtime
 
         private void OpenTipsLibrary()
         {
+            RefreshUnlockProgressFromSaves();
             if (_runtime == null || !_host.OpenTipsLibrary(_runtime.Memory,
                     GetTipsUnlockedChapter()))
             {
                 return;
             }
 
-            _systemMenuVisible = false;
+            CloseAllModals();
             _fastTraversal.Stop();
             SuppressInput();
         }
@@ -1077,6 +1164,7 @@ namespace Higurashi.IOS.Runtime
                 {
                     ShowToast(SaveCompletedMessage(slot));
                 }
+                RefreshUnlockProgressFromSaves();
             }
             catch (Exception exception)
             {
@@ -1147,6 +1235,7 @@ namespace Higurashi.IOS.Runtime
                     _runtime.CaptureSnapshot(),
                     _host.CaptureSnapshot(),
                     _host.CaptureBgmState()));
+                RefreshUnlockProgressFromSaves();
                 _fastTraversal.Stop();
                 _showHelpWhenGameplayStarts = false;
                 CloseAllModals();

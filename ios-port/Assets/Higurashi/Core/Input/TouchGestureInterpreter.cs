@@ -42,6 +42,15 @@ namespace Higurashi.IOS.Input
                 return NovelInputAction.None;
             }
 
+            // iOS may drop the final Ended/Canceled sample when Control Center,
+            // a system gesture, or an application focus change interrupts a
+            // touch.  Do not let that orphaned pointer permanently block every
+            // later one-finger swipe.
+            if (_singlePointerId >= 0 && !ContainsPointer(samples, _singlePointerId))
+            {
+                CancelSinglePointer();
+            }
+
             if (_waitingForThreeFingerRelease)
             {
                 if (!AnyTrackedThreeFingerIsActive(samples))
@@ -109,6 +118,12 @@ namespace Higurashi.IOS.Input
             }
 
             return singleAction;
+        }
+
+        public void Reset()
+        {
+            ResetOrdinaryGestureState();
+            _fastStopArmed = false;
         }
 
         private NovelInputAction ContinueThreeFingerGesture(
@@ -312,6 +327,18 @@ namespace Higurashi.IOS.Input
             }
 
             return count;
+        }
+
+        private static bool ContainsPointer(IReadOnlyList<PointerSample> samples, int id)
+        {
+            for (var i = 0; i < samples.Count; i++)
+            {
+                if (samples[i].Id == id)
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private void ResetThreeFingerGesture()

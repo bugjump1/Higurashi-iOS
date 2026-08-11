@@ -876,9 +876,34 @@ namespace Higurashi.IOS.Runtime.Buriko
             _tipsListVisible = false;
             _tipsLibraryStandalone = false;
             _selectedFragmentId = -1;
+            _tipReading = false;
+            _chapterPreviewAccepted = false;
             GameplayUiVisible = false;
             SetWindowVisibilityImmediate(false);
             return true;
+        }
+
+        public void PrepareForChapterJump()
+        {
+            TitleVisible = false;
+            ChapterPreviewVisible = false;
+            _fragmentChapterVisible = false;
+            _fragmentListVisible = false;
+            _tipsChapterVisible = false;
+            _tipsListVisible = false;
+            _tipsLibraryStandalone = false;
+            _tipReading = false;
+            _selectedFragmentId = -1;
+            _selectedTipId = -1;
+            Choices.Clear();
+            HistoryVisible = false;
+            GameplayUiVisible = true;
+            SavingEnabled = true;
+            InterfaceEnabled = true;
+            _chapterPreviewAccepted = true;
+            _history.Clear();
+            _historyVoices.Clear();
+            SetWindowVisibilityImmediate(false);
         }
 
         public bool ResolveChapterPreview(bool start, BurikoMemory memory)
@@ -961,6 +986,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             TitleVisible = false;
             _tipsBackgroundTexture = LoadTexture("ex_tips", memory);
             GameplayUiVisible = true;
+            InterfaceEnabled = true;
+            HistoryVisible = false;
             SetWindowVisibilityImmediate(false);
             return true;
         }
@@ -1154,6 +1181,9 @@ namespace Higurashi.IOS.Runtime.Buriko
             _selectedTipId = -1;
             _tipReading = true;
             SavingEnabled = false;
+            GameplayUiVisible = true;
+            InterfaceEnabled = true;
+            HistoryVisible = false;
             if (!_tipsLibraryStandalone)
             {
                 memory.SetLocalFlag("TipsMode", _tipsScope + 3);
@@ -1173,6 +1203,9 @@ namespace Higurashi.IOS.Runtime.Buriko
             _tipsPage = 0;
             _selectedTipId = -1;
             GameplayUiVisible = true;
+            InterfaceEnabled = true;
+            HistoryVisible = false;
+            TitleVisible = false;
             SetWindowVisibilityImmediate(false);
         }
 

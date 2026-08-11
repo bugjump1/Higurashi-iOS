@@ -805,13 +805,18 @@ namespace Higurashi.IOS.Runtime
             {
                 _runtime.Memory.SetLocalFlag("TipsMode", 0);
                 _runtime.Memory.SetLocalFlag("LOCALWORK_NO_RESULT", 0);
+                var chapterIndex = _chapterJumpSections.IndexOf(section);
+                if (chapterIndex >= 0)
+                {
+                    _runtime.Memory.SetLocalFlag("ChapterNumber", chapterIndex);
+                }
                 _host.StopAllAudio();
+                _host.PrepareForChapterJump();
                 _fastTraversal.Stop();
                 _autoMode = false;
+                _timeline.Clear();
                 _runtime.JumpToSectionFromUi(section);
-                _runtime.ResumeInput();
-                _extrasVisible = false;
-                _chapterJumpVisible = false;
+                CloseAllModals();
                 SuppressInput();
                 DriveRuntime(false);
                 CaptureDialogueCheckpoint();
@@ -1265,6 +1270,7 @@ namespace Higurashi.IOS.Runtime
             y += buttonHeight + gap;
             if (IsTipsMenuUnlocked && PcButton(new Rect(x, y, width, buttonHeight), "追加内容"))
             {
+                RefreshUnlockProgressFromSaves();
                 _extrasVisible = true;
                 SuppressInput();
             }
@@ -1902,11 +1908,32 @@ namespace Higurashi.IOS.Runtime
             }
             var safe = GetGuiSafeArea();
             var scale = UiScale;
-            var rightRail = new Rect(safe.xMax - 125f * scale, safe.y + safe.height * 0.47f,
-                125f * scale, safe.height * 0.49f);
-            var quickBar = new Rect(safe.xMax - 335f * scale, safe.yMax - 55f * scale,
-                335f * scale, 55f * scale);
-            return rightRail.Contains(guiPoint) || quickBar.Contains(guiPoint);
+            var railWidth = 98f * scale;
+            var buttonHeight = 44f * scale;
+            var x = safe.xMax - railWidth - 12f * scale;
+            var y = safe.y + safe.height * 0.52f;
+            for (var i = 0; i < 4; i++)
+            {
+                if (new Rect(x, y + i * (buttonHeight + 7f * scale),
+                        railWidth, buttonHeight).Contains(guiPoint))
+                {
+                    return true;
+                }
+            }
+
+            if (_host.SavingEnabled)
+            {
+                var quickWidth = 150f * scale;
+                var quickY = safe.yMax - 43f * scale;
+                if (new Rect(safe.xMax - quickWidth * 2f - 22f * scale,
+                        quickY, quickWidth, 35f * scale).Contains(guiPoint) ||
+                    new Rect(safe.xMax - quickWidth - 12f * scale,
+                        quickY, quickWidth, 35f * scale).Contains(guiPoint))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private void CloseAllModals()
@@ -1915,6 +1942,8 @@ namespace Higurashi.IOS.Runtime
             _helpVisible = false;
             _systemMenuVisible = false;
             _saveLoadVisible = false;
+            _extrasVisible = false;
+            _chapterJumpVisible = false;
             _deleteConfirmSlot = -1;
             _returnTitleConfirm = false;
         }

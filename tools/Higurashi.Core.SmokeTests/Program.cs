@@ -14,6 +14,7 @@ internal static class Program
             SingleTapAdvances,
             SingleFingerLeftSwipeAdvances,
             SingleFingerRightSwipeReturnsToPreviousTextBox,
+            SingleFingerSwipeRecoversAfterMissingRelease,
             SwipeUpOpensHistory,
             ThreeFingerLeftStartsFastForward,
             ThreeFingerRightStartsFastRewind,
@@ -38,6 +39,7 @@ internal static class Program
             BurikoRuntimeCallsFragmentScriptFromUi,
             BurikoRuntimeSnapshotRestoresExecutionAndMemory,
             BurikoRuntimePersistentStateRoundTrips,
+            BurikoPersistentStateMetadataReadsChapter,
             BurikoRuntimeHandlesModCrossScriptSectionCall,
             BurikoRuntimeHandlesEpisode04ReturnOperation,
             BurikoMemoryInitializesTextColorToWhite
@@ -194,6 +196,19 @@ internal static class Program
         Frame(input, 0, false, P(1, 200, 300, PointerPhase.Began));
         Equal(NovelInputAction.PreviousTextBox,
             Frame(input, 0.2, false, P(1, 500, 290, PointerPhase.Ended)));
+    }
+
+    private static void SingleFingerSwipeRecoversAfterMissingRelease()
+    {
+        var input = new TouchGestureInterpreter();
+        Equal(NovelInputAction.None,
+            Frame(input, 0, false, P(11, 150, 300, PointerPhase.Began)));
+        // Simulate iOS dropping Ended/Canceled while a system gesture takes over.
+        Equal(NovelInputAction.None, Frame(input, 0.1, false));
+        Equal(NovelInputAction.None,
+            Frame(input, 0.2, false, P(12, 180, 300, PointerPhase.Began)));
+        Equal(NovelInputAction.PreviousTextBox,
+            Frame(input, 0.35, false, P(12, 520, 295, PointerPhase.Ended)));
     }
 
     private static void Episode08OperationCatalogNormalizesFragmentCodes()
@@ -665,6 +680,30 @@ internal static class Program
         runtime.ResumeInput();
         Equal(BurikoBlockReason.Completed, runtime.RunUntilBlocked());
         Equal(9, runtime.Memory.GetGlobalFlag("GPersistent"));
+    }
+
+    private static void BurikoPersistentStateMetadataReadsChapter()
+    {
+        var data = BuildBytecode(writer =>
+        {
+            WriteOperation(writer, 11, null);
+            writer.Write((short)0);
+        });
+        var runtime = new BurikoRuntime(
+            new DictionaryScriptRepository(("init", WrapScript(data))),
+            new CapturingHost());
+        runtime.Start();
+        runtime.Memory.SetLocalFlag("ChapterNumber", 4);
+        Equal(BurikoBlockReason.WaitForInput, runtime.RunUntilBlocked());
+
+        using var state = new MemoryStream();
+        runtime.WritePersistentState(state);
+        state.Position = 0;
+        Equal(true, BurikoRuntime.TryReadPersistentLocalFlag(
+            state, "ChapterNumber", out var chapter));
+        Equal(4, chapter);
+        Equal(BurikoBlockReason.WaitForInput, runtime.BlockReason);
+        Equal(4, runtime.Memory.GetLocalFlag("ChapterNumber"));
     }
 
     private static void BurikoRuntimeHandlesEpisode04ReturnOperation()

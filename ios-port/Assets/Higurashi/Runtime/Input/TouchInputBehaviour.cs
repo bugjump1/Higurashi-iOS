@@ -69,6 +69,29 @@ namespace Higurashi.IOS.Runtime.Input
             }
         }
 
+        private void OnApplicationFocus(bool hasFocus)
+        {
+            if (!hasFocus)
+            {
+                ResetTouchState();
+            }
+        }
+
+        private void OnApplicationPause(bool paused)
+        {
+            if (paused)
+            {
+                ResetTouchState();
+            }
+        }
+
+        private void ResetTouchState()
+        {
+            _uiPointerIds.Clear();
+            _mouseIsDown = false;
+            _interpreter.Reset();
+        }
+
 #if UNITY_EDITOR || UNITY_STANDALONE
         private void AddMouseFallback()
         {

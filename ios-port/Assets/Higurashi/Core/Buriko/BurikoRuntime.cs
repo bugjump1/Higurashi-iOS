@@ -158,6 +158,39 @@ namespace Higurashi.IOS.Buriko
             RestoreSnapshot(snapshot);
         }
 
+        public static bool TryReadPersistentLocalFlag(
+            Stream input,
+            string flagName,
+            out int value)
+        {
+            value = 0;
+            if (input == null || string.IsNullOrWhiteSpace(flagName))
+            {
+                return false;
+            }
+
+            using (var reader = new BinaryReader(input, Encoding.UTF8, true))
+            {
+                if (reader.ReadInt32() != PersistentStateMagic)
+                {
+                    return false;
+                }
+                ReadFrame(reader);
+                var callerCount = reader.ReadInt32();
+                if (callerCount < 0 || callerCount > 1024)
+                {
+                    return false;
+                }
+                for (var i = 0; i < callerCount; i++)
+                {
+                    ReadFrame(reader);
+                }
+
+                var memory = new BurikoMemory().ReadPersistentState(reader);
+                return memory.LocalFlags.TryGetValue(flagName, out value);
+            }
+        }
+
         private static void WriteFrame(BinaryWriter writer, BurikoFrameSnapshot frame)
         {
             writer.Write(frame.ScriptName);
