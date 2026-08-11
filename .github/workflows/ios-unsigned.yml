@@ -27,6 +27,7 @@ on:
       - develop
 
 permissions:
+  actions: write
   contents: read
 
 concurrency:
@@ -181,16 +182,10 @@ jobs:
             DEVELOPMENT_TEAM="" \
             clean build
 
-      - name: Package unsigned IPA and Xcode project
+      - name: Package unsigned IPA
         shell: bash
         run: |
           set -euo pipefail
-          XCODE_PROJECT="$(find build/iOS -maxdepth 3 -type d -name 'Unity-iPhone.xcodeproj' -print -quit)"
-          if [[ -z "$XCODE_PROJECT" ]]; then
-            echo "Unity-iPhone.xcodeproj was not found under build/iOS." >&2
-            exit 1
-          fi
-          XCODE_PROJECT_DIR="$(dirname "$XCODE_PROJECT")"
           APP_PATH="$(find "$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos" -maxdepth 1 -type d -name '*.app' -print -quit)"
           if [[ -z "$APP_PATH" ]]; then
             echo "No .app product was generated." >&2
@@ -203,17 +198,75 @@ jobs:
             cd artifacts
             ditto -c -k --sequesterRsrc --keepParent Payload "Higurashi-${CHAPTER_NUMBER}-iOS-unsigned.ipa"
           )
-          ditto -c -k --sequesterRsrc --keepParent \
-            "$XCODE_PROJECT_DIR" \
-            "artifacts/Higurashi-${CHAPTER_NUMBER}-iOS-unsigned-XcodeProject.zip"
 
-      - name: Upload final unsigned artifacts
+      - name: Upload IPA for final collection
         uses: actions/upload-artifact@v4
         with:
-          name: Higurashi-${{ env.CHAPTER_NUMBER }}-iOS-unsigned
-          path: |
-            artifacts/Higurashi-${{ env.CHAPTER_NUMBER }}-iOS-unsigned.ipa
-            artifacts/Higurashi-${{ env.CHAPTER_NUMBER }}-iOS-unsigned-XcodeProject.zip
+          name: Higurashi-${{ env.CHAPTER_NUMBER }}-IPA-intermediate
+          path: artifacts/Higurashi-${{ env.CHAPTER_NUMBER }}-iOS-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  collect-unsigned-ipas:
+    name: Collect unsigned IPA files
+    needs: compile-unsigned
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Download compiled IPA files
+        uses: actions/download-artifact@v4
+        with:
+          pattern: Higurashi-*-IPA-intermediate
+          path: release
+          merge-multiple: true
+
+      - name: Verify expected IPA files
+        shell: bash
+        env:
+          CHAPTER_NUMBER: ${{ inputs.chapter_number }}
+        run: |
+          set -euo pipefail
+          mapfile -t IPA_FILES < <(find release -maxdepth 1 -type f -name '*.ipa' -print | sort)
+          EXPECTED=1
+          if [[ "$CHAPTER_NUMBER" == "all" ]]; then
+            EXPECTED=8
+          fi
+          if [[ "${#IPA_FILES[@]}" -ne "$EXPECTED" ]]; then
+            echo "Expected $EXPECTED IPA file(s), found ${#IPA_FILES[@]}." >&2
+            find release -maxdepth 2 -type f -print >&2
+            exit 1
+          fi
+          printf 'Final IPA: %s\n' "${IPA_FILES[@]}"
+
+      - name: Upload final unsigned IPA collection
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.chapter_number == 'all' && 'Higurashi-01-08-iOS-unsigned' || format('Higurashi-{0}-iOS-unsigned', inputs.chapter_number) }}
+          path: release/*.ipa
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
+
+      - name: Remove intermediate artifacts from this run
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const artifacts = await github.paginate(
+              github.rest.actions.listWorkflowRunArtifacts,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: context.runId,
+                per_page: 100
+              }
+            );
+            for (const artifact of artifacts) {
+              if (!artifact.name.endsWith('-intermediate')) continue;
+              await github.rest.actions.deleteArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: artifact.id
+              });
+              core.info(`Deleted intermediate artifact: ${artifact.name}`);
+            }
