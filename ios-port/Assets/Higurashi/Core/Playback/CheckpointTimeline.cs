@@ -7,9 +7,10 @@ namespace Higurashi.IOS.Playback
     {
         private readonly List<T> _items;
         private readonly int _capacity;
+        private readonly bool _preserveFirst;
         private int _cursor = -1;
 
-        public CheckpointTimeline(int capacity = 200)
+        public CheckpointTimeline(int capacity = 200, bool preserveFirst = false)
         {
             if (capacity < 2)
             {
@@ -17,6 +18,7 @@ namespace Higurashi.IOS.Playback
             }
 
             _capacity = capacity;
+            _preserveFirst = preserveFirst;
             _items = new List<T>(capacity);
         }
 
@@ -41,8 +43,16 @@ namespace Higurashi.IOS.Playback
             }
 
             var overflow = _items.Count - _capacity;
-            _items.RemoveRange(0, overflow);
-            _cursor -= overflow;
+            if (_preserveFirst && _items.Count > 1)
+            {
+                _items.RemoveRange(1, overflow);
+                _cursor -= overflow;
+            }
+            else
+            {
+                _items.RemoveRange(0, overflow);
+                _cursor -= overflow;
+            }
         }
 
         public bool TryGetCurrent(out T checkpoint)
@@ -81,6 +91,18 @@ namespace Higurashi.IOS.Playback
             _cursor++;
             checkpoint = _items[_cursor];
             return true;
+        }
+
+        public T[] CopyThroughCurrent()
+        {
+            if (_cursor < 0)
+            {
+                return Array.Empty<T>();
+            }
+
+            var result = new T[_cursor + 1];
+            _items.CopyTo(0, result, 0, result.Length);
+            return result;
         }
 
         public void Clear()

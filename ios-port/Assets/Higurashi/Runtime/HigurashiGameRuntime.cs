@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using Higurashi.IOS.Buriko;
 using Higurashi.IOS.Compatibility;
 using Higurashi.IOS.Input;
 using Higurashi.IOS.Playback;
 using Higurashi.IOS.Runtime.Buriko;
 using Higurashi.IOS.Runtime.Data;
+using Higurashi.IOS.Runtime.Diagnostics;
 using Higurashi.IOS.Runtime.Input;
 using UnityEngine;
 
@@ -21,8 +23,11 @@ namespace Higurashi.IOS.Runtime
         private const string TipsMenuUnlockedKeyPrefix = "higurashi-ios-tips-menu-unlocked-ep";
         private const string TipsUnlockedChapterKeyPrefix = "higurashi-ios-tips-unlocked-chapter-ep";
         private const string ChapterJumpUnlockedKeyPrefix = "higurashi-ios-chapter-jump-unlocked-ep";
+        private const string BonusContentUnlockedKeyPrefix = "higurashi-ios-bonus-unlocked-ep";
         private const int SaveFileMagic = 0x31534748; // HGS1
         private const int SaveFileVersion = 1;
+        private const int SaveTimelineMagic = 0x314C5448; // HTL1
+        private const int PersistedTimelineLimit = 200;
         // This is a read-only summary slot in the save/load UI. Every successful
         // save path mirrors its current state here, so Continue and quick load
         // always have one unambiguous latest save to use.
@@ -30,7 +35,7 @@ namespace Higurashi.IOS.Runtime
         private readonly FastTraversalController _fastTraversal = new FastTraversalController(10f);
         private readonly DataPackImportService _dataPack = new DataPackImportService();
         private readonly CheckpointTimeline<RuntimeCheckpoint> _timeline =
-            new CheckpointTimeline<RuntimeCheckpoint>(200);
+            new CheckpointTimeline<RuntimeCheckpoint>(200, preserveFirst: true);
         private readonly List<PresentationLayer> _orderedLayers = new List<PresentationLayer>();
         private TouchInputBehaviour _touchInput;
         private IOSDataPackFilePicker _dataPackFilePicker;
@@ -54,8 +59,11 @@ namespace Higurashi.IOS.Runtime
         private bool _initializationAttempted;
         private RuntimeCheckpoint _titleCheckpoint;
         private RuntimeCheckpoint _tipsLibraryReturnCheckpoint;
+        private RuntimeCheckpoint _bonusContentReturnCheckpoint;
         private RuntimeCheckpoint _storyChoiceCheckpoint;
         private int _tipsLibraryReturnCallDepth;
+        private int _bonusContentReturnCallDepth;
+        private int _timelineChapterNumber = -1;
         private string _storyChoiceScript = string.Empty;
         private int _storyChoiceLine = -1;
         private bool _badEndingPlaybackActive;
@@ -73,6 +81,51 @@ namespace Higurashi.IOS.Runtime
 
         private string TipsMenuUnlockMarkerPath => Path.Combine(Application.persistentDataPath,
             "tips-menu-unlocked-ep" + HigurashiActiveChapter.Profile.EpisodeNumber.ToString("00") + ".flag");
+
+        private string BonusContentUnlockedKey => BonusContentUnlockedKeyPrefix +
+            HigurashiActiveChapter.Profile.EpisodeNumber.ToString("00");
+
+        private string BonusContentUnlockMarkerPath => Path.Combine(Application.persistentDataPath,
+            "bonus-unlocked-ep" + HigurashiActiveChapter.Profile.EpisodeNumber.ToString("00") + ".flag");
+
+        private string BonusContentName =>
+            HigurashiActiveChapter.Profile.EpisodeNumber <= 4 ? "慰劳茶会" : "工作室闲谈";
+
+        private string BonusContentScript =>
+            HigurashiActiveChapter.Profile.EpisodeNumber <= 4
+                ? "omake_" + HigurashiActiveChapter.Profile.EpisodeNumber.ToString("00")
+                : "staffroom";
+
+        private bool IsBonusContentUnlocked
+        {
+            get
+            {
+                if (File.Exists(BonusContentUnlockMarkerPath))
+                {
+                    return true;
+                }
+
+                // LiveContainer may keep PlayerPrefs after Documents has been
+                // cleared. Only migrate the old preference when a real save is
+                // also present, matching the TIPS unlock migration policy.
+                var saveDirectory = Path.Combine(Application.persistentDataPath, "Saves");
+                if (PlayerPrefs.GetInt(BonusContentUnlockedKey, 0) != 0 &&
+                    Directory.Exists(saveDirectory) &&
+                    Directory.GetFiles(saveDirectory, "slot-*.hgs").Length > 0)
+                {
+                    try
+                    {
+                        File.WriteAllText(BonusContentUnlockMarkerPath, "unlocked");
+                    }
+                    catch
+                    {
+                        // The preference remains usable for this session.
+                    }
+                    return true;
+                }
+                return false;
+            }
+        }
 
         private bool IsTipsMenuUnlocked
         {
@@ -108,12 +161,14 @@ namespace Higurashi.IOS.Runtime
         {
             Application.targetFrameRate = 60;
             Screen.sleepTimeout = SleepTimeout.NeverSleep;
+            HigurashiDiagnosticLog.Initialize(Application.persistentDataPath);
             _settings = LoadSettings();
             _touchInput = gameObject.AddComponent<TouchInputBehaviour>();
             _dataPackFilePicker = gameObject.AddComponent<IOSDataPackFilePicker>();
             _touchInput.ActionRaised += HandleInput;
             _touchInput.UiHitTest = UiConsumesPoint;
             _fastTraversal.ModeChanged += mode => _runtimeStatus = "Traversal: " + mode;
+            HigurashiDiagnosticLog.Info("App", BuildDiagnosticState("Awake"));
 
             if (DataPackImportService.IsInstalled(Application.persistentDataPath))
             {
@@ -132,6 +187,7 @@ namespace Higurashi.IOS.Runtime
                 _host.MovieFinished -= HandleMovieFinished;
             }
             SaveOpeningPreference();
+            HigurashiDiagnosticLog.Shutdown();
         }
 
         private void Update()
@@ -201,6 +257,7 @@ namespace Higurashi.IOS.Runtime
             }
 
             UpdateChapterJumpUnlockProgress();
+            UpdateBonusContentUnlockProgress();
             CaptureStoryChoiceCheckpointIfNeeded();
             UpdateBadEndingDecision();
             if (_host != null && _host.TitleVisible &&
@@ -277,10 +334,12 @@ namespace Higurashi.IOS.Runtime
                 _lastAutoSaveAt = Time.unscaledTime;
                 RefreshUnlockProgressFromSaves();
                 _runtimeStatus = "Ready";
+                HigurashiDiagnosticLog.Info("Runtime", BuildDiagnosticState("Initialized"));
             }
             catch (Exception exception)
             {
                 _runtimeStatus = "Runtime initialization failed: " + exception;
+                HigurashiDiagnosticLog.Warning("Runtime", _runtimeStatus);
                 _runtime = null;
             }
         }
@@ -291,6 +350,7 @@ namespace Higurashi.IOS.Runtime
             {
                 return;
             }
+            HigurashiDiagnosticLog.Info("Input", action + " " + RuntimeLocation());
 
             if (_host.MovieVisible)
             {
@@ -470,7 +530,7 @@ namespace Higurashi.IOS.Runtime
 
         public bool StepBackward()
         {
-            if (_runtime == null || !_timeline.TryMovePrevious(out var checkpoint))
+            if (!TryMovePreviousInCurrentChapter(out var checkpoint))
             {
                 return false;
             }
@@ -482,7 +542,7 @@ namespace Higurashi.IOS.Runtime
 
         private bool StepBackwardToPreviousTextBox()
         {
-            if (_runtime == null || !_timeline.TryMovePrevious(out var checkpoint))
+            if (!TryMovePreviousInCurrentChapter(out var checkpoint))
             {
                 return false;
             }
@@ -490,8 +550,8 @@ namespace Higurashi.IOS.Runtime
             // WaitForInput continuation checkpoints are the first half of a
             // text box which will later receive another line. A one-finger
             // rewind targets the previous completed text box instead.
-            while (checkpoint.Presentation.AppendNext &&
-                   _timeline.TryMovePrevious(out var previous))
+            while (checkpoint.AppendNext &&
+                   TryMovePreviousInCurrentChapter(out var previous))
             {
                 checkpoint = previous;
             }
@@ -500,6 +560,27 @@ namespace Higurashi.IOS.Runtime
             RestoreCheckpoint(checkpoint);
             _host.CompleteDialogueReveal();
             _host.ReplayRestoredVoice(_runtime.Memory);
+            return true;
+        }
+
+        private bool TryMovePreviousInCurrentChapter(out RuntimeCheckpoint checkpoint)
+        {
+            checkpoint = null;
+            if (_runtime == null || !_timeline.TryMovePrevious(out var previous))
+            {
+                return false;
+            }
+
+            var currentChapter = Math.Max(0, _runtime.Memory.GetLocalFlag("ChapterNumber"));
+            if (previous.ChapterNumber != currentChapter)
+            {
+                // Put the cursor back where it was. The presentation/runtime was
+                // never restored, so this is only a timeline cursor correction.
+                _timeline.TryMoveNext(out _);
+                return false;
+            }
+
+            checkpoint = previous;
             return true;
         }
 
@@ -513,11 +594,27 @@ namespace Higurashi.IOS.Runtime
                 }
 
                 if (_tipsLibraryReturnCheckpoint != null &&
-                    _runtime.CallDepth <= _tipsLibraryReturnCallDepth)
+                    (_runtime.CallDepth <= _tipsLibraryReturnCallDepth ||
+                     _host.TitleVisible ||
+                     _runtime.BlockReason == BurikoBlockReason.Completed))
                 {
                     RestoreCheckpoint(_tipsLibraryReturnCheckpoint);
                     _tipsLibraryReturnCheckpoint = null;
-                    _host.ReopenTipsLibrary();
+                    return;
+                }
+
+                if (_bonusContentReturnCheckpoint != null &&
+                    (_runtime.CallDepth <= _bonusContentReturnCallDepth ||
+                     _host.TitleVisible ||
+                     _runtime.BlockReason == BurikoBlockReason.Completed))
+                {
+                    RestoreCheckpoint(_bonusContentReturnCheckpoint);
+                    _bonusContentReturnCheckpoint = null;
+                    CloseAllModals();
+                    _extrasVisible = true;
+                    SuppressInput();
+                    HigurashiDiagnosticLog.Info("Bonus",
+                        "Returned to extras after " + BonusContentScript);
                     return;
                 }
 
@@ -552,10 +649,17 @@ namespace Higurashi.IOS.Runtime
                 return;
             }
 
-            _timeline.Push(new RuntimeCheckpoint(
-                _runtime.CaptureSnapshot(),
-                _host.CaptureSnapshot(),
-                _host.CaptureBgmState()));
+            var chapter = Math.Max(0, _runtime.Memory.GetLocalFlag("ChapterNumber"));
+            if (_timelineChapterNumber != chapter)
+            {
+                // A chapter boundary is a hard rewind floor. The first dialogue
+                // captured below becomes the earliest reachable checkpoint.
+                _timeline.Clear();
+                _timelineChapterNumber = chapter;
+                HigurashiDiagnosticLog.Info("Timeline",
+                    "Chapter boundary reset; chapter=" + chapter + " " + RuntimeLocation());
+            }
+            _timeline.Push(CaptureCurrentCheckpoint());
             _capturedDialogueSerial = _host.DialogueSerial;
             _dialoguesSinceAutoSave++;
             MaybeAutoSave(false);
@@ -568,20 +672,49 @@ namespace Higurashi.IOS.Runtime
             {
                 return;
             }
-            _titleCheckpoint = new RuntimeCheckpoint(
-                _runtime.CaptureSnapshot(),
-                _host.CaptureSnapshot(),
-                _host.CaptureBgmState());
+            _titleCheckpoint = CaptureCurrentCheckpoint();
         }
 
         private void RestoreCheckpoint(RuntimeCheckpoint checkpoint)
         {
-            _runtime.RestoreSnapshot(checkpoint.Runtime);
-            _host.RestoreSnapshot(checkpoint.Presentation, _runtime.Memory);
-            _host.ApplySettings(_runtime.Memory);
-            _host.RestoreBgmState(checkpoint.BgmState, _runtime.Memory);
+            using (var runtimeState = new MemoryStream(checkpoint.RuntimeState, false))
+            using (var presentationState = new MemoryStream(checkpoint.PresentationState, false))
+            {
+                _host.StopAllAudio();
+                _runtime.ReadPersistentState(runtimeState);
+                _host.ApplySettings(_runtime.Memory);
+                _host.ReadPersistentState(presentationState, _runtime.Memory);
+            }
             _capturedDialogueSerial = _host.DialogueSerial;
+            _timelineChapterNumber = checkpoint.ChapterNumber;
             _runtimeStatus = "Restored " + _runtime.CurrentScriptName + ":" + _runtime.CurrentLine;
+            HigurashiDiagnosticLog.Info("Timeline",
+                "Restored checkpoint chapter=" + checkpoint.ChapterNumber +
+                " script=" + checkpoint.ScriptName + " line=" + checkpoint.LineNumber);
+        }
+
+        private RuntimeCheckpoint CaptureCurrentCheckpoint()
+        {
+            byte[] runtimeState;
+            byte[] presentationState;
+            using (var stream = new MemoryStream())
+            {
+                _runtime.WritePersistentState(stream);
+                runtimeState = stream.ToArray();
+            }
+            using (var stream = new MemoryStream())
+            {
+                _host.WritePersistentState(stream);
+                presentationState = stream.ToArray();
+            }
+
+            return new RuntimeCheckpoint(
+                Math.Max(0, _runtime.Memory.GetLocalFlag("ChapterNumber")),
+                _host.AppendNext,
+                _runtime.CurrentScriptName,
+                _runtime.CurrentLine,
+                runtimeState,
+                presentationState);
         }
 
         private void CaptureStoryChoiceCheckpointIfNeeded()
@@ -602,10 +735,7 @@ namespace Higurashi.IOS.Runtime
                 return;
             }
 
-            _storyChoiceCheckpoint = new RuntimeCheckpoint(
-                _runtime.CaptureSnapshot(),
-                _host.CaptureSnapshot(),
-                _host.CaptureBgmState());
+            _storyChoiceCheckpoint = CaptureCurrentCheckpoint();
             _storyChoiceScript = _runtime.CurrentScriptName ?? string.Empty;
             _storyChoiceLine = _runtime.CurrentLine;
             _badEndingPlaybackActive = false;
@@ -820,6 +950,48 @@ namespace Higurashi.IOS.Runtime
             PlayerPrefs.Save();
         }
 
+        private bool UnlockBonusContent(bool showToast)
+        {
+            if (IsBonusContentUnlocked)
+            {
+                return false;
+            }
+
+            try
+            {
+                File.WriteAllText(BonusContentUnlockMarkerPath, "unlocked");
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("Unable to write bonus unlock marker: " + exception.Message);
+            }
+
+            PlayerPrefs.SetInt(BonusContentUnlockedKey, 1);
+            PlayerPrefs.Save();
+            UnlockTipsMenu();
+            if (showToast)
+            {
+                ShowToast("已解锁追加内容：" + BonusContentName);
+            }
+            HigurashiDiagnosticLog.Info("Bonus",
+                "Unlocked " + BonusContentName + " episode=" +
+                HigurashiActiveChapter.Profile.EpisodeNumber.ToString("00"));
+            return true;
+        }
+
+        private void UpdateBonusContentUnlockProgress()
+        {
+            if (_runtime == null || _host == null || !_host.TitleVisible ||
+                _runtime.Memory.GetGlobalFlag("GFlag_GameClear") == 0)
+            {
+                return;
+            }
+
+            // The original PC scripts set this flag only after the normal final
+            // route. Bad endings return to the title without setting it.
+            UnlockBonusContent(true);
+        }
+
         private int GetTipsUnlockedChapter()
         {
             var stored = PlayerPrefs.GetInt(TipsUnlockedChapterKey, -1);
@@ -849,8 +1021,22 @@ namespace Higurashi.IOS.Runtime
                 return;
             }
 
+            var unlockedJump = Mathf.Clamp(
+                PlayerPrefs.GetInt(ChapterJumpUnlockedKey, 0), 0, sections.Count);
+            var unlockedTips = Mathf.Clamp(
+                GetTipsUnlockedChapter(), 0, sections.Count);
+            if (unlockedJump >= sections.Count && unlockedTips >= sections.Count)
+            {
+                UnlockTipsMenu();
+                if (!UnlockBonusContent(true))
+                {
+                    ShowToast("隐藏解锁：本篇追加内容已全部解锁");
+                }
+                return;
+            }
+
             var activeChapter = Math.Max(1, Math.Max(_host.CurrentChapterNumber + 1,
-                PlayerPrefs.GetInt(ChapterJumpUnlockedKey, 0)));
+                unlockedJump));
             var tipsChapter = Math.Min(activeChapter, sections.Count);
             var jumpChapter = Math.Min(activeChapter + 1, sections.Count);
             UnlockTipsMenu();
@@ -861,6 +1047,52 @@ namespace Higurashi.IOS.Runtime
                 PlayerPrefs.Save();
             }
             ShowToast("隐藏解锁：第" + jumpChapter + "章跳跃／第" + tipsChapter + "章 TIPS");
+        }
+
+        private void StartBonusContent()
+        {
+            if (_runtime == null || _host == null || !IsBonusContentUnlocked ||
+                !_host.TitleVisible)
+            {
+                return;
+            }
+
+            try
+            {
+                var returnCheckpoint = CaptureCurrentCheckpoint();
+                if (!_host.StartFromTitle(_runtime.Memory))
+                {
+                    return;
+                }
+
+                _host.StopAllAudio();
+                _host.PrepareForChapterJump();
+                _bonusContentReturnCheckpoint = returnCheckpoint;
+                _bonusContentReturnCallDepth = _runtime.CallDepth;
+                _fastTraversal.Stop();
+                _autoMode = false;
+                _timeline.Clear();
+                _runtime.CallScriptFromUi(BonusContentScript);
+                CloseAllModals();
+                _suppressInputUntilFrame = Time.frameCount + 2;
+                HigurashiDiagnosticLog.Info("Bonus",
+                    "Started " + BonusContentScript + " " + RuntimeLocation());
+                DriveRuntime(false);
+                CaptureDialogueCheckpoint();
+            }
+            catch (Exception exception)
+            {
+                _bonusContentReturnCheckpoint = null;
+                if (_titleCheckpoint != null)
+                {
+                    RestoreCheckpoint(_titleCheckpoint);
+                }
+                CloseAllModals();
+                _extrasVisible = true;
+                ShowToast(BonusContentName + "启动失败");
+                HigurashiDiagnosticLog.Error("Bonus",
+                    "Unable to start " + BonusContentScript, exception);
+            }
         }
 
         private void StartGame()
@@ -970,6 +1202,8 @@ namespace Higurashi.IOS.Runtime
             CloseAllModals();
             _fastTraversal.Stop();
             SuppressInput();
+            HigurashiDiagnosticLog.Info("TIPS",
+                "Opened standalone library; unlockedChapter=" + GetTipsUnlockedChapter());
         }
 
         private void ExitTipsLibrary()
@@ -994,6 +1228,8 @@ namespace Higurashi.IOS.Runtime
                 DriveRuntime(false);
             }
             SuppressInput();
+            HigurashiDiagnosticLog.Info("TIPS",
+                "Closed library; standalone=" + standalone);
         }
 
         private void StartSelectedTip()
@@ -1003,23 +1239,23 @@ namespace Higurashi.IOS.Runtime
                 return;
             }
 
-            var standalone = _host.TipsLibraryStandalone;
+            var returnCheckpoint = CaptureCurrentCheckpoint();
             if (!_host.TryStartSelectedTip(_runtime.Memory, out var scriptName))
             {
                 return;
             }
 
-            if (standalone)
-            {
-                _tipsLibraryReturnCheckpoint = new RuntimeCheckpoint(
-                    _runtime.CaptureSnapshot(), _host.CaptureSnapshot(), _host.CaptureBgmState());
-                _tipsLibraryReturnCallDepth = _runtime.CallDepth;
-            }
+            // Both the chapter-end TIPS flow and the main-menu standalone
+            // library must return to the exact list that launched the tip.
+            _tipsLibraryReturnCheckpoint = returnCheckpoint;
+            _tipsLibraryReturnCallDepth = _runtime.CallDepth;
 
             _fastTraversal.Stop();
             _autoMode = false;
             _host.StopVoices();
             _runtime.CallScriptFromUi(scriptName);
+            HigurashiDiagnosticLog.Info("TIPS",
+                "Started script=" + scriptName + " standalone=" + _host.TipsLibraryStandalone);
             _suppressInputUntilFrame = Time.frameCount + 2;
             DriveRuntime(false);
             CaptureDialogueCheckpoint();
@@ -1165,10 +1401,14 @@ namespace Higurashi.IOS.Runtime
                     ShowToast(SaveCompletedMessage(slot));
                 }
                 RefreshUnlockProgressFromSaves();
+                HigurashiDiagnosticLog.Info("Save",
+                    "Saved slot=" + slot + " updateLatest=" + updateLatest + " " + RuntimeLocation());
             }
             catch (Exception exception)
             {
                 Debug.LogWarning("Unable to save game: " + exception);
+                HigurashiDiagnosticLog.Warning("Save",
+                    "Save failed slot=" + slot + " " + exception.Message);
                 if (showToast)
                 {
                     ShowToast("保存失败");
@@ -1193,6 +1433,7 @@ namespace Higurashi.IOS.Runtime
                 writer.Write(SaveSummary());
                 _runtime.WritePersistentState(stream);
                 _host.WritePersistentState(stream);
+                WriteTimelineState(stream);
                 stream.Flush();
             }
             if (File.Exists(path))
@@ -1227,26 +1468,176 @@ namespace Higurashi.IOS.Runtime
                     // currently shown in Settings.
                     _host.ApplySettings(_runtime.Memory);
                     _host.ReadPersistentState(stream, _runtime.Memory);
+                    ReadTimelineState(stream);
                 }
-                _timeline.Clear();
                 ResetStoryChoiceState();
                 _capturedDialogueSerial = _host.DialogueSerial;
-                _timeline.Push(new RuntimeCheckpoint(
-                    _runtime.CaptureSnapshot(),
-                    _host.CaptureSnapshot(),
-                    _host.CaptureBgmState()));
+                var loadedCheckpoint = CaptureCurrentCheckpoint();
+                if (!_timeline.TryGetCurrent(out var restoredCurrent) ||
+                    restoredCurrent.ChapterNumber != loadedCheckpoint.ChapterNumber ||
+                    !string.Equals(restoredCurrent.ScriptName, loadedCheckpoint.ScriptName,
+                        StringComparison.OrdinalIgnoreCase) ||
+                    restoredCurrent.LineNumber != loadedCheckpoint.LineNumber)
+                {
+                    if (restoredCurrent != null &&
+                        restoredCurrent.ChapterNumber != loadedCheckpoint.ChapterNumber)
+                    {
+                        _timeline.Clear();
+                    }
+                    _timeline.Push(loadedCheckpoint);
+                }
+                _timelineChapterNumber = loadedCheckpoint.ChapterNumber;
                 RefreshUnlockProgressFromSaves();
                 _fastTraversal.Stop();
                 _showHelpWhenGameplayStarts = false;
                 CloseAllModals();
                 _suppressInputUntilFrame = Time.frameCount + 2;
                 ShowToast(LoadCompletedMessage(slot));
+                HigurashiDiagnosticLog.Info("Load",
+                    "Loaded slot=" + slot + " timeline=" + _timeline.Count +
+                    " cursor=" + _timeline.Cursor + " " + RuntimeLocation());
             }
             catch (Exception exception)
             {
                 Debug.LogWarning("Unable to load game: " + exception);
+                HigurashiDiagnosticLog.Warning("Load",
+                    "Load failed slot=" + slot + " " + exception.Message);
                 ShowToast("存档损坏或版本不兼容");
             }
+        }
+
+        private void WriteTimelineState(Stream output)
+        {
+            var all = _timeline.CopyThroughCurrent();
+            var chapter = Math.Max(0, _runtime.Memory.GetLocalFlag("ChapterNumber"));
+            var sameChapter = new List<RuntimeCheckpoint>(all.Length);
+            for (var i = 0; i < all.Length; i++)
+            {
+                if (all[i] != null && all[i].ChapterNumber == chapter)
+                {
+                    sameChapter.Add(all[i]);
+                }
+            }
+
+            var selected = new List<RuntimeCheckpoint>();
+            if (sameChapter.Count > 0)
+            {
+                // Always preserve the chapter's first dialogue, then keep the
+                // most recent checkpoints up to the compact persistence limit.
+                selected.Add(sameChapter[0]);
+                var start = Math.Max(1, sameChapter.Count - (PersistedTimelineLimit - 1));
+                for (var i = start; i < sameChapter.Count; i++)
+                {
+                    selected.Add(sameChapter[i]);
+                }
+            }
+
+            using (var writer = new BinaryWriter(output, System.Text.Encoding.UTF8, true))
+            {
+                writer.Write(SaveTimelineMagic);
+                writer.Write(chapter);
+                writer.Write(selected.Count);
+                for (var i = 0; i < selected.Count; i++)
+                {
+                    WritePersistedCheckpoint(writer, selected[i]);
+                }
+            }
+        }
+
+        private void ReadTimelineState(Stream input)
+        {
+            _timeline.Clear();
+            _timelineChapterNumber = Math.Max(0, _runtime.Memory.GetLocalFlag("ChapterNumber"));
+            if (!input.CanSeek || input.Length - input.Position < sizeof(int) * 3)
+            {
+                return;
+            }
+
+            var start = input.Position;
+            using (var reader = new BinaryReader(input, System.Text.Encoding.UTF8, true))
+            {
+                if (reader.ReadInt32() != SaveTimelineMagic)
+                {
+                    input.Position = start;
+                    return;
+                }
+                var chapter = reader.ReadInt32();
+                var count = reader.ReadInt32();
+                if (chapter != _timelineChapterNumber || count < 0 || count > PersistedTimelineLimit)
+                {
+                    throw new InvalidDataException("Invalid saved rewind timeline.");
+                }
+                for (var i = 0; i < count; i++)
+                {
+                    var checkpoint = ReadPersistedCheckpoint(reader, chapter);
+                    _timeline.Push(checkpoint);
+                }
+            }
+        }
+
+        private static void WritePersistedCheckpoint(BinaryWriter writer, RuntimeCheckpoint checkpoint)
+        {
+            writer.Write(checkpoint.AppendNext);
+            writer.Write(checkpoint.ScriptName ?? string.Empty);
+            writer.Write(checkpoint.LineNumber);
+            WriteCompressedCheckpointBytes(writer, checkpoint.RuntimeState);
+            WriteCompressedCheckpointBytes(writer, checkpoint.PresentationState);
+        }
+
+        private static RuntimeCheckpoint ReadPersistedCheckpoint(BinaryReader reader, int chapter)
+        {
+            var appendNext = reader.ReadBoolean();
+            var scriptName = reader.ReadString();
+            var lineNumber = reader.ReadInt32();
+            var runtimeState = ReadCheckpointBytes(reader, "runtime");
+            var presentationState = ReadCheckpointBytes(reader, "presentation");
+            return new RuntimeCheckpoint(chapter, appendNext, scriptName, lineNumber,
+                runtimeState, presentationState);
+        }
+
+        private static byte[] ReadCheckpointBytes(BinaryReader reader, string description)
+        {
+            var originalLength = reader.ReadInt32();
+            var compressedLength = reader.ReadInt32();
+            if (originalLength < 0 || originalLength > 32 * 1024 * 1024 ||
+                compressedLength < 0 || compressedLength > 32 * 1024 * 1024)
+            {
+                throw new InvalidDataException("Invalid saved " + description + " checkpoint size.");
+            }
+            var compressed = reader.ReadBytes(compressedLength);
+            if (compressed.Length != compressedLength)
+            {
+                throw new EndOfStreamException("Incomplete saved " + description + " checkpoint.");
+            }
+            using (var input = new MemoryStream(compressed, false))
+            using (var gzip = new GZipStream(input, CompressionMode.Decompress))
+            using (var output = new MemoryStream(originalLength))
+            {
+                gzip.CopyTo(output);
+                var bytes = output.ToArray();
+                if (bytes.Length != originalLength)
+                {
+                    throw new InvalidDataException("Saved " + description + " checkpoint length mismatch.");
+                }
+                return bytes;
+            }
+        }
+
+        private static void WriteCompressedCheckpointBytes(BinaryWriter writer, byte[] bytes)
+        {
+            bytes = bytes ?? Array.Empty<byte>();
+            byte[] compressed;
+            using (var output = new MemoryStream())
+            {
+                using (var gzip = new GZipStream(output, CompressionLevel.Fastest, true))
+                {
+                    gzip.Write(bytes, 0, bytes.Length);
+                }
+                compressed = output.ToArray();
+            }
+            writer.Write(bytes.Length);
+            writer.Write(compressed.Length);
+            writer.Write(compressed);
         }
 
         private SaveSlotInfo ReadSaveSlotInfo(int slot)
@@ -1441,6 +1832,117 @@ namespace Higurashi.IOS.Runtime
                 : text;
         }
 
+        private void ExportDiagnosticLog()
+        {
+            try
+            {
+                var path = HigurashiDiagnosticLog.CreateExport(
+                    Application.persistentDataPath,
+                    BuildDiagnosticReport());
+                if (IOSDiagnosticLogExporter.Share(path))
+                {
+                    ShowToast("系统日志已生成，请选择保存或分享");
+                }
+                else
+                {
+                    ShowToast("系统日志已保存到 Documents/logs");
+                }
+            }
+            catch (Exception exception)
+            {
+                HigurashiDiagnosticLog.Warning("Export", exception.Message);
+                ShowToast("系统日志导出失败");
+            }
+        }
+
+        private string BuildDiagnosticReport()
+        {
+            var builder = new System.Text.StringBuilder(2048);
+            builder.AppendLine("Higurashi iOS diagnostic report");
+            builder.AppendLine("Generated: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss zzz"));
+            builder.AppendLine("Episode: " + HigurashiActiveChapter.Profile.EpisodeCode);
+            builder.AppendLine("Product: " + HigurashiActiveChapter.Profile.ProductName);
+            builder.AppendLine("App version: " + Application.version);
+            builder.AppendLine("Unity: " + Application.unityVersion);
+            builder.AppendLine("Platform: " + Application.platform);
+            builder.AppendLine("OS: " + SystemInfo.operatingSystem);
+            builder.AppendLine("Device model: " + SystemInfo.deviceModel);
+            builder.AppendLine("Device type: " + SystemInfo.deviceType);
+            builder.AppendLine("CPU: " + SystemInfo.processorType + " x" + SystemInfo.processorCount);
+            builder.AppendLine("Memory MB: " + SystemInfo.systemMemorySize);
+            builder.AppendLine("Graphics: " + SystemInfo.graphicsDeviceName + " / " + SystemInfo.graphicsDeviceVersion);
+            builder.AppendLine("Screen: " + Screen.width + "x" + Screen.height + " @" + Screen.dpi + "dpi");
+            builder.AppendLine("Safe area: " + Screen.safeArea);
+            builder.AppendLine("Orientation: " + Screen.orientation);
+            builder.AppendLine("Runtime: " + RuntimeLocation());
+            builder.AppendLine("Timeline: count=" + _timeline.Count + " cursor=" + _timeline.Cursor +
+                               " chapterFloor=" + _timelineChapterNumber);
+            builder.AppendLine("UI: title=" + (_host != null && _host.TitleVisible) +
+                               " gameplay=" + (_host != null && _host.GameplayUiVisible) +
+                               " window=" + (_host != null && _host.WindowVisible) +
+                               " tipsList=" + (_host != null && _host.TipsListVisible) +
+                               " tipReading=" + (_host != null && _host.TipReading) +
+                               " chapterPreview=" + (_host != null && _host.ChapterPreviewVisible));
+            if (_settings != null)
+            {
+                builder.AppendLine("Settings: artSet=" + _settings.artSetIndex +
+                                   " lipSync=" + _settings.lipSync +
+                                   " autoSave=" + _settings.autoSave +
+                                   " bgmVolume=" + _settings.bgmVolume +
+                                   " voiceVolume=" + _settings.voiceVolume +
+                                   " presentation=" + _settings.presentationMode);
+            }
+            builder.AppendLine("Unlocks: chapterJump=" + PlayerPrefs.GetInt(ChapterJumpUnlockedKey, 0) +
+                               " tips=" + PlayerPrefs.GetInt(TipsUnlockedChapterKey, 0) +
+                               " tipsMenu=" + IsTipsMenuUnlocked +
+                               " bonus=" + IsBonusContentUnlocked +
+                               " gameClear=" + (_runtime != null
+                                   ? _runtime.Memory.GetGlobalFlag("GFlag_GameClear")
+                                   : 0));
+            builder.AppendLine("Data installed: " +
+                               DataPackImportService.IsInstalled(Application.persistentDataPath));
+            builder.AppendLine("Save slots:");
+            AppendSaveDiagnostics(builder);
+            return builder.ToString();
+        }
+
+        private void AppendSaveDiagnostics(System.Text.StringBuilder builder)
+        {
+            var groups = new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+                101, 102, 103, 201, 202, 203 };
+            for (var i = 0; i < groups.Length; i++)
+            {
+                var info = ReadSaveSlotInfo(groups[i]);
+                if (info == null)
+                {
+                    continue;
+                }
+                builder.AppendLine("  slot=" + groups[i] + " time=" +
+                                   info.Timestamp.ToString("yyyy-MM-dd HH:mm:ss") +
+                                   " script=" + info.Script + " line=" + info.Line);
+            }
+        }
+
+        private string RuntimeLocation()
+        {
+            if (_runtime == null)
+            {
+                return "runtime=null";
+            }
+            return "script=" + (_runtime.CurrentScriptName ?? string.Empty) +
+                   " line=" + _runtime.CurrentLine +
+                   " chapter=" + _runtime.Memory.GetLocalFlag("ChapterNumber") +
+                   " block=" + _runtime.BlockReason;
+        }
+
+        private string BuildDiagnosticState(string reason)
+        {
+            return reason + " episode=" + HigurashiActiveChapter.Profile.EpisodeCode +
+                   " app=" + Application.version + " unity=" + Application.unityVersion +
+                   " device=" + SystemInfo.deviceModel + " os=" + SystemInfo.operatingSystem +
+                   " screen=" + Screen.width + "x" + Screen.height + " " + RuntimeLocation();
+        }
+
         private sealed class SaveSlotInfo
         {
             public SaveSlotInfo(int slot, DateTime timestamp, string script, int line, string summary)
@@ -1468,18 +1970,27 @@ namespace Higurashi.IOS.Runtime
         private sealed class RuntimeCheckpoint
         {
             public RuntimeCheckpoint(
-                BurikoRuntimeSnapshot runtime,
-                UnityBurikoHostSnapshot presentation,
-                RuntimeBgmState[] bgmState)
+                int chapterNumber,
+                bool appendNext,
+                string scriptName,
+                int lineNumber,
+                byte[] runtimeState,
+                byte[] presentationState)
             {
-                Runtime = runtime;
-                Presentation = presentation;
-                BgmState = bgmState ?? Array.Empty<RuntimeBgmState>();
+                ChapterNumber = Math.Max(0, chapterNumber);
+                AppendNext = appendNext;
+                ScriptName = scriptName ?? string.Empty;
+                LineNumber = Math.Max(0, lineNumber);
+                RuntimeState = runtimeState ?? Array.Empty<byte>();
+                PresentationState = presentationState ?? Array.Empty<byte>();
             }
 
-            public BurikoRuntimeSnapshot Runtime { get; }
-            public UnityBurikoHostSnapshot Presentation { get; }
-            public RuntimeBgmState[] BgmState { get; }
+            public int ChapterNumber { get; }
+            public bool AppendNext { get; }
+            public string ScriptName { get; }
+            public int LineNumber { get; }
+            public byte[] RuntimeState { get; }
+            public byte[] PresentationState { get; }
         }
     }
 }

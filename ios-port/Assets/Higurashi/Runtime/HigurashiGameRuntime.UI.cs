@@ -5,6 +5,7 @@ using System.IO;
 using Higurashi.IOS.Buriko;
 using Higurashi.IOS.Compatibility;
 using Higurashi.IOS.Runtime.Buriko;
+using Higurashi.IOS.Runtime.Diagnostics;
 using UnityEngine;
 
 namespace Higurashi.IOS.Runtime
@@ -44,6 +45,7 @@ namespace Higurashi.IOS.Runtime
         private bool _chapterJumpVisible;
         private readonly List<string> _chapterJumpSections = new List<string>();
         private Vector2 _chapterJumpScroll;
+        private Vector2 _settingsScroll;
         private int _tipsChapterAutoSavedChapter = -1;
         private int _portCreditTapCount;
         private float _portCreditTapDeadline;
@@ -710,7 +712,9 @@ namespace Higurashi.IOS.Runtime
             var height = 58f * scale;
             var gap = 14f * scale;
             var x = panel.center.x - width * 0.5f;
-            var y = panel.center.y - height * 1.5f - gap;
+            var buttonCount = IsBonusContentUnlocked ? 4 : 3;
+            var groupHeight = buttonCount * height + (buttonCount - 1) * gap;
+            var y = panel.center.y - groupHeight * 0.5f;
             var unlocked = Mathf.Max(_host.CurrentChapterNumber,
                 PlayerPrefs.GetInt(ChapterJumpUnlockedKey, 0));
             if (_chapterJumpSections.Count > 0 && unlocked > 0 &&
@@ -730,6 +734,14 @@ namespace Higurashi.IOS.Runtime
                 OpenTipsLibrary();
             }
             y += height + gap;
+            if (IsBonusContentUnlocked)
+            {
+                if (PcButton(new Rect(x, y, width, height), BonusContentName, true))
+                {
+                    StartBonusContent();
+                }
+                y += height + gap;
+            }
             if (PcButton(new Rect(x, y, width, height), "返回", true))
             {
                 _extrasVisible = false;
@@ -816,6 +828,8 @@ namespace Higurashi.IOS.Runtime
                 _autoMode = false;
                 _timeline.Clear();
                 _runtime.JumpToSectionFromUi(section);
+                HigurashiDiagnosticLog.Info("ChapterJump",
+                    "Started section=" + section + " chapterIndex=" + chapterIndex);
                 CloseAllModals();
                 SuppressInput();
                 DriveRuntime(false);
@@ -1606,9 +1620,21 @@ namespace Higurashi.IOS.Runtime
             var innerWidth = panel.width - 68f * scale;
             var columnGap = 24f * scale;
             var width = (innerWidth - columnGap) * 0.5f;
-            var x = innerX;
-            var y = panel.y + 82f * scale;
-            var buttonHeight = 45f * scale;
+            var buttonHeight = Mathf.Max(44f, 45f * scale);
+            var contentTop = panel.y + 76f * scale;
+            var contentBottom = panel.yMax - 66f * scale;
+            var viewport = new Rect(innerX, contentTop, innerWidth,
+                Mathf.Max(80f * scale, contentBottom - contentTop));
+            var leftContentHeight = 6f * buttonHeight + 5f * 9f * scale;
+            var rightContentHeight = 6f * 66f * scale;
+            var contentHeight = Mathf.Max(viewport.height,
+                Mathf.Max(leftContentHeight, rightContentHeight) + 8f * scale);
+            var content = new Rect(0f, 0f,
+                Mathf.Max(1f, viewport.width - 18f * scale), contentHeight);
+            _settingsScroll = GUI.BeginScrollView(viewport, _settingsScroll, content);
+
+            var x = 0f;
+            var y = 0f;
             var artName = _host.ArtSets.Count == 0
                 ? "CG"
                 : _host.ArtSets[Mathf.Clamp(_settings.artSetIndex, 0, _host.ArtSets.Count - 1)].DisplayName;
@@ -1646,10 +1672,16 @@ namespace Higurashi.IOS.Runtime
             {
                 _settings.autoSave = !_settings.autoSave;
             }
+            y += buttonHeight + 9f * scale;
+            if (PcButton(new Rect(x, y, width, buttonHeight), "导出系统日志", true))
+            {
+                ExportDiagnosticLog();
+                SuppressInput();
+            }
             y += buttonHeight + 15f * scale;
 
-            x = innerX + width + columnGap;
-            y = panel.y + 82f * scale;
+            x = width + columnGap;
+            y = 0f;
             var previousBgmVolume = _settings.bgmVolume;
             DrawSliderRow(x, ref y, width, "背景音乐音量", ref _settings.bgmVolume, 0, 100);
             if (_settings.bgmVolume != previousBgmVolume)
@@ -1661,6 +1693,8 @@ namespace Higurashi.IOS.Runtime
             DrawSliderRow(x, ref y, width, "文字大小", ref _settings.textScale, 80, 150);
             DrawSliderRow(x, ref y, width, "文本速度", ref _settings.textSpeed, 0, 100);
             DrawSliderRow(x, ref y, width, "自动播放速度", ref _settings.autoSpeed, 0, 100);
+
+            GUI.EndScrollView();
 
             if (PcButton(new Rect(innerX, panel.yMax - 56f * scale,
                     innerWidth, 43f * scale), "保存并返回", true))

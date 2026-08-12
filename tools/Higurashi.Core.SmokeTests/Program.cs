@@ -21,6 +21,8 @@ internal static class Program
             NewTouchStopsFastTraversal,
             TimelineClearsFutureBranch,
             TimelineHonorsCapacity,
+            TimelineCopiesOnlyThroughCurrent,
+            TimelineCanPreserveChapterFloor,
             FastTraversalRendersOneStepPerTick,
             SafePathRejectsTraversal,
             AssetCascadeFallsBackInOrder,
@@ -180,6 +182,34 @@ internal static class Program
         Equal((short)147, BurikoOperationCatalog.Get(161).Code);
         Equal("ModGenericCall", BurikoOperationCatalog.Get(161).Name);
         BurikoOperationCatalog.ConfigureForEpisode(1);
+    }
+
+    private static void TimelineCopiesOnlyThroughCurrent()
+    {
+        var timeline = new CheckpointTimeline<int>(10);
+        timeline.Push(1);
+        timeline.Push(2);
+        timeline.Push(3);
+        Equal(true, timeline.TryMovePrevious(out var previous));
+        Equal(2, previous);
+        var copied = timeline.CopyThroughCurrent();
+        Equal(2, copied.Length);
+        Equal(1, copied[0]);
+        Equal(2, copied[1]);
+    }
+
+    private static void TimelineCanPreserveChapterFloor()
+    {
+        var timeline = new CheckpointTimeline<int>(3, preserveFirst: true);
+        timeline.Push(10);
+        timeline.Push(20);
+        timeline.Push(30);
+        timeline.Push(40);
+        var copied = timeline.CopyThroughCurrent();
+        Equal(3, copied.Length);
+        Equal(10, copied[0]);
+        Equal(30, copied[1]);
+        Equal(40, copied[2]);
     }
 
     private static void SingleFingerLeftSwipeAdvances()

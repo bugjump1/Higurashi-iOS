@@ -20,6 +20,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         private const int PersistentAudioStateMagic = 0x35414848; // HHA5
         private const int PersistentHistoryVoiceStateMagic = 0x36564848; // HHV6
         private const int PersistentTipsUiStateMagic = 0x37544848; // HHT7
+        private const int PersistentLastVoiceStateMagic = 0x38564848; // HHV8
         private readonly List<RuntimePathCascade> _artSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _bgmSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _seSets = new List<RuntimePathCascade>();
@@ -105,6 +106,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         public bool TipsListVisible => _tipsListVisible;
         public bool TipsLibraryStandalone => _tipsLibraryStandalone;
         public bool TipReading => _tipReading;
+        public bool AppendNext => _appendNext;
         public int TipsPage => _tipsPage;
         public int SelectedTipId => _selectedTipId;
         public int CurrentChapterNumber => _memory == null ? 0 : Math.Max(0, _memory.GetLocalFlag("ChapterNumber"));
@@ -1642,6 +1644,12 @@ namespace Higurashi.IOS.Runtime.Buriko
                     writer.Write(cue.Filename ?? string.Empty);
                     writer.Write(cue.Volume);
                 }
+                writer.Write(PersistentLastVoiceStateMagic);
+                writer.Write(_lastVoiceChannel);
+                writer.Write(_lastVoiceCharacter);
+                writer.Write(_lastVoiceFilename ?? string.Empty);
+                writer.Write(_lastVoiceVolume);
+                writer.Write(_lastVoiceIssuedForDialogueSerial);
             }
         }
 
@@ -1849,6 +1857,23 @@ namespace Higurashi.IOS.Runtime.Buriko
                     else
                     {
                         input.Position = historyVoiceTailPosition;
+                    }
+                }
+
+                if (input.CanSeek && input.Length - input.Position >= sizeof(int) * 4 + sizeof(float))
+                {
+                    var lastVoiceTailPosition = input.Position;
+                    if (reader.ReadInt32() == PersistentLastVoiceStateMagic)
+                    {
+                        _lastVoiceChannel = reader.ReadInt32();
+                        _lastVoiceCharacter = reader.ReadInt32();
+                        _lastVoiceFilename = reader.ReadString();
+                        _lastVoiceVolume = reader.ReadSingle();
+                        _lastVoiceIssuedForDialogueSerial = reader.ReadInt32();
+                    }
+                    else
+                    {
+                        input.Position = lastVoiceTailPosition;
                     }
                 }
             }

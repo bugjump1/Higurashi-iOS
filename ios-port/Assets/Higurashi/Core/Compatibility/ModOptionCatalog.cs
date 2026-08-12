@@ -13,7 +13,7 @@ namespace Higurashi.IOS.Compatibility
     [Serializable]
     public sealed class HigurashiUserSettings
     {
-        public int artSetIndex = 1;
+        public int artSetIndex = 0;
         public int audioPresetIndex;
         public int censorshipLevel = 2;
         public int bgmVolume = 100;
