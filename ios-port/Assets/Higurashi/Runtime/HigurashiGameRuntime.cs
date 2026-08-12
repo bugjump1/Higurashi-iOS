@@ -1629,7 +1629,8 @@ namespace Higurashi.IOS.Runtime
             byte[] compressed;
             using (var output = new MemoryStream())
             {
-                using (var gzip = new GZipStream(output, CompressionLevel.Fastest, true))
+                using (var gzip = new GZipStream(
+                           output, System.IO.Compression.CompressionLevel.Fastest, true))
                 {
                     gzip.Write(bytes, 0, bytes.Length);
                 }
