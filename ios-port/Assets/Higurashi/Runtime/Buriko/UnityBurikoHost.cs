@@ -21,6 +21,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         private const int PersistentHistoryVoiceStateMagic = 0x36564848; // HHV6
         private const int PersistentTipsUiStateMagic = 0x37544848; // HHT7
         private const int PersistentLastVoiceStateMagic = 0x38564848; // HHV8
+        private const int PersistentLayerAnchorStateMagic = 0x39414848; // HHA9
         private readonly List<RuntimePathCascade> _artSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _bgmSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _seSets = new List<RuntimePathCascade>();
@@ -1650,6 +1651,13 @@ namespace Higurashi.IOS.Runtime.Buriko
                 writer.Write(_lastVoiceFilename ?? string.Empty);
                 writer.Write(_lastVoiceVolume);
                 writer.Write(_lastVoiceIssuedForDialogueSerial);
+                writer.Write(PersistentLayerAnchorStateMagic);
+                writer.Write(_layers.Count);
+                foreach (var pair in _layers)
+                {
+                    writer.Write(pair.Key);
+                    writer.Write(pair.Value.IsCentered);
+                }
             }
         }
 
@@ -1874,6 +1882,29 @@ namespace Higurashi.IOS.Runtime.Buriko
                     else
                     {
                         input.Position = lastVoiceTailPosition;
+                    }
+                }
+
+                if (input.CanSeek && input.Length - input.Position >= sizeof(int) * 2)
+                {
+                    var layerAnchorTailPosition = input.Position;
+                    if (reader.ReadInt32() == PersistentLayerAnchorStateMagic)
+                    {
+                        var layerAnchorCount = ReadCount(reader, 10000,
+                            "presentation layer anchor");
+                        for (var i = 0; i < layerAnchorCount; i++)
+                        {
+                            var id = reader.ReadInt32();
+                            var isCentered = reader.ReadBoolean();
+                            if (_layers.TryGetValue(id, out var layer))
+                            {
+                                layer.IsCentered = isCentered;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        input.Position = layerAnchorTailPosition;
                     }
                 }
             }
