@@ -509,8 +509,7 @@ namespace Higurashi.IOS.Runtime
                 // This checkpoint is deliberately independent of the optional
                 // auto-save setting: reaching the PC chapter screen must never
                 // make the player lose the completed chapter.
-                SaveGame(LatestSaveSlot, showToast: false, updateLatest: false);
-                if (ReadSaveSlotInfo(LatestSaveSlot) != null)
+                if (SaveChapterCompletionProgress(currentChapter))
                 {
                     _tipsChapterAutoSavedChapter = currentChapter;
                     ShowToast("已自动保存本章节进度");
@@ -952,10 +951,23 @@ namespace Higurashi.IOS.Runtime
             GUI.Label(new Rect(panel.center.x - 60f * scale, footerY - 25f * scale,
                 120f * scale, 24f * scale),
                 (page + 1).ToString() + " / " + pageCount.ToString(), _panelTitleStyle);
-            if (PcButton(new Rect(panel.center.x - 96f * scale, footerY,
-                    192f * scale, footerHeight), "返回总览", true))
+            var centerAvailable = Mathf.Max(260f * scale,
+                panel.width - navWidth * 2f - 92f * scale);
+            var centerGap = 8f * scale;
+            var centerButtonWidth = Mathf.Min(170f * scale,
+                (centerAvailable - centerGap) * 0.5f);
+            var centerGroupWidth = centerButtonWidth * 2f + centerGap;
+            var centerX = panel.center.x - centerGroupWidth * 0.5f;
+            if (PcButton(new Rect(centerX, footerY,
+                    centerButtonWidth, footerHeight), "返回总览", true))
             {
                 ExitFragmentList();
+            }
+            if (PcButton(new Rect(centerX + centerButtonWidth + centerGap, footerY,
+                    centerButtonWidth, footerHeight), "保存与载入", true))
+            {
+                _saveLoadVisible = true;
+                SuppressInput();
             }
 
             var nextRect = new Rect(panel.xMax - 22f * scale - navWidth, footerY,
@@ -1555,7 +1567,10 @@ namespace Higurashi.IOS.Runtime
             GUI.Label(new Rect(textX, rect.y + 29f * scale, textWidth, rect.height - 31f * scale),
                 info == null
                     ? "— 空存档 —"
-                    : info.Timestamp.ToString("MM-dd HH:mm") + "  " + info.Summary,
+                    : info.Timestamp.ToString("MM-dd HH:mm") + "  " +
+                      (IsKnownLegacyTipsBrowserSave(info)
+                          ? "检测到旧版异常保存，载入时自动恢复"
+                          : info.Summary),
                 _saveSummaryStyle);
 
             var buttonX = rect.xMax - controlsWidth - 10f * scale;
@@ -1588,6 +1603,8 @@ namespace Higurashi.IOS.Runtime
                     try
                     {
                         File.Delete(SaveSlotPath(slot));
+                        HigurashiDiagnosticLog.Info("Save",
+                            "Deleted slot=" + slot + " kind=" + SaveKind(slot));
                         ShowToast(slot == LatestSaveSlot
                             ? "已删除最新保存"
                             : "已删除文件 " + (slot - 1).ToString("00", CultureInfo.InvariantCulture));
@@ -1595,6 +1612,8 @@ namespace Higurashi.IOS.Runtime
                     catch (Exception exception)
                     {
                         Debug.LogWarning("Unable to delete save: " + exception.Message);
+                        HigurashiDiagnosticLog.Warning("Save",
+                            "Delete failed slot=" + slot + " " + exception.Message);
                         ShowToast("删除失败");
                     }
                     _deleteConfirmSlot = -1;

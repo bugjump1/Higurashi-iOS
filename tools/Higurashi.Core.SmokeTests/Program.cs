@@ -3,6 +3,7 @@ using Higurashi.IOS.Input;
 using Higurashi.IOS.Playback;
 using Higurashi.IOS.Buriko;
 using Higurashi.IOS.Compatibility;
+using Higurashi.IOS.Persistence;
 using System.Text;
 
 internal static class Program
@@ -23,6 +24,8 @@ internal static class Program
             TimelineHonorsCapacity,
             TimelineCopiesOnlyThroughCurrent,
             TimelineCanPreserveChapterFloor,
+            SavePolicyRejectsContentBrowsers,
+            SavePolicyKeepsExplicitResumePoints,
             FastTraversalRendersOneStepPerTick,
             SafePathRejectsTraversal,
             AssetCascadeFallsBackInOrder,
@@ -41,6 +44,7 @@ internal static class Program
             BurikoRuntimeCallsFragmentScriptFromUi,
             BurikoRuntimeSnapshotRestoresExecutionAndMemory,
             BurikoRuntimePersistentStateRoundTrips,
+            FragmentProgressPersistentStateRoundTrips,
             BurikoPersistentStateMetadataReadsChapter,
             BurikoRuntimeHandlesModCrossScriptSectionCall,
             BurikoRuntimeHandlesEpisode04ReturnOperation,
@@ -182,6 +186,37 @@ internal static class Program
         Equal((short)147, BurikoOperationCatalog.Get(161).Code);
         Equal("ModGenericCall", BurikoOperationCatalog.Get(161).Name);
         BurikoOperationCatalog.ConfigureForEpisode(1);
+    }
+
+    private static void SavePolicyRejectsContentBrowsers()
+    {
+        Equal(true, SaveStatePolicy.CanWriteRegularSave(SaveSurface.Story, true, true));
+        Equal(false, SaveStatePolicy.CanWriteRegularSave(SaveSurface.TipsList, true, true));
+        Equal(false, SaveStatePolicy.CanWriteRegularSave(SaveSurface.TipReading, true, true));
+        Equal(true, SaveStatePolicy.CanWriteRegularSave(SaveSurface.FragmentChapter, true, true));
+        Equal(true, SaveStatePolicy.CanWriteRegularSave(SaveSurface.FragmentList, true, true));
+        Equal(true, SaveStatePolicy.CanWriteRegularSave(SaveSurface.FragmentReading, true, true));
+        Equal(true, SaveStatePolicy.CanWriteRegularSave(SaveSurface.BonusContent, true, true));
+        Equal(false, SaveStatePolicy.CanWriteRegularSave(SaveSurface.Story, false, true));
+        Equal(true, SaveStatePolicy.IsKnownLegacyTipsBrowserSave(
+            "flow", "OP 动画中包含剧透，是否要启用？"));
+        Equal(false, SaveStatePolicy.IsKnownLegacyTipsBrowserSave(
+            "onik_002", "OP 动画中包含剧透，是否要启用？"));
+        Equal(false, SaveStatePolicy.IsKnownLegacyTipsBrowserSave(
+            "flow", "第 1 章完成（TIPS 已解锁）"));
+    }
+
+    private static void SavePolicyKeepsExplicitResumePoints()
+    {
+        Equal(true, SaveStatePolicy.IsRecoverableStorySave(SaveSurface.Story, true, true));
+        Equal(true, SaveStatePolicy.IsRecoverableStorySave(SaveSurface.Choice, true, true));
+        Equal(true, SaveStatePolicy.IsRecoverableStorySave(SaveSurface.TipsChapter, true, true));
+        Equal(true, SaveStatePolicy.IsRecoverableStorySave(SaveSurface.FragmentList, true, true));
+        Equal(true, SaveStatePolicy.IsRecoverableStorySave(SaveSurface.FragmentReading, true, true));
+        Equal(true, SaveStatePolicy.IsRecoverableStorySave(SaveSurface.BonusContent, true, true));
+        Equal(false, SaveStatePolicy.IsRecoverableStorySave(SaveSurface.Story, false, true));
+        Equal(false, SaveStatePolicy.IsRecoverableStorySave(SaveSurface.TipsList, true, true));
+        Equal(false, SaveStatePolicy.IsRecoverableStorySave(SaveSurface.Title, true, true));
     }
 
     private static void TimelineCopiesOnlyThroughCurrent()
@@ -734,6 +769,37 @@ internal static class Program
         Equal(4, chapter);
         Equal(BurikoBlockReason.WaitForInput, runtime.BlockReason);
         Equal(4, runtime.Memory.GetLocalFlag("ChapterNumber"));
+    }
+
+    private static void FragmentProgressPersistentStateRoundTrips()
+    {
+        var data = BuildBytecode(writer =>
+        {
+            WriteOperation(writer, 11, null);
+            writer.Write((short)0);
+        });
+        var runtime = new BurikoRuntime(
+            new DictionaryScriptRepository(("init", WrapScript(data))),
+            new CapturingHost());
+        runtime.Start();
+        runtime.Memory.SetLocalFlag("LFragmentLoop", 1);
+        runtime.Memory.SetLocalFlag("LFragmentRead", 6);
+        runtime.Memory.SetLocalFlag("FragmentRead09", 1);
+        runtime.Memory.SetLocalFlag("FragmentStatus09", 1);
+        Equal(BurikoBlockReason.WaitForInput, runtime.RunUntilBlocked());
+
+        using var state = new MemoryStream();
+        runtime.WritePersistentState(state);
+        runtime.Memory.SetLocalFlag("LFragmentRead", 20);
+        runtime.Memory.SetLocalFlag("FragmentRead09", 0);
+        runtime.Memory.SetLocalFlag("FragmentStatus09", 2);
+
+        state.Position = 0;
+        runtime.ReadPersistentState(state);
+        Equal(1, runtime.Memory.GetLocalFlag("LFragmentLoop"));
+        Equal(6, runtime.Memory.GetLocalFlag("LFragmentRead"));
+        Equal(1, runtime.Memory.GetLocalFlag("FragmentRead09"));
+        Equal(1, runtime.Memory.GetLocalFlag("FragmentStatus09"));
     }
 
     private static void BurikoRuntimeHandlesEpisode04ReturnOperation()

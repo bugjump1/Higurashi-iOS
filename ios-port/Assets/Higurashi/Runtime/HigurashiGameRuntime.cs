@@ -6,6 +6,7 @@ using Higurashi.IOS.Buriko;
 using Higurashi.IOS.Compatibility;
 using Higurashi.IOS.Input;
 using Higurashi.IOS.Playback;
+using Higurashi.IOS.Persistence;
 using Higurashi.IOS.Runtime.Buriko;
 using Higurashi.IOS.Runtime.Data;
 using Higurashi.IOS.Runtime.Diagnostics;
@@ -746,16 +747,20 @@ namespace Higurashi.IOS.Runtime
                 // A branch choice is itself a safe resume point. Persist it in
                 // the rotating auto-save group and mirror it to Latest Save so
                 // quitting at the decision cannot lose the preceding chapter.
-                WriteSaveGame(FindOldestOrEmptySlot(201, 203));
-                WriteSaveGame(LatestSaveSlot);
+                WriteSaveGame(FindOldestOrEmptySlot(201, 203), null, "story-choice");
+                WriteSaveGame(LatestSaveSlot, null, "story-choice-latest");
                 RefreshUnlockProgressFromSaves();
                 _dialoguesSinceAutoSave = 0;
                 _lastAutoSaveAt = Time.unscaledTime;
                 ShowToast("已在剧情选项前自动保存");
+                HigurashiDiagnosticLog.Info("Save",
+                    "Saved story choice checkpoint " + RuntimeLocation());
             }
             catch (Exception exception)
             {
                 Debug.LogWarning("Unable to auto-save story choice: " + exception);
+                HigurashiDiagnosticLog.Warning("Save",
+                    "Story choice save failed " + exception.Message + " " + RuntimeLocation());
                 ShowToast("选项前自动保存失败");
             }
         }
@@ -1121,6 +1126,9 @@ namespace Higurashi.IOS.Runtime
             _autoMode = false;
             _runtime.ResumeInput();
             _suppressInputUntilFrame = Time.frameCount + 2;
+            HigurashiDiagnosticLog.Info("Fragment",
+                "Opened fragment list read=" +
+                _runtime.Memory.GetLocalFlag("LFragmentRead") + " " + RuntimeLocation());
             DriveRuntime(false);
             CaptureDialogueCheckpoint();
         }
@@ -1136,6 +1144,9 @@ namespace Higurashi.IOS.Runtime
             _autoMode = false;
             _runtime.ResumeInput();
             _suppressInputUntilFrame = Time.frameCount + 2;
+            HigurashiDiagnosticLog.Info("Fragment",
+                "Closed fragment list read=" +
+                _runtime.Memory.GetLocalFlag("LFragmentRead") + " " + RuntimeLocation());
             DriveRuntime(false);
             CaptureDialogueCheckpoint();
         }
@@ -1153,6 +1164,9 @@ namespace Higurashi.IOS.Runtime
             _host.StopVoices();
             _runtime.CallScriptFromUi(scriptName);
             _suppressInputUntilFrame = Time.frameCount + 2;
+            HigurashiDiagnosticLog.Info("Fragment",
+                "Started script=" + scriptName + " read=" +
+                _runtime.Memory.GetLocalFlag("LFragmentRead") + " " + RuntimeLocation());
             DriveRuntime(false);
             CaptureDialogueCheckpoint();
         }
@@ -1371,17 +1385,25 @@ namespace Higurashi.IOS.Runtime
 
         private bool CanSaveGame()
         {
-            return _runtime != null && _host != null && !_host.TitleVisible &&
-                   !_host.CreditsVisible && !_host.MovieVisible && !_host.ChoiceVisible &&
-                   _host.SavingEnabled && _host.InterfaceEnabled &&
-                   _runtime.BlockReason != BurikoBlockReason.Faulted &&
-                   _runtime.BlockReason != BurikoBlockReason.Completed;
+            return _runtime != null && _host != null &&
+                   SaveStatePolicy.CanWriteRegularSave(
+                       CurrentSaveSurface(), _host.SavingEnabled, _host.InterfaceEnabled);
         }
 
         private void SaveGame(int slot, bool showToast = true, bool updateLatest = true)
         {
+            var surface = CurrentSaveSurface();
+            HigurashiDiagnosticLog.Info("Save",
+                "Requested slot=" + slot + " kind=" + SaveKind(slot) +
+                " mirrorLatest=" + updateLatest + " surface=" + surface + " " +
+                RuntimeLocation());
             if (!CanSaveGame())
             {
+                HigurashiDiagnosticLog.Warning("Save",
+                    "Rejected slot=" + slot + " surface=" + surface +
+                    " savingEnabled=" + (_host != null && _host.SavingEnabled) +
+                    " interfaceEnabled=" + (_host != null && _host.InterfaceEnabled) + " " +
+                    RuntimeLocation());
                 if (showToast)
                 {
                     ShowToast("当前画面不能保存");
@@ -1391,10 +1413,10 @@ namespace Higurashi.IOS.Runtime
 
             try
             {
-                WriteSaveGame(slot);
+                WriteSaveGame(slot, null, SaveKind(slot));
                 if (updateLatest && slot != LatestSaveSlot)
                 {
-                    WriteSaveGame(LatestSaveSlot);
+                    WriteSaveGame(LatestSaveSlot, null, "latest-mirror");
                 }
                 if (showToast)
                 {
@@ -1416,7 +1438,10 @@ namespace Higurashi.IOS.Runtime
             }
         }
 
-        private void WriteSaveGame(int slot)
+        private void WriteSaveGame(
+            int slot,
+            string summaryOverride = null,
+            string saveReason = "unspecified")
         {
             var directory = Path.Combine(Application.persistentDataPath, "Saves");
             Directory.CreateDirectory(directory);
@@ -1430,7 +1455,7 @@ namespace Higurashi.IOS.Runtime
                 writer.Write(DateTime.UtcNow.Ticks);
                 writer.Write(_runtime.CurrentScriptName ?? string.Empty);
                 writer.Write(_runtime.CurrentLine);
-                writer.Write(SaveSummary());
+                writer.Write(summaryOverride ?? SaveSummary());
                 _runtime.WritePersistentState(stream);
                 _host.WritePersistentState(stream);
                 WriteTimelineState(stream);
@@ -1441,6 +1466,9 @@ namespace Higurashi.IOS.Runtime
                 File.Delete(path);
             }
             File.Move(temporaryPath, path);
+            HigurashiDiagnosticLog.Info("SaveIO",
+                "Write completed slot=" + slot + " reason=" + saveReason +
+                " bytes=" + new FileInfo(path).Length + " " + RuntimeLocation());
         }
 
         private void LoadGame(int slot)
@@ -1448,27 +1476,44 @@ namespace Higurashi.IOS.Runtime
             var path = SaveSlotPath(slot);
             if (!File.Exists(path))
             {
+                HigurashiDiagnosticLog.Warning("Load", "Requested empty slot=" + slot);
                 ShowToast("该槽位没有存档");
                 return;
             }
 
+            var returnCheckpoint = CaptureCurrentCheckpoint();
             try
             {
-                using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
-                using (var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, true))
+                _tipsLibraryReturnCheckpoint = null;
+                _bonusContentReturnCheckpoint = null;
+                var requestedInfo = ReadSaveSlotInfo(slot);
+                HigurashiDiagnosticLog.Info("Load",
+                    "Requested slot=" + slot +
+                    " savedAt=" + (requestedInfo == null
+                        ? "unknown"
+                        : requestedInfo.Timestamp.ToString("yyyy-MM-dd HH:mm:ss")) +
+                    " savedLocation=" + (requestedInfo == null
+                        ? "unknown"
+                        : requestedInfo.Script + ":" + requestedInfo.Line));
+                RestoreSaveGame(path);
+                SaveSlotInfo recoveredInfo = null;
+                if (IsKnownLegacyTipsBrowserSave(requestedInfo) ||
+                    !IsRecoverableStorySaveState())
                 {
-                    ReadSaveHeader(reader);
-                    // A save currently restores presentation/runtime state, not the
-                    // playing AudioSources.  Stop every old channel first so BGM/SE
-                    // from the pre-load scene cannot leak into the loaded scene.
-                    _host.StopAllAudio();
-                    _runtime.ReadPersistentState(stream);
-                    // Art/audio choices are app-wide preferences. An older save
-                    // restores story flags, but must not override the sprite set
-                    // currently shown in Settings.
-                    _host.ApplySettings(_runtime.Memory);
-                    _host.ReadPersistentState(stream, _runtime.Memory);
-                    ReadTimelineState(stream);
+                    recoveredInfo = TryRestoreLatestRecoverableStorySlot(slot);
+                    if (recoveredInfo == null)
+                    {
+                        RestoreCheckpoint(returnCheckpoint);
+                        ShowToast("该存档是旧版误存的内容菜单，且没有可恢复的剧情存档");
+                        HigurashiDiagnosticLog.Warning("Load",
+                            "Rejected browser-only save slot=" + slot);
+                        return;
+                    }
+
+                    if (slot == LatestSaveSlot)
+                    {
+                        RepairLatestSaveAfterRecovery(path, recoveredInfo.Summary);
+                    }
                 }
                 ResetStoryChoiceState();
                 _capturedDialogueSerial = _host.DialogueSerial;
@@ -1492,17 +1537,202 @@ namespace Higurashi.IOS.Runtime
                 _showHelpWhenGameplayStarts = false;
                 CloseAllModals();
                 _suppressInputUntilFrame = Time.frameCount + 2;
-                ShowToast(LoadCompletedMessage(slot));
+                ShowToast(recoveredInfo != null
+                    ? (slot == LatestSaveSlot
+                        ? "最新保存异常，已恢复最近有效剧情存档"
+                        : "该存档异常，已恢复最近有效剧情存档")
+                    : LoadCompletedMessage(slot));
                 HigurashiDiagnosticLog.Info("Load",
-                    "Loaded slot=" + slot + " timeline=" + _timeline.Count +
+                    "Loaded slot=" + slot + " recoveredSlot=" +
+                    (recoveredInfo == null ? -1 : recoveredInfo.Slot) +
+                    " timeline=" + _timeline.Count +
                     " cursor=" + _timeline.Cursor + " " + RuntimeLocation());
             }
             catch (Exception exception)
             {
+                try
+                {
+                    RestoreCheckpoint(returnCheckpoint);
+                }
+                catch
+                {
+                    // Keep the original load error as the diagnostic root cause.
+                }
                 Debug.LogWarning("Unable to load game: " + exception);
                 HigurashiDiagnosticLog.Warning("Load",
                     "Load failed slot=" + slot + " " + exception.Message);
                 ShowToast("存档损坏或版本不兼容");
+            }
+        }
+
+        private void RestoreSaveGame(string path)
+        {
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, true))
+            {
+                ReadSaveHeader(reader);
+                // Stop every old channel first so BGM/SE from the pre-load scene
+                // cannot leak into the restored scene.
+                _host.StopAllAudio();
+                _runtime.ReadPersistentState(stream);
+                // Art/audio choices are app-wide preferences. An older save
+                // restores story flags, but must not override Settings.
+                _host.ApplySettings(_runtime.Memory);
+                _host.ReadPersistentState(stream, _runtime.Memory);
+                ReadTimelineState(stream);
+            }
+            HigurashiDiagnosticLog.Info("LoadIO",
+                "State restored file=" + Path.GetFileName(path) + " surface=" +
+                CurrentSaveSurface() + " " + RuntimeLocation());
+        }
+
+        private bool IsRecoverableStorySaveState()
+        {
+            return _runtime != null && _host != null &&
+                   SaveStatePolicy.IsRecoverableStorySave(
+                       CurrentSaveSurface(), _host.SavingEnabled, _host.InterfaceEnabled);
+        }
+
+        private SaveSurface CurrentSaveSurface()
+        {
+            if (_runtime == null || _host == null ||
+                _runtime.BlockReason == BurikoBlockReason.Faulted)
+            {
+                return SaveSurface.Faulted;
+            }
+            if (_runtime.BlockReason == BurikoBlockReason.Completed)
+            {
+                return SaveSurface.Completed;
+            }
+            if (_host.TitleVisible) return SaveSurface.Title;
+            if (_host.CreditsVisible) return SaveSurface.Credits;
+            if (_host.MovieVisible) return SaveSurface.Movie;
+            if (_host.TipsListVisible) return SaveSurface.TipsList;
+            if (_host.TipReading) return SaveSurface.TipReading;
+            if (_host.FragmentListVisible) return SaveSurface.FragmentList;
+            if (_host.FragmentChapterVisible) return SaveSurface.FragmentChapter;
+            if (_host.ChapterPreviewVisible) return SaveSurface.ChapterPreview;
+            if (_host.TipsChapterVisible) return SaveSurface.TipsChapter;
+            if (_host.ChoiceVisible) return SaveSurface.Choice;
+            if (IsBonusContentScript(_runtime.CurrentScriptName)) return SaveSurface.BonusContent;
+            if (IsFragmentReadingScript(_runtime.CurrentScriptName, _runtime.Memory))
+            {
+                return SaveSurface.FragmentReading;
+            }
+            return SaveSurface.Story;
+        }
+
+        private bool IsBonusContentScript(string scriptName)
+        {
+            return !string.IsNullOrWhiteSpace(scriptName) &&
+                   string.Equals(scriptName, BonusContentScript,
+                       StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsFragmentReadingScript(string scriptName, BurikoMemory memory)
+        {
+            if (memory == null || memory.GetLocalFlag("LFragmentLoop") <= 0 ||
+                string.IsNullOrWhiteSpace(scriptName))
+            {
+                return false;
+            }
+
+            return scriptName.StartsWith("_kakera", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(scriptName, "kakera_miss", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private SaveSlotInfo TryRestoreLatestRecoverableStorySlot(int excludedSlot)
+        {
+            var candidates = new[]
+            {
+                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+                101, 102, 103, 201, 202, 203
+            };
+            var saves = new List<SaveSlotInfo>();
+            for (var i = 0; i < candidates.Length; i++)
+            {
+                var candidate = candidates[i];
+                if (candidate == excludedSlot)
+                {
+                    continue;
+                }
+
+                var info = ReadSaveSlotInfo(candidate);
+                if (info != null && info.Timestamp > DateTime.MinValue &&
+                    !IsKnownLegacyTipsBrowserSave(info))
+                {
+                    saves.Add(info);
+                }
+            }
+            saves.Sort((left, right) => right.Timestamp.CompareTo(left.Timestamp));
+
+            for (var i = 0; i < saves.Count; i++)
+            {
+                try
+                {
+                    HigurashiDiagnosticLog.Info("Load",
+                        "Trying recovery candidate slot=" + saves[i].Slot +
+                        " savedLocation=" + saves[i].Script + ":" + saves[i].Line);
+                    RestoreSaveGame(SaveSlotPath(saves[i].Slot));
+                    if (IsRecoverableStorySaveState())
+                    {
+                        HigurashiDiagnosticLog.Info("Load",
+                            "Accepted recovery candidate slot=" + saves[i].Slot +
+                            " surface=" + CurrentSaveSurface());
+                        return saves[i];
+                    }
+                    HigurashiDiagnosticLog.Warning("Load",
+                        "Rejected recovery candidate slot=" + saves[i].Slot +
+                        " surface=" + CurrentSaveSurface());
+                }
+                catch (Exception exception)
+                {
+                    HigurashiDiagnosticLog.Warning("Load",
+                        "Recovery candidate failed slot=" + saves[i].Slot + " " + exception.Message);
+                }
+            }
+            return null;
+        }
+
+        private void RepairLatestSaveAfterRecovery(string invalidPath, string recoveredSummary)
+        {
+            try
+            {
+                var backup = invalidPath + ".invalid-" +
+                             DateTime.UtcNow.Ticks + ".bak";
+                if (File.Exists(invalidPath))
+                {
+                    File.Copy(invalidPath, backup, false);
+                }
+                WriteSaveGame(LatestSaveSlot, recoveredSummary, "recovery-repair");
+                HigurashiDiagnosticLog.Info("Load",
+                    "Repaired latest save; backup=" + Path.GetFileName(backup));
+            }
+            catch (Exception exception)
+            {
+                HigurashiDiagnosticLog.Warning("Load",
+                    "Unable to repair latest save: " + exception.Message);
+            }
+        }
+
+        private bool SaveChapterCompletionProgress(int chapter)
+        {
+            try
+            {
+                var summary = "第 " + Math.Max(1, chapter) + " 章完成（TIPS 已解锁）";
+                WriteSaveGame(FindOldestOrEmptySlot(201, 203), summary, "chapter-complete");
+                WriteSaveGame(LatestSaveSlot, summary, "chapter-complete-latest");
+                RefreshUnlockProgressFromSaves();
+                HigurashiDiagnosticLog.Info("Save",
+                    "Saved chapter completion chapter=" + chapter + " " + RuntimeLocation());
+                return true;
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("Unable to save chapter completion: " + exception);
+                HigurashiDiagnosticLog.Warning("Save",
+                    "Chapter completion save failed chapter=" + chapter + " " + exception.Message);
+                return false;
             }
         }
 
@@ -1653,7 +1883,8 @@ namespace Higurashi.IOS.Runtime
                 using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                 using (var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, false))
                 {
-                    return ReadSaveHeader(reader);
+                    var info = ReadSaveHeader(reader);
+                    return new SaveSlotInfo(slot, info.Timestamp, info.Script, info.Line, info.Summary);
                 }
             }
             catch
@@ -1674,6 +1905,12 @@ namespace Higurashi.IOS.Runtime
                 reader.ReadString(),
                 reader.ReadInt32(),
                 reader.ReadString());
+        }
+
+        private static bool IsKnownLegacyTipsBrowserSave(SaveSlotInfo info)
+        {
+            return info != null && SaveStatePolicy.IsKnownLegacyTipsBrowserSave(
+                info.Script, info.Summary);
         }
 
         private int FindLatestSaveSlot()
@@ -1769,8 +2006,18 @@ namespace Higurashi.IOS.Runtime
                 (!force && _dialoguesSinceAutoSave < 12 &&
                 Time.unscaledTime - _lastAutoSaveAt < 45f))
             {
+                if (force)
+                {
+                    HigurashiDiagnosticLog.Info("AutoSave",
+                        "Forced auto-save skipped enabled=" +
+                        (_settings != null && _settings.autoSave) +
+                        " surface=" + CurrentSaveSurface() + " " + RuntimeLocation());
+                }
                 return;
             }
+            HigurashiDiagnosticLog.Info("AutoSave",
+                "Triggered force=" + force + " dialogues=" + _dialoguesSinceAutoSave +
+                " surface=" + CurrentSaveSurface() + " " + RuntimeLocation());
             SaveGame(FindOldestOrEmptySlot(201, 203), showToast: false);
             _dialoguesSinceAutoSave = 0;
             _lastAutoSaveAt = Time.unscaledTime;
@@ -1809,6 +2056,14 @@ namespace Higurashi.IOS.Runtime
             if (slot >= 101) return "已读取快速存档 " + (slot - 100);
             if (slot == 0 || slot == LatestSaveSlot) return "已读取最新保存";
             return "已读取文件 " + (slot - 1).ToString("00");
+        }
+
+        private static string SaveKind(int slot)
+        {
+            if (slot >= 201) return "auto";
+            if (slot >= 101) return "quick";
+            if (slot == LatestSaveSlot || slot == 0) return "latest";
+            return "manual";
         }
 
         private string SaveSlotPath(int slot)
@@ -1876,6 +2131,9 @@ namespace Higurashi.IOS.Runtime
             builder.AppendLine("Safe area: " + Screen.safeArea);
             builder.AppendLine("Orientation: " + Screen.orientation);
             builder.AppendLine("Runtime: " + RuntimeLocation());
+            builder.AppendLine("Save surface: " + CurrentSaveSurface() +
+                               " savingEnabled=" + (_host != null && _host.SavingEnabled) +
+                               " interfaceEnabled=" + (_host != null && _host.InterfaceEnabled));
             builder.AppendLine("Timeline: count=" + _timeline.Count + " cursor=" + _timeline.Cursor +
                                " chapterFloor=" + _timelineChapterNumber);
             builder.AppendLine("UI: title=" + (_host != null && _host.TitleVisible) +
@@ -1883,7 +2141,15 @@ namespace Higurashi.IOS.Runtime
                                " window=" + (_host != null && _host.WindowVisible) +
                                " tipsList=" + (_host != null && _host.TipsListVisible) +
                                " tipReading=" + (_host != null && _host.TipReading) +
-                               " chapterPreview=" + (_host != null && _host.ChapterPreviewVisible));
+                               " chapterPreview=" + (_host != null && _host.ChapterPreviewVisible) +
+                               " fragmentChapter=" + (_host != null && _host.FragmentChapterVisible) +
+                               " fragmentList=" + (_host != null && _host.FragmentListVisible));
+            builder.AppendLine("Fragments: active=" +
+                               (_runtime != null && _runtime.Memory.GetLocalFlag("LFragmentLoop") > 0) +
+                               " read=" + (_runtime == null
+                                   ? 0
+                                   : _runtime.Memory.GetLocalFlag("LFragmentRead")) +
+                               " page=" + (_host == null ? 0 : _host.FragmentPage));
             if (_settings != null)
             {
                 builder.AppendLine("Settings: artSet=" + _settings.artSetIndex +
@@ -1920,7 +2186,9 @@ namespace Higurashi.IOS.Runtime
                 }
                 builder.AppendLine("  slot=" + groups[i] + " time=" +
                                    info.Timestamp.ToString("yyyy-MM-dd HH:mm:ss") +
-                                   " script=" + info.Script + " line=" + info.Line);
+                                   " kind=" + SaveKind(groups[i]) +
+                                   " script=" + info.Script + " line=" + info.Line +
+                                   " legacyTipsBrowser=" + IsKnownLegacyTipsBrowserSave(info));
             }
         }
 
