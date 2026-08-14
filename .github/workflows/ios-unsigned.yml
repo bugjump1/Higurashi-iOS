@@ -21,6 +21,11 @@ on:
       bundle_identifier:
         description: Optional Bundle ID override before self-signing
         required: false
+      app_version:
+        description: Unified app version for every selected IPA (for example, 0.9.0)
+        required: true
+        type: string
+        default: '0.1.0'
   push:
     branches:
       - main
@@ -42,6 +47,17 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+
+      - name: Validate app version
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          APP_VERSION: ${{ inputs.app_version }}
+        run: |
+          if [[ ! "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid app version '$APP_VERSION'. Use three numeric components such as 0.9.0." >&2
+            exit 1
+          fi
 
       - name: Set up .NET
         uses: actions/setup-dotnet@v4
@@ -118,6 +134,7 @@ jobs:
             -customBuildPath /github/workspace/build/iOS
             -chapterNumber ${{ env.CHAPTER_NUMBER }}
             -bundleIdentifier ${{ inputs.bundle_identifier || format('com.bugjump.higurashi.ep{0}', env.CHAPTER_NUMBER) }}
+            -appVersion ${{ inputs.app_version }}
             -buildNumber ${{ github.run_number }}
 
       - name: Upload Xcode project for compile job

@@ -69,11 +69,23 @@ namespace Higurashi.IOS.Editor
                 buildNumber = "1";
             }
 
+            var appVersion = GetArgument("-appVersion");
+            if (string.IsNullOrWhiteSpace(appVersion))
+            {
+                appVersion = "0.1.0";
+            }
+            if (!IsValidAppVersion(appVersion))
+            {
+                throw new ArgumentException(
+                    "Invalid -appVersion value '" + appVersion +
+                    "'. Use three numeric components such as 0.9.0.");
+            }
+
             EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.iOS, BuildTarget.iOS);
 
             PlayerSettings.companyName = "Personal Research";
             PlayerSettings.productName = profile.ProductName;
-            PlayerSettings.bundleVersion = "0.1.0";
+            PlayerSettings.bundleVersion = appVersion;
             PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.iOS, bundleIdentifier);
             PlayerSettings.SetScriptingBackend(NamedBuildTarget.iOS, ScriptingImplementation.IL2CPP);
             PlayerSettings.SetManagedStrippingLevel(NamedBuildTarget.iOS, ManagedStrippingLevel.Low);
@@ -91,6 +103,32 @@ namespace Higurashi.IOS.Editor
             PlayerSettings.iOS.requiresFullScreen = true;
             PlayerSettings.iOS.appleEnableAutomaticSigning = false;
             ConfigureAppIcon();
+        }
+
+        private static bool IsValidAppVersion(string value)
+        {
+            var components = value.Split('.');
+            if (components.Length != 3)
+            {
+                return false;
+            }
+
+            foreach (var component in components)
+            {
+                if (component.Length == 0)
+                {
+                    return false;
+                }
+                foreach (var character in component)
+                {
+                    if (character < '0' || character > '9')
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
         }
 
         private static void ConfigureAppIcon()
