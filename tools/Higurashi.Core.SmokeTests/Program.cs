@@ -25,6 +25,7 @@ internal static class Program
             TimelineCopiesOnlyThroughCurrent,
             TimelineCanPreserveChapterFloor,
             SavePolicyRejectsContentBrowsers,
+            SavePolicyRejectsRuntimeControlScripts,
             SavePolicyKeepsExplicitResumePoints,
             FastTraversalRendersOneStepPerTick,
             SafePathRejectsTraversal,
@@ -32,6 +33,7 @@ internal static class Program
             CompiledScriptHeaderIsParsed,
             ChapterProfilesHaveWholeZipFingerprints,
             EpisodeEightChapterProgressMapsToOriginalFlow,
+            OpeningChoiceLocalizationRecognizesEpisodeEight,
             BurikoTextContinuationFollowsPreviousMode,
             Episode02OperationCatalogNormalizesShiftedModCodes,
             Episode03OperationCatalogNormalizesShiftedModCodes,
@@ -201,6 +203,8 @@ internal static class Program
         Equal(false, SaveStatePolicy.CanWriteRegularSave(SaveSurface.Story, false, true));
         Equal(true, SaveStatePolicy.IsKnownLegacyTipsBrowserSave(
             "flow", "OP 动画中包含剧透，是否要启用？"));
+        Equal(true, SaveStatePolicy.IsKnownLegacyTipsBrowserSave(
+            "flow", "开场动画包含剧透，要播放吗？"));
         Equal(false, SaveStatePolicy.IsKnownLegacyTipsBrowserSave(
             "onik_002", "OP 动画中包含剧透，是否要启用？"));
         Equal(false, SaveStatePolicy.IsKnownLegacyTipsBrowserSave(
@@ -218,6 +222,25 @@ internal static class Program
         Equal(false, SaveStatePolicy.IsRecoverableStorySave(SaveSurface.Story, false, true));
         Equal(false, SaveStatePolicy.IsRecoverableStorySave(SaveSurface.TipsList, true, true));
         Equal(false, SaveStatePolicy.IsRecoverableStorySave(SaveSurface.Title, true, true));
+    }
+
+    private static void SavePolicyRejectsRuntimeControlScripts()
+    {
+        Equal(true, SaveStatePolicy.IsRuntimeControlScript("flow"));
+        Equal(true, SaveStatePolicy.IsRuntimeControlScript("FLOW"));
+        Equal(true, SaveStatePolicy.IsRuntimeControlScript("init"));
+        Equal(true, SaveStatePolicy.IsRuntimeControlScript("&opening"));
+        Equal(false, SaveStatePolicy.IsRuntimeControlScript("onik_002"));
+        Equal(true, SaveStatePolicy.IsKnownInvalidControlFlowSave("flow", string.Empty));
+        Equal(true, SaveStatePolicy.IsKnownInvalidControlFlowSave("init", "   "));
+        Equal(false, SaveStatePolicy.IsKnownInvalidControlFlowSave(
+            "flow", "第 1 章完成（TIPS 已解锁）"));
+        Equal(false, SaveStatePolicy.IsKnownInvalidControlFlowSave("onik_002", string.Empty));
+        Equal(false, SaveStatePolicy.HasStableResumeSummary(SaveSurface.Story, string.Empty));
+        Equal(false, SaveStatePolicy.HasStableResumeSummary(SaveSurface.Story, "   "));
+        Equal(true, SaveStatePolicy.HasStableResumeSummary(SaveSurface.Story, "剧情台词"));
+        Equal(true, SaveStatePolicy.HasStableResumeSummary(SaveSurface.Choice, string.Empty));
+        Equal(true, SaveStatePolicy.HasStableResumeSummary(SaveSurface.TipsChapter, string.Empty));
     }
 
     private static void EpisodeEightChapterProgressMapsToOriginalFlow()
@@ -240,6 +263,29 @@ internal static class Program
         Equal(8, fragmentJump);
         Equal(false, EpisodeEightChapterMap.TryGetJumpValue("Day1", out _));
         Equal(false, EpisodeEightChapterMap.TryGetJumpValue("EP08_CHAPTER_10", out _));
+    }
+
+    private static void OpeningChoiceLocalizationRecognizesEpisodeEight()
+    {
+        var englishChoices = new[] { "Enable opening", "Disable opening" };
+        True(OpeningChoicePolicy.IsOpeningPrompt("开场动画包含剧透，要播放吗？"));
+        True(OpeningChoicePolicy.IsOpeningPrompt(
+            "Video opening might contain minor spoilers. Do you want to enable it anyway?"));
+        True(OpeningChoicePolicy.IsOpeningPrompt(
+            "オープニング動画は多少のネタバレ要素を含んでいますが、再生を有効にしますか？"));
+        Equal(false, OpeningChoicePolicy.IsOpeningPrompt("The opening ceremony starts now."));
+        True(OpeningChoicePolicy.IsOpeningChoice("开场动画包含剧透，要播放吗？", englishChoices));
+        True(OpeningChoicePolicy.IsOpeningChoice("OP 动画中包含剧透，是否要启用？", englishChoices));
+        True(OpeningChoicePolicy.IsOpeningChoice("Unrelated prompt", englishChoices));
+
+        var japaneseChoices = new[] { "動画再生を有効化", "動画再生を無効化" };
+        True(OpeningChoicePolicy.IsOpeningChoice("動画を再生しますか？", japaneseChoices));
+
+        var storyChoices = new[] { "寻找机会", "向他求饶" };
+        Equal(false, OpeningChoicePolicy.IsOpeningChoice("你要怎么做？", storyChoices));
+        Equal("OP 动画中包含剧透，是否要启用？", OpeningChoicePolicy.LocalizedPrompt);
+        Equal("启用 OP 动画", OpeningChoicePolicy.LocalizedEnable);
+        Equal("禁用 OP 动画", OpeningChoicePolicy.LocalizedDisable);
     }
 
     private static void TimelineCopiesOnlyThroughCurrent()

@@ -29,6 +29,7 @@ namespace Higurashi.IOS.Runtime
         private const int SaveFileVersion = 1;
         private const int SaveTimelineMagic = 0x314C5448; // HTL1
         private const int PersistedTimelineLimit = 200;
+        private const float EpisodeEightCreditsAutoAdvanceDelay = 4f;
         // This is a read-only summary slot in the save/load UI. Every successful
         // save path mirrors its current state here, so Continue and quick load
         // always have one unambiguous latest save to use.
@@ -57,6 +58,7 @@ namespace Higurashi.IOS.Runtime
         private bool _autoWasVoicePlaying;
         private bool _showHelpWhenGameplayStarts;
         private float _nextAutoAdvanceAt;
+        private float _episodeEightCreditsAutoAdvanceAt = -1f;
         private bool _initializationAttempted;
         private RuntimeCheckpoint _titleCheckpoint;
         private RuntimeCheckpoint _tipsLibraryReturnCheckpoint;
@@ -217,6 +219,8 @@ namespace Higurashi.IOS.Runtime
                 DriveRuntime(false);
             }
 
+            UpdateEpisodeEightCreditsAutoAdvance();
+
             _touchInput.FastTraversalActive = _fastTraversal.IsActive;
             if (_host != null && _host.MovieVisible && _fastTraversal.IsActive)
             {
@@ -367,11 +371,9 @@ namespace Higurashi.IOS.Runtime
 
             if (_host.CreditsVisible)
             {
-                if (action == NovelInputAction.Advance && _host.CompleteCredits())
+                if (action == NovelInputAction.Advance)
                 {
-                    _runtime.ResumeInput();
-                    _suppressInputUntilFrame = Time.frameCount + 2;
-                    DriveRuntime(false);
+                    CompleteCreditsAndResume();
                 }
                 return;
             }
@@ -439,6 +441,44 @@ namespace Higurashi.IOS.Runtime
                     _host.ToggleWindow();
                     break;
             }
+        }
+
+        private void UpdateEpisodeEightCreditsAutoAdvance()
+        {
+            if (_runtime == null || _host == null || !_host.CreditsVisible ||
+                HigurashiActiveChapter.Profile.EpisodeNumber != 8)
+            {
+                _episodeEightCreditsAutoAdvanceAt = -1f;
+                return;
+            }
+
+            if (_episodeEightCreditsAutoAdvanceAt < 0f)
+            {
+                _episodeEightCreditsAutoAdvanceAt =
+                    Time.unscaledTime + EpisodeEightCreditsAutoAdvanceDelay;
+                return;
+            }
+
+            if (Time.unscaledTime < _episodeEightCreditsAutoAdvanceAt)
+            {
+                return;
+            }
+
+            _episodeEightCreditsAutoAdvanceAt = -1f;
+            CompleteCreditsAndResume();
+        }
+
+        private bool CompleteCreditsAndResume()
+        {
+            if (_runtime == null || _host == null || !_host.CompleteCredits())
+            {
+                return false;
+            }
+
+            _runtime.ResumeInput();
+            _suppressInputUntilFrame = Time.frameCount + 2;
+            DriveRuntime(false);
+            return true;
         }
 
         private void UpdateHistoryTouchScroll()
@@ -1427,9 +1467,15 @@ namespace Higurashi.IOS.Runtime
 
         private bool CanSaveGame()
         {
-            return _runtime != null && _host != null &&
-                   SaveStatePolicy.CanWriteRegularSave(
-                       CurrentSaveSurface(), _host.SavingEnabled, _host.InterfaceEnabled);
+            if (_runtime == null || _host == null)
+            {
+                return false;
+            }
+
+            var surface = CurrentSaveSurface();
+            return SaveStatePolicy.CanWriteRegularSave(
+                       surface, _host.SavingEnabled, _host.InterfaceEnabled) &&
+                   SaveStatePolicy.HasStableResumeSummary(surface, SaveSummary());
         }
 
         private void SaveGame(int slot, bool showToast = true, bool updateLatest = true)
@@ -1485,6 +1531,17 @@ namespace Higurashi.IOS.Runtime
             string summaryOverride = null,
             string saveReason = "unspecified")
         {
+            if (!IsRecoverableStorySaveState())
+            {
+                var surface = CurrentSaveSurface();
+                HigurashiDiagnosticLog.Warning("SaveIO",
+                    "Blocked non-recoverable write slot=" + slot +
+                    " reason=" + saveReason + " surface=" + surface + " " +
+                    RuntimeLocation());
+                throw new InvalidOperationException(
+                    "Cannot write a save from non-recoverable surface " + surface + ".");
+            }
+
             var directory = Path.Combine(Application.persistentDataPath, "Saves");
             Directory.CreateDirectory(directory);
             var path = SaveSlotPath(slot);
@@ -1541,15 +1598,16 @@ namespace Higurashi.IOS.Runtime
                 RestoreSaveGame(path);
                 SaveSlotInfo recoveredInfo = null;
                 if (IsKnownLegacyTipsBrowserSave(requestedInfo) ||
+                    IsKnownInvalidControlFlowSave(requestedInfo) ||
                     !IsRecoverableStorySaveState())
                 {
                     recoveredInfo = TryRestoreLatestRecoverableStorySlot(slot);
                     if (recoveredInfo == null)
                     {
                         RestoreCheckpoint(returnCheckpoint);
-                        ShowToast("该存档是旧版误存的内容菜单，且没有可恢复的剧情存档");
+                        ShowToast("该存档不是可恢复的剧情状态，且没有其他有效存档");
                         HigurashiDiagnosticLog.Warning("Load",
-                            "Rejected browser-only save slot=" + slot);
+                            "Rejected non-story save slot=" + slot);
                         return;
                     }
 
@@ -1631,9 +1689,15 @@ namespace Higurashi.IOS.Runtime
 
         private bool IsRecoverableStorySaveState()
         {
-            return _runtime != null && _host != null &&
-                   SaveStatePolicy.IsRecoverableStorySave(
-                       CurrentSaveSurface(), _host.SavingEnabled, _host.InterfaceEnabled);
+            if (_runtime == null || _host == null)
+            {
+                return false;
+            }
+
+            var surface = CurrentSaveSurface();
+            return SaveStatePolicy.IsRecoverableStorySave(
+                       surface, _host.SavingEnabled, _host.InterfaceEnabled) &&
+                   SaveStatePolicy.HasStableResumeSummary(surface, SaveSummary());
         }
 
         private SaveSurface CurrentSaveSurface()
@@ -1661,6 +1725,10 @@ namespace Higurashi.IOS.Runtime
             if (IsFragmentReadingScript(_runtime.CurrentScriptName, _runtime.Memory))
             {
                 return SaveSurface.FragmentReading;
+            }
+            if (SaveStatePolicy.IsRuntimeControlScript(_runtime.CurrentScriptName))
+            {
+                return SaveSurface.Title;
             }
             return SaveSurface.Story;
         }
@@ -1702,7 +1770,8 @@ namespace Higurashi.IOS.Runtime
 
                 var info = ReadSaveSlotInfo(candidate);
                 if (info != null && info.Timestamp > DateTime.MinValue &&
-                    !IsKnownLegacyTipsBrowserSave(info))
+                    !IsKnownLegacyTipsBrowserSave(info) &&
+                    !IsKnownInvalidControlFlowSave(info))
                 {
                     saves.Add(info);
                 }
@@ -1953,6 +2022,12 @@ namespace Higurashi.IOS.Runtime
         private static bool IsKnownLegacyTipsBrowserSave(SaveSlotInfo info)
         {
             return info != null && SaveStatePolicy.IsKnownLegacyTipsBrowserSave(
+                info.Script, info.Summary);
+        }
+
+        private static bool IsKnownInvalidControlFlowSave(SaveSlotInfo info)
+        {
+            return info != null && SaveStatePolicy.IsKnownInvalidControlFlowSave(
                 info.Script, info.Summary);
         }
 

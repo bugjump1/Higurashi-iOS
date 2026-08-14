@@ -1256,8 +1256,11 @@ namespace Higurashi.IOS.Runtime
                 GUI.Label(new Rect(safe.x, safe.yMax - 82f * scale, safe.width, 38f * scale),
                     "哔哩哔哩专栏　×　其乐 KeyLol　共同发布", _panelTitleStyle);
             }
-            GUI.Label(new Rect(safe.x, safe.yMax - 42f * scale, safe.width, 30f * scale),
-                "轻触屏幕继续", _statusStyle);
+            if (!isEpisodeEight)
+            {
+                GUI.Label(new Rect(safe.x, safe.yMax - 42f * scale, safe.width, 30f * scale),
+                    "轻触屏幕继续", _statusStyle);
+            }
         }
 
         private void DrawTitleScreen()
@@ -1590,8 +1593,9 @@ namespace Higurashi.IOS.Runtime
                 info == null
                     ? "— 空存档 —"
                     : info.Timestamp.ToString("MM-dd HH:mm") + "  " +
-                      (IsKnownLegacyTipsBrowserSave(info)
-                          ? "检测到旧版异常保存，载入时自动恢复"
+                      (IsKnownLegacyTipsBrowserSave(info) ||
+                       IsKnownInvalidControlFlowSave(info)
+                          ? "检测到异常流程存档，载入时自动恢复"
                           : info.Summary),
                 _saveSummaryStyle);
 

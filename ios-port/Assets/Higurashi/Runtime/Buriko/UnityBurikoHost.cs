@@ -188,7 +188,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 }
             }
         }
-        public bool IsOpeningChoice => ChoiceVisible && Dialogue.IndexOf("OP 动画", StringComparison.OrdinalIgnoreCase) >= 0;
+        public bool IsOpeningChoice => OpeningChoicePolicy.IsOpeningChoice(Dialogue, Choices);
         public bool IsDialogueRevealComplete => VisibleDialogueLength >= Dialogue.Length;
         public string VisibleDialogue => Dialogue.Substring(0, VisibleDialogueLength);
         public float WindowOpacity
@@ -2156,6 +2156,12 @@ namespace Higurashi.IOS.Runtime.Buriko
                 Speaker = name;
                 Dialogue = text;
             }
+            var openingPrompt = OpeningChoicePolicy.IsOpeningPrompt(Dialogue);
+            if (openingPrompt)
+            {
+                Speaker = string.Empty;
+                Dialogue = OpeningChoicePolicy.LocalizedPrompt;
+            }
             SetWindowVisibilityImmediate(true);
             if (!appendToInProgressReveal)
             {
@@ -2165,7 +2171,9 @@ namespace Higurashi.IOS.Runtime.Buriko
             _dialogueRevealForced = false;
             _appendNext = textMode != 0;
             DialogueSerial++;
-            var waitsForInput = textMode == 0 || textMode == 2;
+            // OpeningQuestion immediately follows this prompt with Select. Keeping
+            // Line_Normal blocked leaves a blank-looking screen until an extra tap.
+            var waitsForInput = (textMode == 0 || textMode == 2) && !openingPrompt;
             if (waitsForInput && _chapterPreviewAccepted)
             {
                 GameplayUiVisible = true;
@@ -2208,10 +2216,10 @@ namespace Higurashi.IOS.Runtime.Buriko
                 Choices.Add(memory.Get(new BurikoReference(reference.Name, i)).AsString(memory));
             }
 
-            if (Dialogue.IndexOf("OP 动画", StringComparison.OrdinalIgnoreCase) >= 0 && Choices.Count >= 2)
+            if (OpeningChoicePolicy.IsOpeningChoice(Dialogue, Choices))
             {
-                Choices[0] = "启用 OP 动画";
-                Choices[1] = "禁用 OP 动画";
+                Choices[0] = OpeningChoicePolicy.LocalizedEnable;
+                Choices[1] = OpeningChoicePolicy.LocalizedDisable;
             }
         }
 
