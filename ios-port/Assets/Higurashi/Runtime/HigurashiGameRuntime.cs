@@ -873,6 +873,7 @@ namespace Higurashi.IOS.Runtime
                         continue;
                     }
 
+                    chapter = ChapterProgressCount(chapter);
                     highestJump = Math.Max(highestJump,
                         Mathf.Clamp(chapter + 1, 0, sectionCount));
                     highestTips = Math.Max(highestTips,
@@ -922,6 +923,13 @@ namespace Higurashi.IOS.Runtime
             }
         }
 
+        private static int ChapterProgressCount(int scriptChapterNumber)
+        {
+            return HigurashiActiveChapter.Profile.EpisodeNumber == 8
+                ? EpisodeEightChapterMap.CompletedChapterCount(scriptChapterNumber)
+                : Math.Max(0, scriptChapterNumber);
+        }
+
         private void UpdateChapterJumpUnlockProgress()
         {
             if (_runtime == null || _host == null || _host.TitleVisible)
@@ -929,7 +937,7 @@ namespace Higurashi.IOS.Runtime
                 return;
             }
 
-            var chapter = _host.CurrentChapterNumber;
+            var chapter = ChapterProgressCount(_host.CurrentChapterNumber);
             if (_host.GameplayUiVisible && !_host.TipsChapterVisible &&
                 !_host.TipsListVisible && !_host.TipReading)
             {
@@ -1005,7 +1013,7 @@ namespace Higurashi.IOS.Runtime
                 return stored;
             }
             var migrated = IsTipsMenuUnlocked
-                ? Math.Max(_host == null ? 0 : _host.CurrentChapterNumber,
+                ? Math.Max(_host == null ? 0 : ChapterProgressCount(_host.CurrentChapterNumber),
                     Math.Max(0, PlayerPrefs.GetInt(ChapterJumpUnlockedKey, 0) - 1))
                 : 0;
             PlayerPrefs.SetInt(TipsUnlockedChapterKey, migrated);
@@ -1040,7 +1048,8 @@ namespace Higurashi.IOS.Runtime
                 return;
             }
 
-            var activeChapter = Math.Max(1, Math.Max(_host.CurrentChapterNumber + 1,
+            var activeChapter = Math.Max(1, Math.Max(
+                ChapterProgressCount(_host.CurrentChapterNumber) + 1,
                 unlockedJump));
             var tipsChapter = Math.Min(activeChapter, sections.Count);
             var jumpChapter = Math.Min(activeChapter + 1, sections.Count);
@@ -1185,7 +1194,9 @@ namespace Higurashi.IOS.Runtime
 
         private void ContinuePastTips()
         {
-            var nextChapter = _host == null ? 0 : _host.CurrentChapterNumber + 1;
+            var nextChapter = _host == null
+                ? 0
+                : ChapterProgressCount(_host.CurrentChapterNumber) + 1;
             if (_runtime == null || !_host.ContinuePastTips(_runtime.Memory))
             {
                 return;

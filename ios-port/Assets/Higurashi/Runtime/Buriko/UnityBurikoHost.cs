@@ -1040,6 +1040,15 @@ namespace Higurashi.IOS.Runtime.Buriko
         internal IReadOnlyList<string> GetChapterJumpSections()
         {
             var result = new List<string>();
+            if (HigurashiActiveChapter.Profile.EpisodeNumber == 8)
+            {
+                for (var i = 0; i < EpisodeEightChapterMap.Count; i++)
+                {
+                    result.Add(EpisodeEightChapterMap.Token(i));
+                }
+                return result;
+            }
+
             var candidates = new[]
             {
                 Path.Combine(_streamingAssetsRoot ?? string.Empty, "CompiledChineseScripts", "flow.mg"),

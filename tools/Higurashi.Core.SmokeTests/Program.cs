@@ -31,6 +31,7 @@ internal static class Program
             AssetCascadeFallsBackInOrder,
             CompiledScriptHeaderIsParsed,
             ChapterProfilesHaveWholeZipFingerprints,
+            EpisodeEightChapterProgressMapsToOriginalFlow,
             BurikoTextContinuationFollowsPreviousMode,
             Episode02OperationCatalogNormalizesShiftedModCodes,
             Episode03OperationCatalogNormalizesShiftedModCodes,
@@ -217,6 +218,28 @@ internal static class Program
         Equal(false, SaveStatePolicy.IsRecoverableStorySave(SaveSurface.Story, false, true));
         Equal(false, SaveStatePolicy.IsRecoverableStorySave(SaveSurface.TipsList, true, true));
         Equal(false, SaveStatePolicy.IsRecoverableStorySave(SaveSurface.Title, true, true));
+    }
+
+    private static void EpisodeEightChapterProgressMapsToOriginalFlow()
+    {
+        var jumpValues = new[] { 0, 3, 5, 7, 8, 11, 13, 15, 17, 19 };
+        var completionValues = new[] { 2, 4, 6, 7, 10, 12, 14, 16, 18, 25 };
+        Equal(jumpValues.Length, EpisodeEightChapterMap.Count);
+        for (var i = 0; i < jumpValues.Length; i++)
+        {
+            Equal(true, EpisodeEightChapterMap.TryGetJumpValue(
+                EpisodeEightChapterMap.Token(i), out var jump));
+            Equal(jumpValues[i], jump);
+            Equal(i, EpisodeEightChapterMap.CompletedChapterCount(completionValues[i] - 1));
+            Equal(i + 1, EpisodeEightChapterMap.CompletedChapterCount(completionValues[i]));
+        }
+
+        // Chapter 5 starts at s_jump=8, immediately before StartFragmentLoop.
+        Equal(true, EpisodeEightChapterMap.TryGetJumpValue(
+            EpisodeEightChapterMap.Token(4), out var fragmentJump));
+        Equal(8, fragmentJump);
+        Equal(false, EpisodeEightChapterMap.TryGetJumpValue("Day1", out _));
+        Equal(false, EpisodeEightChapterMap.TryGetJumpValue("EP08_CHAPTER_10", out _));
     }
 
     private static void TimelineCopiesOnlyThroughCurrent()

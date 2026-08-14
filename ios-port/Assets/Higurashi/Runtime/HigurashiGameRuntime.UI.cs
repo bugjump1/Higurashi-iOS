@@ -493,7 +493,7 @@ namespace Higurashi.IOS.Runtime
             }
 
             UnlockTipsMenu();
-            var currentChapter = _host.CurrentChapterNumber;
+            var currentChapter = ChapterProgressCount(_host.CurrentChapterNumber);
             UnlockTipsThroughChapter(currentChapter);
             if (currentChapter > PlayerPrefs.GetInt(ChapterJumpUnlockedKey, 0))
             {
@@ -729,7 +729,7 @@ namespace Higurashi.IOS.Runtime
             var buttonCount = IsBonusContentUnlocked ? 4 : 3;
             var groupHeight = buttonCount * height + (buttonCount - 1) * gap;
             var y = panel.center.y - groupHeight * 0.5f;
-            var unlocked = Mathf.Max(_host.CurrentChapterNumber,
+            var unlocked = Mathf.Max(ChapterProgressCount(_host.CurrentChapterNumber),
                 PlayerPrefs.GetInt(ChapterJumpUnlockedKey, 0));
             if (_chapterJumpSections.Count > 0 && unlocked > 0 &&
                 PcButton(new Rect(x, y, width, height), "章节跳跃", true))
@@ -778,7 +778,7 @@ namespace Higurashi.IOS.Runtime
                 _chapterJumpSections.AddRange(_host.GetChapterJumpSections());
             }
 
-            var unlocked = Mathf.Clamp(Mathf.Max(_host.CurrentChapterNumber,
+            var unlocked = Mathf.Clamp(Mathf.Max(ChapterProgressCount(_host.CurrentChapterNumber),
                 PlayerPrefs.GetInt(ChapterJumpUnlockedKey, 0)), 0, _chapterJumpSections.Count);
             var list = new Rect(panel.x + 30f * scale, panel.y + 72f * scale,
                 panel.width - 60f * scale, panel.height - 142f * scale);
@@ -797,7 +797,8 @@ namespace Higurashi.IOS.Runtime
                 for (var i = 0; i < unlocked; i++)
                 {
                     var section = _chapterJumpSections[i];
-                    var label = "第" + (i + 1) + "天";
+                    var label = "第" + (i + 1) +
+                                (HigurashiActiveChapter.Profile.EpisodeNumber == 8 ? "章" : "天");
                     var column = i % columns;
                     var row = i / columns;
                     var button = new Rect(column * (list.width / columns) + gap * 0.5f,
@@ -832,7 +833,15 @@ namespace Higurashi.IOS.Runtime
                 _runtime.Memory.SetLocalFlag("TipsMode", 0);
                 _runtime.Memory.SetLocalFlag("LOCALWORK_NO_RESULT", 0);
                 var chapterIndex = _chapterJumpSections.IndexOf(section);
-                if (chapterIndex >= 0)
+                var runtimeSection = section;
+                if (HigurashiActiveChapter.Profile.EpisodeNumber == 8 &&
+                    EpisodeEightChapterMap.TryGetJumpValue(section, out var jumpValue))
+                {
+                    _runtime.Memory.SetLocalFlag("s_jump", jumpValue);
+                    _runtime.Memory.SetLocalFlag("ChapterNumber", jumpValue);
+                    runtimeSection = "Game";
+                }
+                else if (chapterIndex >= 0)
                 {
                     _runtime.Memory.SetLocalFlag("ChapterNumber", chapterIndex);
                 }
@@ -841,9 +850,10 @@ namespace Higurashi.IOS.Runtime
                 _fastTraversal.Stop();
                 _autoMode = false;
                 _timeline.Clear();
-                _runtime.JumpToSectionFromUi(section);
+                _runtime.JumpToSectionFromUi(runtimeSection);
                 HigurashiDiagnosticLog.Info("ChapterJump",
-                    "Started section=" + section + " chapterIndex=" + chapterIndex);
+                    "Started section=" + runtimeSection + " token=" + section +
+                    " chapterIndex=" + chapterIndex);
                 CloseAllModals();
                 SuppressInput();
                 DriveRuntime(false);
