@@ -60,6 +60,7 @@ namespace Higurashi.IOS.Runtime
         private bool _initializationAttempted;
         private RuntimeCheckpoint _titleCheckpoint;
         private RuntimeCheckpoint _tipsLibraryReturnCheckpoint;
+        private RuntimeCheckpoint _standaloneTipsTitleCheckpoint;
         private RuntimeCheckpoint _bonusContentReturnCheckpoint;
         private RuntimeCheckpoint _storyChoiceCheckpoint;
         private int _tipsLibraryReturnCallDepth;
@@ -1053,14 +1054,20 @@ namespace Higurashi.IOS.Runtime
                 unlockedJump));
             var tipsChapter = Math.Min(activeChapter, sections.Count);
             var jumpChapter = Math.Min(activeChapter + 1, sections.Count);
+            var hasChapterTips = _host.HasTipsForChapter(tipsChapter);
             UnlockTipsMenu();
-            UnlockTipsThroughChapter(tipsChapter);
+            if (hasChapterTips)
+            {
+                UnlockTipsThroughChapter(tipsChapter);
+            }
             if (jumpChapter > PlayerPrefs.GetInt(ChapterJumpUnlockedKey, 0))
             {
                 PlayerPrefs.SetInt(ChapterJumpUnlockedKey, jumpChapter);
                 PlayerPrefs.Save();
             }
-            ShowToast("隐藏解锁：第" + jumpChapter + "章跳跃／第" + tipsChapter + "章 TIPS");
+            ShowToast(hasChapterTips
+                ? "隐藏解锁：第" + jumpChapter + "章跳跃／第" + tipsChapter + "章 TIPS"
+                : "隐藏解锁：第" + jumpChapter + "章跳跃（本章无 TIPS）");
         }
 
         private void StartBonusContent()
@@ -1218,17 +1225,30 @@ namespace Higurashi.IOS.Runtime
         private void OpenTipsLibrary()
         {
             RefreshUnlockProgressFromSaves();
-            if (_runtime == null || !_host.OpenTipsLibrary(_runtime.Memory,
-                    GetTipsUnlockedChapter()))
+            if (_runtime == null || _host == null)
             {
                 return;
             }
 
+            var unlockedChapter = GetTipsUnlockedChapter();
+            if (!_host.HasUnlockedTips(_runtime.Memory, unlockedChapter))
+            {
+                ShowToast("当前还没有已解锁的 TIPS");
+                return;
+            }
+
+            var titleCheckpoint = CaptureCurrentCheckpoint();
+            if (!_host.OpenTipsLibrary(_runtime.Memory, unlockedChapter))
+            {
+                return;
+            }
+
+            _standaloneTipsTitleCheckpoint = titleCheckpoint;
             CloseAllModals();
             _fastTraversal.Stop();
             SuppressInput();
             HigurashiDiagnosticLog.Info("TIPS",
-                "Opened standalone library; unlockedChapter=" + GetTipsUnlockedChapter());
+                "Opened standalone library; unlockedChapter=" + unlockedChapter);
         }
 
         private void ExitTipsLibrary()
@@ -1243,7 +1263,18 @@ namespace Higurashi.IOS.Runtime
                 return;
             }
 
-            if (!standalone && !_host.TipsChapterVisible)
+            if (standalone)
+            {
+                var titleCheckpoint = _standaloneTipsTitleCheckpoint;
+                _standaloneTipsTitleCheckpoint = null;
+                if (titleCheckpoint != null)
+                {
+                    RestoreCheckpoint(titleCheckpoint);
+                }
+                CloseAllModals();
+                _extrasVisible = true;
+            }
+            else if (!_host.TipsChapterVisible)
             {
                 // Standalone and in-flow TIPS use different return states. The
                 // in-flow list closes back to the four-button chapter screen;
@@ -1496,6 +1527,7 @@ namespace Higurashi.IOS.Runtime
             try
             {
                 _tipsLibraryReturnCheckpoint = null;
+                _standaloneTipsTitleCheckpoint = null;
                 _bonusContentReturnCheckpoint = null;
                 var requestedInfo = ReadSaveSlotInfo(slot);
                 HigurashiDiagnosticLog.Info("Load",
@@ -2048,6 +2080,8 @@ namespace Higurashi.IOS.Runtime
             _fastTraversal.Stop();
             _timeline.Clear();
             ResetStoryChoiceState();
+            _tipsLibraryReturnCheckpoint = null;
+            _standaloneTipsTitleCheckpoint = null;
             RestoreCheckpoint(_titleCheckpoint);
             CloseAllModals();
             _suppressInputUntilFrame = Time.frameCount + 2;

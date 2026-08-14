@@ -982,7 +982,8 @@ namespace Higurashi.IOS.Runtime.Buriko
 
         public bool OpenTipsLibrary(BurikoMemory memory, int unlockedChapter)
         {
-            if (memory == null || _tipsCatalog.IsEmpty)
+            if (memory == null || _tipsCatalog.IsEmpty ||
+                !_tipsCatalog.HasVisibleThrough(Math.Max(0, unlockedChapter)))
             {
                 return false;
             }
@@ -1115,6 +1116,17 @@ namespace Higurashi.IOS.Runtime.Buriko
         internal IReadOnlyList<HigurashiTipDefinition> GetVisibleTips(BurikoMemory memory)
         {
             return _tipsCatalog.GetVisible(memory, _tipsScope, _tipsVisibleChapterOverride);
+        }
+
+        internal bool HasUnlockedTips(BurikoMemory memory, int unlockedChapter)
+        {
+            return memory != null && !_tipsCatalog.IsEmpty &&
+                   _tipsCatalog.HasVisibleThrough(Math.Max(0, unlockedChapter));
+        }
+
+        internal bool HasTipsForChapter(int chapter)
+        {
+            return _tipsCatalog.HasEntryAtChapter(Math.Max(0, chapter));
         }
 
         internal HigurashiTipDefinition GetSelectedTip()
@@ -3503,6 +3515,30 @@ namespace Higurashi.IOS.Runtime.Buriko
             new HigurashiTipsCatalog(new HigurashiTipDefinition[0]);
 
         public bool IsEmpty => _entries.Count == 0;
+
+        public bool HasVisibleThrough(int chapter)
+        {
+            for (var i = 0; i < _entries.Count; i++)
+            {
+                if (_entries[i].UnlockChapter <= chapter)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public bool HasEntryAtChapter(int chapter)
+        {
+            for (var i = 0; i < _entries.Count; i++)
+            {
+                if (_entries[i].UnlockChapter == chapter)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
 
         public static HigurashiTipsCatalog Load(string installedGameDataRoot)
         {

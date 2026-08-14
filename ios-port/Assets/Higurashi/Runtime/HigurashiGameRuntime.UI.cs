@@ -743,9 +743,18 @@ namespace Higurashi.IOS.Runtime
             }
 
             y += height + gap;
-            if (PcButton(new Rect(x, y, width, height), "查看 TIPS", true))
+            var tipsUnlockedChapter = GetTipsUnlockedChapter();
+            var hasUnlockedTips = _host.HasUnlockedTips(
+                _runtime.Memory, tipsUnlockedChapter);
+            if (hasUnlockedTips &&
+                PcButton(new Rect(x, y, width, height), "查看 TIPS", true))
             {
                 OpenTipsLibrary();
+            }
+            else if (!hasUnlockedTips)
+            {
+                DrawDisabledPcButton(new Rect(x, y, width, height),
+                    "查看 TIPS（未解锁）", true);
             }
             y += height + gap;
             if (IsBonusContentUnlocked)
