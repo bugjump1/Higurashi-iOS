@@ -1,79 +1,133 @@
-# Higurashi iOS research ports
+[简体中文](./README.md) | [English](./README_EN.md)
 
-Personal research project for running legally owned PC copies of *Higurashi When They Cry Hou* chapters as independent iOS apps on iOS/iPadOS 15 or newer. Chapters 1 and 2 are currently configured.
+# 寒蝉鸣泣之时 iOS 兼容移植
 
-The repository contains no game scripts, images, audio, video, or proprietary Unity binaries. Game data is packaged locally from the owner's PC installation and imported on-device after installation.
+这是一个面向 iPhone 与 iPad 的非官方个人研究项目，用于让已合法拥有 PC 版《寒蝉鸣泣之时》的用户在 iOS/iPadOS 上阅读 EP01 至 EP08。
 
-## Fixed targets
+八个篇章均作为独立 App 构建，拥有各自的名称、图标、Bundle ID 和存档容器。项目不是 Windows 模拟器、云串流或视频播放器：App 以 iOS/ARM64 + IL2CPP 形式运行，由兼容运行时在设备本地处理原版脚本、画面、音频、存档与触控输入。
 
-- iOS/iPadOS 15.0+
-- ARM64 and IL2CPP
-- iPhone and iPad
-- Landscape left and landscape right
-- GitHub Actions build; no local Mac required
-- Independent apps and save containers per chapter
-- Bundle IDs: `com.bugjump.higurashi.ep01`, `com.bugjump.higurashi.ep02`, and so on
-- Unsigned artifacts: `Higurashi-NN-iOS-unsigned.ipa`
-- Signing is intentionally outside the build pipeline
+> 本仓库和构建出的 IPA 均不包含原游戏的脚本、图片、音频、视频或其他受版权保护的游戏资源。使用者需要自行合法拥有对应 PC 篇章，并在首次启动时导入与篇章匹配的数据包。
 
-## Repository layout
+## 当前状态
 
-- `ios-port/` - Unity project
-- `tools/Higurashi.DataPack/` - local game-data pack generator
-- `tools/Higurashi.Core.SmokeTests/` - dependency-free core behavior tests
-- `tools/Higurashi.ScriptAudit/` - compiled Buriko container validator
-- `tools/Higurashi.RuntimeProbe/` - headless Buriko startup probe
-- `tools/Higurashi.IconExtractor/` - extracts the original executable's multi-size icon
-- `docs/ARCHITECTURE.md` - design and compatibility boundaries
+- EP01 至 EP08 均可构建为独立 IPA
+- iOS/iPadOS 15.0 及以上
+- 支持 ARM64、iPhone 和 iPad
+- 仅支持横屏，兼容左右两个横屏方向与安全区域
+- 主机版、重制版、原版立绘与背景可切换
+- 支持剧情语音、BGM、SE、场景过渡及支持模式下的口型同步
+- 支持普通保存、快速保存、自动保存和“最新保存”汇总槽
+- 支持剧情记录、语音回放、章节跳跃、TIPS、慰劳茶会/工作室闲谈
+- EP08 支持碎片列表、解锁条件、阅读进度和碎片状态持久化
+- 正式剧情选项前自动保存；坏结局后可返回选项或主菜单
+- 系统设置中可导出诊断日志，日志保存在 App 的 `Documents/logs` 中
 
-## Local data pack
+## 系统与文件要求
 
-The pack tool detects the `HigurashiEpNN_Data` directory and writes a chapter-specific manifest. For chapter 2:
+### 设备
 
-```powershell
-dotnet run --project .\tools\Higurashi.DataPack -- `
-  "D:\project\PCtoiOS\game files\Higurashi When They Cry 02" `
-  "D:\project\PCtoiOS\output data zip\Higurashi-02-data.zip"
-```
+- iPhone 或 iPad
+- iOS/iPadOS 15.0 或更高版本
+- 足够的可用空间：导入时需要同时容纳 ZIP、临时解压内容和最终游戏数据，建议预留明显大于数据包两倍的空间
 
-Launch the matching chapter app, tap `请选择数据包`, and select
-`Higurashi-NN-data.zip` in the native iOS Files picker. The app verifies the
-entire ZIP against the chapter's pinned byte length and SHA-256 before opening
-it, then validates `manifest.json` and every extracted file. Extraction is
-staged and atomically installed, so a wrong, damaged, cancelled, or interrupted
-import cannot replace an existing working data set. The temporary selected ZIP
-is removed after the attempt. The source game directory is never modified.
+### 每个篇章需要两个文件
 
-Every chapter profile has its own pinned ZIP fingerprint. Regenerating a ZIP
-requires updating that profile's expected length and SHA-256; merely renaming
-the existing ZIP does not change its fingerprint.
+1. 对应篇章的未签名 IPA，例如 `Higurashi-01-iOS-unsigned.ipa`
+2. 篇章号完全一致的数据包，例如 `Higurashi-01-data.zip`
 
-## GitHub Actions
+每章必须一一对应。EP01 App 不能导入 EP02 数据包，其余篇章同理。
 
-The workflow uses GameCI to generate an Xcode project on Linux, then compiles it without signing on a `macos-15` runner. Unity Personal users need to configure the documented GameCI license secrets:
+## 安装与首次启动
 
-- `UNITY_LICENSE`
-- `UNITY_EMAIL`
-- `UNITY_PASSWORD`
+### 1. 安装 IPA
 
-The iOS display name follows each executable's file base name (`HigurashiEp01`,
-`HigurashiEp02`). Icons remain local-only and are restored during CI from two
-chapter-specific secrets (split to stay below GitHub's per-secret size limit):
+IPA 未签名，不能像普通文件一样直接安装。请根据自己的设备环境选择一种方式：
 
-- `HIGURASHI_APP_ICON_BASE64_1`
-- `HIGURASHI_APP_ICON_BASE64_2`
-- `HIGURASHI_EP02_APP_ICON_BASE64_1`
-- `HIGURASHI_EP02_APP_ICON_BASE64_2`
+- 使用自己的证书签名后安装
+- 使用 LiveContainer 运行
+- 在设备和系统版本支持时使用 TrollStore
 
-For this workspace the ready-to-paste values are stored locally at:
+签名、证书和安装工具不属于本项目的支持范围。
 
-- `.tools/HIGURASHI_APP_ICON_BASE64_1.txt`
-- `.tools/HIGURASHI_APP_ICON_BASE64_2.txt`
-- `.tools/HIGURASHI_EP02_APP_ICON_BASE64_1.txt`
-- `.tools/HIGURASHI_EP02_APP_ICON_BASE64_2.txt`
+### 2. 导入数据包
 
-These files and `ios-port/Assets/Branding/AppIcon.png` are ignored by Git. The
-workflow reconstructs the icon before Unity starts, so no original artwork is
-committed.
+1. 打开对应篇章 App。
+2. 在启动页面点击“导入数据包”。
+3. 在 iOS“文件”选择器中选择同篇章的 `Higurashi-XX-data.zip`。
+4. 保持 App 在前台，等待整包校验、复制与解压完成。
+5. 导入成功后继续启动游戏；通常不需要再次导入。
 
-No Apple signing secrets are used.
+LiveContainer 中的系统文件选择器行为取决于容器版本和设置。如果文件可见但无法选择，请按 LiveContainer 的说明启用文件导入兼容功能。
+
+### 3. 不要修改数据包
+
+App 会校验整个 ZIP 的固定字节长度和 SHA-256，并在解压后继续校验清单与每个文件。以下操作会导致校验失败：
+
+- 编辑、替换、增加或删除包内文件
+- 解压后重新压缩
+- 使用其他篇章的数据包
+- 文件下载不完整或已损坏
+
+只修改 ZIP 文件名不会改变其内容指纹。导入采用临时目录和原子替换，错误、中断或取消的导入不会覆盖已有的可用数据。生成数据包时也不会修改原 PC 游戏目录。
+
+## 触控操作
+
+| 操作 | 功能 |
+| --- | --- |
+| 单指轻触 | 显示完当前文字，再推进剧情 |
+| 单指从右向左滑 | 与轻触相同，推进剧情 |
+| 单指从左向右滑 | 返回上一个完整文本框，并恢复对应画面与声音 |
+| 单指上滑 | 打开剧情记录 |
+| 单指下滑 | 隐藏或显示文本框 |
+| 三指从右向左滑 | 逐句快速前进 |
+| 三指从左向右滑 | 逐句快速回退 |
+| 快进/快退时任意触摸 | 停止连续移动 |
+
+回退以当前章节第一句为边界，不会退到上一章节。读取新版存档后会恢复随存档保存的本章检查点历史；旧版存档则从第一次以新版读取的位置开始重新积累历史。
+
+## 存档与附加内容
+
+- 普通保存、快速保存与自动保存都会同步更新“最新保存”。
+- “最新保存”包含有效性检查；发现旧版本保存的菜单或临时 UI 状态时，会尽量恢复到最近的有效剧情位置。
+- 读取存档会恢复脚本、台词、立绘、背景、BGM、语音线索和本章回退历史。
+- 章节末 TIPS 阅读完成后返回 TIPS 列表，关闭列表后回到章节结束页面。
+- 章节跳跃和 TIPS 按实际进度逐步解锁，不会默认开放全部内容。
+- 正常完成整篇后解锁 EP01 至 EP04 的“慰劳茶会”，或 EP05 至 EP08 的“工作室闲谈”。坏结局不会被当作正常通关。
+- EP08 碎片阅读不允许普通存档；碎片解锁与阅读进度通过独立持久状态保存，可在退出后继续。
+
+iOS 存档与 PC 原版存档格式不同，不能直接复制互读。进行任何存档转换前，请先备份原文件。
+
+## 问题反馈与日志
+
+发生问题时，请尽量提供：
+
+- 篇章编号和大致剧情位置
+- 设备型号与 iOS/iPadOS 版本
+- 自签、LiveContainer 或 TrollStore 等安装方式
+- 截图或录屏
+- 系统设置中“导出系统日志”生成的诊断文件
+
+日志保存在 App 沙盒的 `Documents/logs`，记录运行状态、保存/读取、章节跳跃、TIPS、碎片与错误信息，不记录 GitHub Secrets、Unity 密码或游戏数据内容。
+
+## 仓库结构
+
+- `ios-port/`：Unity iOS 项目与兼容运行时
+- `tools/Higurashi.DataPack/`：本地数据包生成工具
+- `tools/Higurashi.Core.SmokeTests/`：核心行为测试
+- `tools/Higurashi.ScriptAudit/`：Buriko 编译脚本审计工具
+- `tools/Higurashi.RuntimeProbe/`：无界面运行探针
+- `tools/Higurashi.IconExtractor/`：本地提取原可执行文件图标
+- `docs/ARCHITECTURE.md`：架构、兼容边界与实现说明
+
+## 兼容边界
+
+本项目不会加载 PC 版 `Assembly-CSharp.dll`，也不会迁移 Steam、窗口位置、多显示器、桌面外设、在线 DLL 更新等桌面功能。部分 07th-Mod 数据与表现可兼容，但不保证所有 PC Mod、脚本变体或设置完全一致。
+
+## 致谢与署名
+
+- 个人移植：贴吧 @bugjump / bilibili @Hyperion233
+- EP01 至 EP07 中文底本：[ycx 汉化组](https://github.com/ycx-Studios/higurashi-docs)
+- EP08 翻译：990、麻生早纪；校对：枝瀬愛；程序：饭；润色：990、麻生早纪
+- 三指快进/快退的交互灵感来自日不落汉化组《海猫鸣泣之时》iOS 版
+
+《寒蝉鸣泣之时》及相关素材的权利归各自权利人所有。本项目不提供或授权传播游戏本体与资源。
