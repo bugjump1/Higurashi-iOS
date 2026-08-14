@@ -22,6 +22,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         private const int PersistentTipsUiStateMagic = 0x37544848; // HHT7
         private const int PersistentLastVoiceStateMagic = 0x38564848; // HHV8
         private const int PersistentLayerAnchorStateMagic = 0x39414848; // HHA9
+        private const int PersistentTipReadingStateMagic = 0x31525448; // HTR1
         private readonly List<RuntimePathCascade> _artSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _bgmSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _seSets = new List<RuntimePathCascade>();
@@ -595,7 +596,14 @@ namespace Higurashi.IOS.Runtime.Buriko
                     if (string.Equals(Text(invocation, 0, memory), "black", StringComparison.OrdinalIgnoreCase) &&
                         string.Equals(_backgroundName, "07th-mod", StringComparison.OrdinalIgnoreCase))
                     {
-                        SetBackground("haikei", memory, true, 1f);
+                        var creditsBackground = "haikei";
+                        if (HigurashiActiveChapter.Profile.EpisodeNumber == 8)
+                        {
+                            creditsBackground = memory.GetGlobalFlag("GFlag_GameClear") == 0
+                                ? "background/moon"
+                                : "background/jt1";
+                        }
+                        SetBackground(creditsBackground, memory, true, 1f);
                         CreditsVisible = true;
                         CreditsPage = 1;
                         _creditsPageChangedAt = Time.unscaledTime;
@@ -1342,13 +1350,6 @@ namespace Higurashi.IOS.Runtime.Buriko
                 return false;
             }
 
-            if (CreditsPage == 1)
-            {
-                CreditsPage = 2;
-                _creditsPageChangedAt = Time.unscaledTime;
-                return false;
-            }
-
             CreditsVisible = false;
             CreditsPage = 0;
             return true;
@@ -1658,6 +1659,9 @@ namespace Higurashi.IOS.Runtime.Buriko
                     writer.Write(pair.Key);
                     writer.Write(pair.Value.IsCentered);
                 }
+                writer.Write(PersistentTipReadingStateMagic);
+                writer.Write(_tipReading);
+                writer.Write(_tipsVisibleChapterOverride);
             }
         }
 
@@ -1676,6 +1680,10 @@ namespace Higurashi.IOS.Runtime.Buriko
             _tipsChapterVisible = false;
             _tipsListVisible = false;
             _tipsLibraryStandalone = false;
+            // TIPS reading is a transient surface and cannot be saved. Clear the
+            // current screen before restoring so it cannot taint a story save.
+            _tipReading = false;
+            _tipsVisibleChapterOverride = -1;
             _tipsScope = 0;
             _tipsPage = 0;
             _selectedTipId = -1;
@@ -1905,6 +1913,20 @@ namespace Higurashi.IOS.Runtime.Buriko
                     else
                     {
                         input.Position = layerAnchorTailPosition;
+                    }
+                }
+
+                if (input.CanSeek && input.Length - input.Position >= sizeof(int) * 2 + 1)
+                {
+                    var tipReadingTailPosition = input.Position;
+                    if (reader.ReadInt32() == PersistentTipReadingStateMagic)
+                    {
+                        _tipReading = reader.ReadBoolean();
+                        _tipsVisibleChapterOverride = reader.ReadInt32();
+                    }
+                    else
+                    {
+                        input.Position = tipReadingTailPosition;
                     }
                 }
             }

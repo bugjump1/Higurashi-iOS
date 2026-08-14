@@ -571,9 +571,19 @@ namespace Higurashi.IOS.Runtime
             var entries = _host.GetVisibleTips(_runtime.Memory);
             var pageCount = Mathf.Max(1, Mathf.CeilToInt(entries.Count / 8f));
             var page = Mathf.Clamp(_host.TipsPage, 0, pageCount - 1);
-            var grid = new Rect(panel.x + 24f * scale, panel.y + 70f * scale,
-                panel.width - 48f * scale, panel.height * 0.48f);
-            var gap = 10f * scale;
+            var horizontalPadding = Mathf.Max(16f, 24f * scale);
+            var footerHeight = Mathf.Max(40f, 34f * scale);
+            var footerBottomPadding = Mathf.Max(8f, 12f * scale);
+            var footerY = panel.yMax - footerBottomPadding - footerHeight;
+            var gridTop = panel.y + Mathf.Max(54f, 70f * scale);
+            var sectionGap = Mathf.Max(8f, 12f * scale);
+            var bodyBottom = footerY - sectionGap;
+            var availableBodyHeight = Mathf.Max(120f, bodyBottom - gridTop);
+            var gridHeight = Mathf.Min(panel.height * 0.44f, availableBodyHeight * 0.54f);
+            gridHeight = Mathf.Max(Mathf.Min(96f, availableBodyHeight * 0.5f), gridHeight);
+            var grid = new Rect(panel.x + horizontalPadding, gridTop,
+                panel.width - horizontalPadding * 2f, gridHeight);
+            var gap = Mathf.Max(7f, 10f * scale);
             var cardWidth = (grid.width - gap * 3f) / 4f;
             var cardHeight = (grid.height - gap) * 0.5f;
             var first = page * 8;
@@ -590,8 +600,9 @@ namespace Higurashi.IOS.Runtime
             }
 
             var selected = _host.GetSelectedTip();
-            var info = new Rect(panel.x + 24f * scale, grid.yMax + 16f * scale,
-                panel.width - 48f * scale, panel.yMax - grid.yMax - 92f * scale);
+            var info = new Rect(panel.x + horizontalPadding, grid.yMax + sectionGap,
+                panel.width - horizontalPadding * 2f,
+                Mathf.Max(1f, bodyBottom - grid.yMax - sectionGap));
             FillRect(info, new Color(0f, 0f, 0f, 0.36f));
             if (selected == null)
             {
@@ -599,33 +610,37 @@ namespace Higurashi.IOS.Runtime
             }
             else
             {
-                GUI.Label(new Rect(info.x + 16f * scale, info.y + 12f * scale,
-                    info.width - 32f * scale, info.height - 60f * scale),
-                    "TIPS " + (selected.Id + 1).ToString("00") + "\n" + selected.DisplayTitle +
-                    "\n\n简介：" + (string.IsNullOrWhiteSpace(selected.Description)
+                var detail = "TIPS " + (selected.Id + 1).ToString("00") + "\n" + selected.DisplayTitle +
+                    "\n简介：" + (string.IsNullOrWhiteSpace(selected.Description)
                         ? "再次轻触此预览框进入阅读。"
-                        : selected.Description), _panelTitleStyle);
+                        : selected.Description);
+                var detailPaddingX = Mathf.Max(10f, 16f * scale);
+                var detailPaddingY = Mathf.Max(7f, 10f * scale);
+                var detailRect = new Rect(info.x + detailPaddingX, info.y + detailPaddingY,
+                    info.width - detailPaddingX * 2f, info.height - detailPaddingY * 2f);
+                GUI.Label(detailRect, detail,
+                    FitWrappedLabelStyle(_panelTitleStyle, detail, detailRect,
+                        Mathf.Max(14, Mathf.RoundToInt(15f * scale))));
             }
 
-            var footerY = panel.yMax - 46f * scale;
             var navWidth = Mathf.Min(150f * scale, panel.width * 0.17f);
             if (page > 0 && PcButton(new Rect(panel.xMax - navWidth * 2f - 38f * scale,
-                    footerY, navWidth, 34f * scale),
+                    footerY, navWidth, footerHeight),
                     "上一页", true))
             {
                 _host.ChangeTipsPage(-1, _runtime.Memory);
                 SuppressInput();
             }
             if (page < pageCount - 1 && PcButton(new Rect(panel.xMax - navWidth - 26f * scale,
-                    footerY, navWidth, 34f * scale), "下一页", true))
+                    footerY, navWidth, footerHeight), "下一页", true))
             {
                 _host.ChangeTipsPage(1, _runtime.Memory);
                 SuppressInput();
             }
-            GUI.Label(new Rect(panel.center.x - 70f * scale, footerY, 140f * scale, 34f * scale),
+            GUI.Label(new Rect(panel.center.x - 70f * scale, footerY, 140f * scale, footerHeight),
                 (page + 1) + " / " + pageCount, _panelTitleStyle);
             if (PcButton(new Rect(panel.x + 18f * scale, footerY,
-                    160f * scale, 34f * scale), "关闭", true))
+                    160f * scale, footerHeight), "关闭", true))
             {
                 ExitTipsLibrary();
             }
@@ -1188,25 +1203,13 @@ namespace Higurashi.IOS.Runtime
         {
             var safe = GetGuiSafeArea();
             var scale = UiScale;
-            GUI.color = new Color(0f, 0f, 0f, 0.16f);
+            var isEpisodeEight = HigurashiActiveChapter.Profile.EpisodeNumber == 8;
+            GUI.color = new Color(0f, 0f, 0f, isEpisodeEight ? 0.38f : 0.16f);
             GUI.DrawTexture(safe, _solidWhite);
             GUI.color = Color.white;
 
-            if (_host.CreditsPage == 2)
-            {
-                DrawShadowLabel(new Rect(safe.x, safe.center.y - 85f * scale,
-                    safe.width, 76f * scale), "iOS版移植", _titleStyle);
-                GUI.Label(new Rect(safe.x, safe.center.y - 5f * scale,
-                        safe.width, 46f * scale),
-                    "贴吧@bugjump　bilibili@Hyperion233", _panelTitleStyle);
-                GUI.Label(new Rect(safe.x, safe.yMax - 42f * scale, safe.width, 30f * scale),
-                    "轻触屏幕继续", _statusStyle);
-                return;
-            }
-
             var left = safe.x + 34f * scale;
             var top = safe.y + 22f * scale;
-            var isEpisodeEight = HigurashiActiveChapter.Profile.EpisodeNumber == 8;
             DrawShadowLabel(new Rect(left, top, safe.width * 0.52f, 64f * scale),
                 isEpisodeEight ? "参与人员" : "YCX STUDIOS 汉化组", _titleStyle);
             GUI.Label(new Rect(safe.xMax - safe.width * 0.38f - 30f * scale,
@@ -1657,7 +1660,7 @@ namespace Higurashi.IOS.Runtime
             var artName = _host.ArtSets.Count == 0
                 ? "CG"
                 : _host.ArtSets[Mathf.Clamp(_settings.artSetIndex, 0, _host.ArtSets.Count - 1)].DisplayName;
-            if (PcButton(new Rect(x, y, width, buttonHeight), "立绘与背景：" + artName, true))
+            if (FittedPcButton(new Rect(x, y, width, buttonHeight), "立绘与背景：" + artName, 13))
             {
                 _settings.artSetIndex = Next(_settings.artSetIndex, _host.ArtSets.Count);
                 _host.ApplySettings(_runtime.Memory);
@@ -1667,32 +1670,33 @@ namespace Higurashi.IOS.Runtime
             var audioName = _host.AudioSets.Count == 0
                 ? "脚本默认"
                 : _host.AudioSets[Mathf.Clamp(_settings.audioPresetIndex, 0, _host.AudioSets.Count - 1)].DisplayName;
-            if (PcButton(new Rect(x, y, width, buttonHeight), "BGM / SE：" + audioName, true))
+            if (FittedPcButton(new Rect(x, y, width, buttonHeight), "BGM / SE：" + audioName, 11,
+                    "BGM / SE\n" + audioName))
             {
                 _settings.audioPresetIndex = Next(_settings.audioPresetIndex, _host.AudioSets.Count);
                 _host.ApplySettings(_runtime.Memory);
             }
             y += buttonHeight + 9f * scale;
-            if (PcButton(new Rect(x, y, width, buttonHeight),
-                    "画面适配：" + PresentationModeName(_settings.presentationMode), true))
+            if (FittedPcButton(new Rect(x, y, width, buttonHeight),
+                    "画面适配：" + PresentationModeName(_settings.presentationMode), 13))
             {
                 _settings.presentationMode = (MobilePresentationMode)(((int)_settings.presentationMode + 1) % 3);
             }
             y += buttonHeight + 9f * scale;
-            if (PcButton(new Rect(x, y, width, buttonHeight),
-                    "口型同步（仅主机版立绘）：" + (_settings.lipSync ? "开" : "关"), true))
+            if (FittedPcButton(new Rect(x, y, width, buttonHeight),
+                    "口型同步（仅主机版立绘）：" + (_settings.lipSync ? "开" : "关"), 13))
             {
                 _settings.lipSync = !_settings.lipSync;
                 _host.ApplySettings(_runtime.Memory);
             }
             y += buttonHeight + 9f * scale;
-            if (PcButton(new Rect(x, y, width, buttonHeight),
-                    "自动保存：" + (_settings.autoSave ? "开" : "关"), true))
+            if (FittedPcButton(new Rect(x, y, width, buttonHeight),
+                    "自动保存：" + (_settings.autoSave ? "开" : "关"), 13))
             {
                 _settings.autoSave = !_settings.autoSave;
             }
             y += buttonHeight + 9f * scale;
-            if (PcButton(new Rect(x, y, width, buttonHeight), "导出系统日志", true))
+            if (FittedPcButton(new Rect(x, y, width, buttonHeight), "导出系统日志", 13))
             {
                 ExportDiagnosticLog();
                 SuppressInput();
@@ -2030,6 +2034,66 @@ namespace Higurashi.IOS.Runtime
         private bool PcButton(Rect rect, string text, bool small = false)
         {
             return GUI.Button(rect, text, small ? _pcSmallButtonStyle : _pcButtonStyle);
+        }
+
+        private bool FittedPcButton(Rect rect, string text, int minimumFontSize,
+            string wrappedText = null)
+        {
+            var content = new GUIContent(text ?? string.Empty);
+            var style = _pcSmallButtonStyle;
+            var measured = style.CalcSize(content);
+            if (measured.x <= rect.width - 6f && measured.y <= rect.height - 4f)
+            {
+                return GUI.Button(rect, content, style);
+            }
+
+            var fitted = new GUIStyle(style);
+            while (fitted.fontSize > minimumFontSize)
+            {
+                fitted.fontSize--;
+                measured = fitted.CalcSize(content);
+                if (measured.x <= rect.width - 6f && measured.y <= rect.height - 4f)
+                {
+                    break;
+                }
+            }
+
+            if ((measured.x > rect.width - 6f || measured.y > rect.height - 4f) &&
+                !string.IsNullOrEmpty(wrappedText))
+            {
+                content = new GUIContent(wrappedText);
+                fitted = new GUIStyle(style)
+                {
+                    wordWrap = true,
+                    padding = new RectOffset(style.padding.left, style.padding.right, 2, 2)
+                };
+                measured = fitted.CalcSize(content);
+                while (fitted.fontSize > minimumFontSize &&
+                       (measured.x > rect.width - 6f || measured.y > rect.height - 4f))
+                {
+                    fitted.fontSize--;
+                    measured = fitted.CalcSize(content);
+                }
+            }
+            return GUI.Button(rect, content, fitted);
+        }
+
+        private static GUIStyle FitWrappedLabelStyle(GUIStyle source, string text, Rect rect,
+            int minimumFontSize)
+        {
+            var fitted = new GUIStyle(source)
+            {
+                alignment = TextAnchor.UpperCenter,
+                wordWrap = true,
+                clipping = TextClipping.Clip
+            };
+            var content = new GUIContent(text ?? string.Empty);
+            while (fitted.fontSize > minimumFontSize &&
+                   fitted.CalcHeight(content, rect.width) > rect.height)
+            {
+                fitted.fontSize--;
+            }
+            return fitted;
         }
 
         private void DrawDisabledPcButton(Rect rect, string text, bool small = false)
