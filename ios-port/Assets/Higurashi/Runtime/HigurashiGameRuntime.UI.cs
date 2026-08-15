@@ -34,6 +34,8 @@ namespace Higurashi.IOS.Runtime
         private Texture2D _sliderThumb;
         private Texture2D _sectionHeader;
         private Texture2D _transparent;
+        private Texture2D _creditsSeriesLogo;
+        private Texture2D _creditsChapterTitle;
         private Material _maskedTransitionMaterial;
         private Font _uiFont;
         private float _styledForHeight;
@@ -1220,47 +1222,122 @@ namespace Higurashi.IOS.Runtime
 
         private void DrawCreditsScreen()
         {
-            var safe = GetGuiSafeArea();
+            var content = GetContentRect();
             var scale = UiScale;
             var isEpisodeEight = HigurashiActiveChapter.Profile.EpisodeNumber == 8;
-            GUI.color = new Color(0f, 0f, 0f, isEpisodeEight ? 0.38f : 0.16f);
-            GUI.DrawTexture(safe, _solidWhite);
+            GUI.color = new Color(0f, 0f, 0f, 0.16f);
+            GUI.DrawTexture(content, _solidWhite);
             GUI.color = Color.white;
 
-            var left = safe.x + 34f * scale;
-            var top = safe.y + 22f * scale;
-            DrawShadowLabel(new Rect(left, top, safe.width * 0.52f, 64f * scale),
-                isEpisodeEight ? "参与人员" : "YCX STUDIOS 汉化组", _titleStyle);
-            GUI.Label(new Rect(safe.xMax - safe.width * 0.38f - 30f * scale,
-                    safe.y + 26f * scale, safe.width * 0.38f, 82f * scale),
+            if (isEpisodeEight)
+            {
+                DrawEpisodeEightCredits(content, scale);
+                return;
+            }
+
+            var left = content.x + 34f * scale;
+            var top = content.y + 22f * scale;
+            DrawShadowLabel(new Rect(left, top, content.width * 0.52f, 64f * scale),
+                "YCX STUDIOS 汉化组", _titleStyle);
+            GUI.Label(new Rect(content.xMax - content.width * 0.38f - 30f * scale,
+                    content.y + 26f * scale, content.width * 0.38f, 82f * scale),
                 "寒蝉鸣泣之时\n" + HigurashiActiveChapter.Profile.ChineseChapterTitle,
                 _panelTitleStyle);
             top += 88f * scale;
-            var credits = isEpisodeEight
-                ? "翻译：990，麻生早纪\n" +
-                  "校对：枝瀬愛\n" +
-                  "程序：饭\n" +
-                  "润色：990，麻生早纪\n" +
-                  "特别鸣谢：蝉吧全体吧友，DS，DB，GPT"
-                : "参与人员\n" +
-                  "原翻译：mayurina（里娜），srwfe（繁），纯真な工房（简），NNET，雪\n" +
-                  "原润色：61y，晴，只是路人，Mize\n" +
-                  "监制：ycx\n技术：ycx\n翻译：ycx\n" +
-                  "校对＆润色：ycx，ReKo，DoSun，Xuee\n" +
-                  "美工：ycx\n测试：ycx";
-            GUI.Label(new Rect(left, top, safe.width * 0.72f, safe.height * 0.62f), credits, _dialogueStyle);
-            if (!isEpisodeEight)
+            var credits = "参与人员\n" +
+                "原翻译：mayurina（里娜），srwfe（繁），纯真な工房（简），NNET，雪\n" +
+                "原润色：61y，晴，只是路人，Mize\n" +
+                "监制：ycx\n技术：ycx\n翻译：ycx\n" +
+                "校对＆润色：ycx，ReKo，DoSun，Xuee\n" +
+                "美工：ycx\n测试：ycx";
+            GUI.Label(new Rect(left, top, content.width * 0.72f, content.height * 0.62f),
+                credits, _dialogueStyle);
+            DrawShadowLabel(new Rect(content.x, content.yMax - 145f * scale,
+                    content.width, 58f * scale),
+                "简体中文版汉化补丁 Ver 1.4", _titleStyle);
+            GUI.Label(new Rect(content.x, content.yMax - 82f * scale,
+                    content.width, 38f * scale),
+                "哔哩哔哩专栏　×　其乐 KeyLol　共同发布", _panelTitleStyle);
+            GUI.Label(new Rect(content.x, content.yMax - 42f * scale,
+                    content.width, 30f * scale),
+                "轻触屏幕继续", _statusStyle);
+        }
+
+        private void DrawEpisodeEightCredits(Rect content, float scale)
+        {
+            var marginX = Mathf.Max(18f * scale, content.width * 0.027f);
+            var marginY = Mathf.Max(14f * scale, content.height * 0.028f);
+            var headingHeight = Mathf.Clamp(content.height * 0.075f,
+                38f * scale, 62f * scale);
+            var headingStyle = new GUIStyle(_sectionHeaderStyle)
             {
-                DrawShadowLabel(new Rect(safe.x, safe.yMax - 145f * scale, safe.width, 58f * scale),
-                    "简体中文版汉化补丁 Ver 1.4", _titleStyle);
-                GUI.Label(new Rect(safe.x, safe.yMax - 82f * scale, safe.width, 38f * scale),
-                    "哔哩哔哩专栏　×　其乐 KeyLol　共同发布", _panelTitleStyle);
-            }
-            if (!isEpisodeEight)
+                alignment = TextAnchor.MiddleLeft
+            };
+            DrawShadowLabel(new Rect(content.x + marginX, content.y + marginY,
+                    content.width * 0.48f, headingHeight),
+                "参与人员", headingStyle);
+
+            var credits = "翻译：990，麻生早纪\n" +
+                          "校对：枝瀬愛\n" +
+                          "程序：饭\n" +
+                          "润色：990，麻生早纪\n" +
+                          "特别鸣谢：蝉吧全体吧友\n" +
+                          "　　　　　DS，DB，GPT";
+            var bodyRect = new Rect(content.x + marginX,
+                content.y + marginY + headingHeight + 4f * scale,
+                content.width * 0.64f,
+                content.height - marginY * 2f - headingHeight - 4f * scale);
+            var bodyStyle = new GUIStyle(_dialogueStyle)
             {
-                GUI.Label(new Rect(safe.x, safe.yMax - 42f * scale, safe.width, 30f * scale),
-                    "轻触屏幕继续", _statusStyle);
+                alignment = TextAnchor.UpperLeft,
+                wordWrap = true,
+                clipping = TextClipping.Clip
+            };
+            var bodyContent = new GUIContent(credits);
+            var minimumFontSize = Mathf.Max(16, Mathf.RoundToInt(18f * scale));
+            while (bodyStyle.fontSize > minimumFontSize &&
+                   bodyStyle.CalcHeight(bodyContent, bodyRect.width) > bodyRect.height)
+            {
+                bodyStyle.fontSize--;
             }
+            DrawShadowLabel(bodyRect, credits, bodyStyle);
+
+            if (_creditsSeriesLogo == null)
+            {
+                _creditsSeriesLogo = _host.GetInterfaceTexture("logo");
+            }
+            if (_creditsChapterTitle == null)
+            {
+                _creditsChapterTitle = _host.GetInterfaceTexture("scenario/title");
+            }
+
+            var logoWidth = Mathf.Min(content.width * 0.41f, content.height * 0.77f);
+            var logoHeight = logoWidth / 2.9569f;
+            var logoRect = new Rect(content.xMax - marginX - logoWidth,
+                content.y + marginY, logoWidth, logoHeight);
+            var chapterWidth = logoWidth * 0.48f;
+            var chapterHeight = chapterWidth / 2.4315f;
+            var chapterRect = new Rect(content.xMax - marginX - chapterWidth,
+                logoRect.yMax + 5f * scale, chapterWidth, chapterHeight);
+
+            if (_creditsSeriesLogo != null && _creditsChapterTitle != null)
+            {
+                DrawTextureRegion(logoRect, _creditsSeriesLogo,
+                    new Rect(206f / 1920f, 285f / 1080f, 1508f / 1920f, 510f / 1080f));
+                DrawTextureRegion(chapterRect, _creditsChapterTitle,
+                    new Rect(308f / 1920f, 829f / 1080f, 355f / 1920f, 146f / 1080f));
+            }
+            else
+            {
+                var fallbackRect = new Rect(content.xMax - marginX - content.width * 0.38f,
+                    content.y + marginY, content.width * 0.38f, content.height * 0.22f);
+                DrawShadowLabel(fallbackRect, "寒蝉鸣泣之时解\n祭囃篇", _panelTitleStyle);
+            }
+        }
+
+        private static void DrawTextureRegion(Rect destination, Texture texture, Rect source)
+        {
+            GUI.DrawTextureWithTexCoords(destination, texture, source, true);
         }
 
         private void DrawTitleScreen()

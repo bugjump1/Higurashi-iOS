@@ -219,6 +219,10 @@ namespace Higurashi.IOS.Runtime.Buriko
         }
         public Texture2D FragmentTexture => _fragmentTexture;
         public Texture2D WindowBackgroundTexture => _windowBackgroundTexture;
+        public Texture2D GetInterfaceTexture(string textureName)
+        {
+            return _memory == null ? null : LoadTexture(textureName, _memory);
+        }
         public string FragmentStyle => _fragmentStyle;
         public float FragmentAnimationTime => Mathf.Max(0f, Time.unscaledTime - _fragmentStartedAt);
         public float FragmentOpacity
