@@ -435,8 +435,8 @@ internal static class Program
         Equal("Higurashi-08-data.zip", episode08.DataPackFileName);
         Equal("higurashi-08", episode08.GameId);
         Equal("matsuribayashi", episode08.ChapterSlug);
-        Equal(2866026639L, episode08.ExpectedDataPackSize);
-        Equal("ECBF005D66B93D7E9313743C5EB87CD703EEBDB510FD594B73ED77AC188A9350",
+        Equal(2866026480L, episode08.ExpectedDataPackSize);
+        Equal("63641448EEC692688370171DDCF7A7263E3C0534B7933B75C5B565DEB4487A35",
             episode08.ExpectedDataPackSha256);
     }
 
