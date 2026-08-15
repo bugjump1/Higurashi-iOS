@@ -90,8 +90,8 @@ namespace Higurashi.IOS.Compatibility
 
         public static readonly HigurashiChapterProfile Episode08 = new HigurashiChapterProfile(
             8, "HigurashiEp08", "com.bugjump.higurashi.ep08", "HigurashiEp08_Data",
-            "Higurashi-08-data.zip", 2866008705L,
-            "F63B9B8BB4AA3BDEC9A28B7AF87E0F16267085E0377397AF340E801E91D4D6AE",
+            "Higurashi-08-data.zip", 2866026639L,
+            "ECBF005D66B93D7E9313743C5EB87CD703EEBDB510FD594B73ED77AC188A9350",
             "higurashi-08", "matsuribayashi", "祭囃篇");
 
         public static HigurashiChapterProfile ForEpisode(int episodeNumber)
