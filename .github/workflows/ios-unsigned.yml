@@ -259,7 +259,7 @@ jobs:
       - name: Upload final unsigned IPA collection
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.chapter_number == 'all' && 'Higurashi-01-08-iOS-unsigned' || format('Higurashi-{0}-iOS-unsigned', inputs.chapter_number) }}
+          name: ${{ inputs.chapter_number == 'all' && format('Higurashi-01-08-iOS-unsigned-{0}', inputs.app_version) || format('Higurashi-{0}-iOS-unsigned-{1}', inputs.chapter_number, inputs.app_version) }}
           path: release/*.ipa
           if-no-files-found: error
           retention-days: 7
