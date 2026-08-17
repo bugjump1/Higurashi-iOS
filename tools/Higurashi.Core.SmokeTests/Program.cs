@@ -32,6 +32,7 @@ internal static class Program
             AssetCascadeFallsBackInOrder,
             CompiledScriptHeaderIsParsed,
             ChapterProfilesHaveWholeZipFingerprints,
+            AllEpisodeChapterJumpMapsMatchOriginalFlows,
             EpisodeEightChapterProgressMapsToOriginalFlow,
             OpeningChoiceLocalizationRecognizesEpisodeEight,
             MobileOptionNamesAreLocalized,
@@ -264,6 +265,41 @@ internal static class Program
         Equal(8, fragmentJump);
         Equal(false, EpisodeEightChapterMap.TryGetJumpValue("Day1", out _));
         Equal(false, EpisodeEightChapterMap.TryGetJumpValue("EP08_CHAPTER_10", out _));
+    }
+
+    private static void AllEpisodeChapterJumpMapsMatchOriginalFlows()
+    {
+        var expectedCounts = new[] { 0, 16, 19, 20, 10, 14, 13, 12, 10 };
+        for (var episode = 1; episode <= 8; episode++)
+        {
+            Equal(expectedCounts[episode], EpisodeChapterJumpMap.Count(episode));
+            for (var chapter = 0; chapter < expectedCounts[episode]; chapter++)
+            {
+                Equal(false, string.IsNullOrWhiteSpace(
+                    EpisodeChapterJumpMap.Token(episode, chapter)));
+            }
+        }
+
+        Equal("Day1", EpisodeChapterJumpMap.Token(1, 0));
+        Equal("Day15_3", EpisodeChapterJumpMap.Token(1, 15));
+        Equal("Day12_3", EpisodeChapterJumpMap.Token(2, 18));
+        Equal("Day14", EpisodeChapterJumpMap.Token(3, 19));
+        Equal("Day4", EpisodeChapterJumpMap.Token(4, 9));
+
+        AssertFlowJumpValues(5, new[] { 1, 2, 4, 6, 8, 10, 12, 14, 15, 17, 19, 21, 23, 25 });
+        AssertFlowJumpValues(6, new[] { 1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24 });
+        AssertFlowJumpValues(7, new[] { 1, 2, 3, 6, 9, 11, 13, 15, 17, 19, 21, 25 });
+    }
+
+    private static void AssertFlowJumpValues(int episode, int[] expected)
+    {
+        Equal(expected.Length, EpisodeChapterJumpMap.Count(episode));
+        for (var i = 0; i < expected.Length; i++)
+        {
+            Equal(true, EpisodeChapterJumpMap.TryGetFlowJumpValue(
+                episode, EpisodeChapterJumpMap.Token(episode, i), out var actual));
+            Equal(expected[i], actual);
+        }
     }
 
     private static void OpeningChoiceLocalizationRecognizesEpisodeEight()

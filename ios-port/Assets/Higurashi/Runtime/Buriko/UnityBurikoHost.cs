@@ -1045,11 +1045,13 @@ namespace Higurashi.IOS.Runtime.Buriko
         internal IReadOnlyList<string> GetChapterJumpSections()
         {
             var result = new List<string>();
-            if (HigurashiActiveChapter.Profile.EpisodeNumber == 8)
+            var episode = HigurashiActiveChapter.Profile.EpisodeNumber;
+            var mappedCount = EpisodeChapterJumpMap.Count(episode);
+            if (mappedCount > 0)
             {
-                for (var i = 0; i < EpisodeEightChapterMap.Count; i++)
+                for (var i = 0; i < mappedCount; i++)
                 {
-                    result.Add(EpisodeEightChapterMap.Token(i));
+                    result.Add(EpisodeChapterJumpMap.Token(episode, i));
                 }
                 return result;
             }

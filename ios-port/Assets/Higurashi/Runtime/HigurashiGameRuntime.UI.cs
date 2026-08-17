@@ -815,7 +815,7 @@ namespace Higurashi.IOS.Runtime
                 {
                     var section = _chapterJumpSections[i];
                     var label = "第" + (i + 1) +
-                                (HigurashiActiveChapter.Profile.EpisodeNumber == 8 ? "章" : "天");
+                                (HigurashiActiveChapter.Profile.EpisodeNumber >= 5 ? "章" : "天");
                     var column = i % columns;
                     var row = i / columns;
                     var button = new Rect(column * (list.width / columns) + gap * 0.5f,
@@ -851,11 +851,12 @@ namespace Higurashi.IOS.Runtime
                 _runtime.Memory.SetLocalFlag("LOCALWORK_NO_RESULT", 0);
                 var chapterIndex = _chapterJumpSections.IndexOf(section);
                 var runtimeSection = section;
-                if (HigurashiActiveChapter.Profile.EpisodeNumber == 8 &&
-                    EpisodeEightChapterMap.TryGetJumpValue(section, out var jumpValue))
+                var episode = HigurashiActiveChapter.Profile.EpisodeNumber;
+                if (EpisodeChapterJumpMap.TryGetFlowJumpValue(episode, section, out var jumpValue))
                 {
                     _runtime.Memory.SetLocalFlag("s_jump", jumpValue);
-                    _runtime.Memory.SetLocalFlag("ChapterNumber", jumpValue);
+                    _runtime.Memory.SetLocalFlag("ChapterNumber",
+                        episode == 8 ? jumpValue : Math.Max(0, chapterIndex));
                     runtimeSection = "Game";
                 }
                 else if (chapterIndex >= 0)
