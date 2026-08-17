@@ -14,6 +14,9 @@ namespace Higurashi.IOS.Compatibility
             return Contains(dialogue, "OP 动画中包含剧透") ||
                    Contains(dialogue, "OP动画中包含剧透") ||
                    Contains(dialogue, "开场动画包含剧透") ||
+                   (IsChineseOpeningLabel(dialogue) &&
+                    Contains(dialogue, "剧透") &&
+                    (Contains(dialogue, "启用") || Contains(dialogue, "播放"))) ||
                    (Contains(dialogue, "Video opening") && Contains(dialogue, "spoiler")) ||
                    (Contains(dialogue, "オープニング動画") && Contains(dialogue, "ネタバレ"));
         }
@@ -37,8 +40,15 @@ namespace Higurashi.IOS.Compatibility
         {
             return (Contains(first, "Enable opening") && Contains(second, "Disable opening")) ||
                    (Contains(first, "動画再生を有効化") && Contains(second, "動画再生を無効化")) ||
+                   (Contains(first, "启用播放") && Contains(second, "禁用播放")) ||
                    (string.Equals(first, LocalizedEnable, StringComparison.Ordinal) &&
                     string.Equals(second, LocalizedDisable, StringComparison.Ordinal));
+        }
+
+        private static bool IsChineseOpeningLabel(string value)
+        {
+            return Contains(value, "开场动画") || Contains(value, "片头动画") ||
+                   Contains(value, "OP 动画") || Contains(value, "OP动画");
         }
 
         private static bool Contains(string value, string expected)

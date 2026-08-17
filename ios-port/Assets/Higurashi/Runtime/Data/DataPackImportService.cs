@@ -21,6 +21,9 @@ namespace Higurashi.IOS.Runtime.Data
         private string _status = "请选择数据包";
         private float _progress;
         private bool _isRunning;
+        private string _currentFile = string.Empty;
+        private int _currentFileIndex;
+        private int _totalFiles;
 
         public string Status
         {
@@ -51,6 +54,39 @@ namespace Higurashi.IOS.Runtime.Data
                 lock (_stateLock)
                 {
                     return _isRunning;
+                }
+            }
+        }
+
+        public string CurrentFile
+        {
+            get
+            {
+                lock (_stateLock)
+                {
+                    return _currentFile;
+                }
+            }
+        }
+
+        public int CurrentFileIndex
+        {
+            get
+            {
+                lock (_stateLock)
+                {
+                    return _currentFileIndex;
+                }
+            }
+        }
+
+        public int TotalFiles
+        {
+            get
+            {
+                lock (_stateLock)
+                {
+                    return _totalFiles;
                 }
             }
         }
@@ -94,6 +130,9 @@ namespace Higurashi.IOS.Runtime.Data
                 {
                     _status = status;
                     _progress = 0f;
+                    _currentFile = string.Empty;
+                    _currentFileIndex = 0;
+                    _totalFiles = 0;
                 }
             }
         }
@@ -113,6 +152,9 @@ namespace Higurashi.IOS.Runtime.Data
                 _isRunning = true;
                 _progress = 0;
                 _status = "正在验证数据包…";
+                _currentFile = string.Empty;
+                _currentFileIndex = 0;
+                _totalFiles = 0;
             }
 
             if (string.IsNullOrWhiteSpace(packPath) || !File.Exists(packPath))
@@ -176,7 +218,10 @@ namespace Higurashi.IOS.Runtime.Data
 
                         SetProgress(
                             totalBytes == 0 ? 0.1f : 0.1f + 0.9f * completedBytes / totalBytes,
-                            "正在解压并校验… " + (i + 1) + " / " + manifest.files.Length);
+                            "正在解压并校验… " + (i + 1) + " / " + manifest.files.Length,
+                            file.path,
+                            i + 1,
+                            manifest.files.Length);
 
                         using (var source = archiveEntry.Open())
                         using (var target = new FileStream(
@@ -429,12 +474,20 @@ namespace Higurashi.IOS.Runtime.Data
             }
         }
 
-        private void SetProgress(float progress, string status)
+        private void SetProgress(
+            float progress,
+            string status,
+            string currentFile = "",
+            int currentFileIndex = 0,
+            int totalFiles = 0)
         {
             lock (_stateLock)
             {
                 _progress = progress;
                 _status = status;
+                _currentFile = currentFile ?? string.Empty;
+                _currentFileIndex = Math.Max(0, currentFileIndex);
+                _totalFiles = Math.Max(0, totalFiles);
             }
         }
 
@@ -445,6 +498,11 @@ namespace Higurashi.IOS.Runtime.Data
                 _status = status;
                 _progress = progress;
                 _isRunning = false;
+                _currentFile = string.Empty;
+                if (progress >= 1f)
+                {
+                    _currentFileIndex = _totalFiles;
+                }
             }
         }
     }

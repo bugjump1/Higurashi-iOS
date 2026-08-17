@@ -25,6 +25,12 @@ namespace Higurashi.IOS.Runtime
         private GUIStyle _toastStyle;
         private GUIStyle _portTitleStyle;
         private GUIStyle _portSubtitleStyle;
+        private GUIStyle _importTitleStyle;
+        private GUIStyle _importStepStyle;
+        private GUIStyle _importStatusStyle;
+        private GUIStyle _importPercentStyle;
+        private GUIStyle _importDetailStyle;
+        private GUIStyle _importDetailRightStyle;
         private Texture2D _buttonNormal;
         private Texture2D _buttonHover;
         private Texture2D _buttonActive;
@@ -2013,36 +2019,241 @@ namespace Higurashi.IOS.Runtime
         {
             var safe = GetGuiSafeArea();
             var scale = UiScale;
-            var width = Mathf.Min(850f * scale, safe.width - 60f * scale);
-            var left = safe.x + (safe.width - width) * 0.5f;
-            var top = safe.y + safe.height * 0.18f;
-            DrawShadowLabel(new Rect(left, top, width, 66f * scale),
-                HigurashiActiveChapter.Profile.FullChineseTitle, _titleStyle);
-            top += 88f * scale;
-            GUI.Label(new Rect(left, top, width, 120f * scale),
-                _initializationAttempted ? _runtimeStatus : _dataPack.Status, _statusStyle);
-            top += 132f * scale;
-            if (_dataPack.IsRunning)
+            var panelWidth = Mathf.Min(1096f * scale, safe.width - 48f * scale);
+            var panelTop = safe.y + safe.height * 0.15f;
+            var availableHeight = Mathf.Max(1f, safe.yMax - panelTop - 8f * scale);
+            var panelHeight = Mathf.Min(520f * scale, availableHeight);
+            panelHeight = Mathf.Max(panelHeight, Mathf.Min(280f, availableHeight));
+            var panel = new Rect(safe.center.x - panelWidth * 0.5f,
+                panelTop, panelWidth, panelHeight);
+
+            var titleHeight = Mathf.Max(38f, 52f * scale);
+            GUI.Label(new Rect(panel.x, Mathf.Max(safe.y, panel.y - titleHeight - 10f * scale),
+                    panel.width, titleHeight),
+                HigurashiActiveChapter.Profile.FullChineseTitle + "　 iOS 移植版",
+                _importTitleStyle);
+
+            DrawPcModalPanel(panel);
+            var paddingX = Mathf.Max(22f * scale, panel.width * 0.055f);
+            var header = new Rect(panel.x + 24f * scale, panel.y + panel.height * 0.035f,
+                Mathf.Min(430f * scale, panel.width * 0.48f),
+                Mathf.Clamp(panel.height * 0.085f, 30f, 42f * scale));
+            GUI.DrawTexture(header, _sectionHeader, ScaleMode.StretchToFill, true);
+            GUI.Label(new Rect(header.x + 16f * scale, header.y,
+                    header.width - 24f * scale, header.height),
+                "数据包导入", _sectionHeaderStyle);
+
+            var packNameWidth = Mathf.Max(1f, panel.xMax - paddingX - header.xMax - 18f * scale);
+            GUI.Label(new Rect(header.xMax + 18f * scale, header.y,
+                    packNameWidth, header.height),
+                HigurashiActiveChapter.Profile.DataPackFileName, _importDetailRightStyle);
+
+            var status = _initializationAttempted ? _runtimeStatus : _dataPack.Status;
+            var progress = _initializationAttempted ? 1f : Mathf.Clamp01(_dataPack.Progress);
+            var stage = ImportStage(status, progress, _dataPack.IsRunning, _initializationAttempted);
+            DrawImportSteps(new Rect(panel.x + paddingX, panel.y + panel.height * 0.19f,
+                panel.width - paddingX * 2f, panel.height * 0.20f), stage, scale);
+
+            var body = new Rect(panel.x + paddingX, panel.y + panel.height * 0.49f,
+                panel.width - paddingX * 2f, panel.height * 0.29f);
+            var failed = IsImportFailure(status) ||
+                         (_initializationAttempted &&
+                          (ContainsImportText(status, "failed") ||
+                           ContainsImportText(status, "fault")));
+            var headline = ImportHeadline(status, _dataPack.IsRunning, _initializationAttempted);
+            var percentWidth = Mathf.Clamp(body.width * 0.16f, 76f * scale, 150f * scale);
+            var statusHeight = Mathf.Max(34f, body.height * 0.31f);
+            var statusStyle = failed ? new GUIStyle(_importStatusStyle) : _importStatusStyle;
+            if (failed)
             {
-                var track = new Rect(left, top + 8f * scale, width, 18f * scale);
-                GUI.DrawTexture(track, _sliderTrack, ScaleMode.StretchToFill, true);
-                var fill = new Rect(track.x, track.y, track.width * Mathf.Clamp01(_dataPack.Progress), track.height);
-                if (fill.width > 2f)
+                statusStyle.normal.textColor = new Color(1f, 0.32f, 0.27f);
+            }
+            GUI.Label(new Rect(body.x, body.y, body.width - percentWidth - 12f * scale,
+                    statusHeight), headline, statusStyle);
+
+            if (_dataPack.IsRunning || progress > 0f || _initializationAttempted)
+            {
+                GUI.Label(new Rect(body.xMax - percentWidth, body.y,
+                        percentWidth, statusHeight),
+                    Mathf.RoundToInt(progress * 100f) + "%", _importPercentStyle);
+                var track = new Rect(body.x, body.y + statusHeight + 8f * scale,
+                    body.width, Mathf.Max(18f, 22f * scale));
+                DrawImportProgressBar(track, progress, scale);
+
+                var detailY = track.yMax + 11f * scale;
+                var currentFile = _dataPack.CurrentFile;
+                var detail = failed ? status : currentFile;
+                GUI.Label(new Rect(body.x, detailY, body.width * 0.68f, 26f * scale),
+                    detail, _importDetailStyle);
+                var count = _dataPack.TotalFiles > 0
+                    ? _dataPack.CurrentFileIndex.ToString("N0") + " / " +
+                      _dataPack.TotalFiles.ToString("N0") + " 个文件"
+                    : string.Empty;
+                GUI.Label(new Rect(body.x + body.width * 0.68f, detailY,
+                        body.width * 0.32f, 26f * scale),
+                    count, _importDetailRightStyle);
+            }
+            else if (!_initializationAttempted && !failed)
+            {
+                var buttonWidth = Mathf.Clamp(body.width * 0.46f, 260f * scale, 520f * scale);
+                var buttonHeight = Mathf.Max(44f, 54f * scale);
+                if (PcButton(new Rect(body.center.x - buttonWidth * 0.5f,
+                        body.y + statusHeight + 10f * scale, buttonWidth, buttonHeight),
+                        "请选择数据包"))
                 {
-                    GUI.DrawTexture(fill, _sliderFill, ScaleMode.StretchToFill, true);
+                    BeginDataPackSelection();
                 }
             }
-            else if (!_initializationAttempted && PcButton(
-                         new Rect(left, top, width, 58f * scale),
-                         "请选择数据包"))
+
+            var footerY = panel.y + panel.height * 0.82f;
+            var footerHeight = panel.yMax - footerY;
+            FillRect(new Rect(panel.x + paddingX, footerY,
+                panel.width - paddingX * 2f, Mathf.Max(1f, 1f * scale)),
+                new Color(0.30f, 0.30f, 0.32f, 0.82f));
+            var footerText = failed ? status : ImportSecurityStatus(stage);
+            FillRect(new Rect(panel.x + paddingX, footerY + footerHeight * 0.5f - 3f * scale,
+                Mathf.Max(6f, 7f * scale), Mathf.Max(6f, 7f * scale)),
+                failed ? new Color(0.65f, 0.05f, 0.03f) : new Color(0.78f, 0.02f, 0.015f));
+            GUI.Label(new Rect(panel.x + paddingX + 16f * scale, footerY + 7f * scale,
+                    panel.width * 0.57f, Mathf.Max(1f, footerHeight - 10f * scale)),
+                footerText, _importDetailStyle);
+            if (failed && !_initializationAttempted && !_dataPack.IsRunning)
             {
-                BeginDataPackSelection();
+                var retryWidth = Mathf.Clamp(panel.width * 0.27f, 150f * scale, 260f * scale);
+                var retryHeight = Mathf.Max(44f, 44f * scale);
+                if (PcButton(new Rect(panel.xMax - paddingX - retryWidth,
+                        footerY + 3f * scale, retryWidth, retryHeight),
+                        "重新选择数据包", true))
+                {
+                    BeginDataPackSelection();
+                }
             }
-            GUI.Label(new Rect(left, top + 76f * scale, width, 100f * scale),
-                "点击按钮后将打开 iOS“文件”。选取 " +
-                HigurashiActiveChapter.Profile.DataPackFileName +
-                "，通过整包 SHA-256 校验后会自动解压并启动。",
-                _statusStyle);
+            else
+            {
+                GUI.Label(new Rect(panel.x + panel.width * 0.61f, footerY + 7f * scale,
+                        panel.width - paddingX - panel.width * 0.61f,
+                        Mathf.Max(1f, footerHeight - 10f * scale)),
+                    "完成后将自动进入 OP 动画设置", _importDetailRightStyle);
+            }
+        }
+
+        private void DrawImportSteps(Rect area, int activeStage, float scale)
+        {
+            var labels = new[] { "选择文件", "验证数据包", "解压与校验", "准备启动" };
+            var markerSize = Mathf.Clamp(area.height * 0.52f, 30f, 42f * scale);
+            var lineY = area.y + markerSize * 0.5f;
+            var firstX = area.x + area.width * 0.125f;
+            var lastX = area.x + area.width * 0.875f;
+            FillRect(new Rect(firstX, lineY, lastX - firstX, Mathf.Max(1f, scale)),
+                new Color(0.38f, 0.38f, 0.40f, 0.9f));
+            if (activeStage > 0)
+            {
+                var redWidth = (lastX - firstX) * Mathf.Clamp01(activeStage / 3f);
+                FillRect(new Rect(firstX, lineY, redWidth, Mathf.Max(1f, scale)),
+                    new Color(0.72f, 0.02f, 0.015f, 0.95f));
+            }
+
+            for (var i = 0; i < labels.Length; i++)
+            {
+                var centerX = area.x + area.width * ((i + 0.5f) / labels.Length);
+                var marker = new Rect(centerX - markerSize * 0.5f, area.y,
+                    markerSize, markerSize);
+                var completed = i < activeStage;
+                var active = i == activeStage;
+                FillRect(marker, active
+                    ? new Color(0.93f, 0.025f, 0.015f, 1f)
+                    : completed
+                        ? new Color(0.48f, 0.005f, 0.005f, 1f)
+                        : new Color(0.025f, 0.025f, 0.03f, 1f));
+                var border = Mathf.Max(1f, active ? 2f * scale : scale);
+                FillRect(new Rect(marker.x, marker.y, marker.width, border),
+                    active ? new Color(1f, 0.32f, 0.28f) : new Color(0.52f, 0.52f, 0.55f));
+                FillRect(new Rect(marker.x, marker.yMax - border, marker.width, border),
+                    active ? new Color(1f, 0.32f, 0.28f) : new Color(0.52f, 0.52f, 0.55f));
+                FillRect(new Rect(marker.x, marker.y, border, marker.height),
+                    active ? new Color(1f, 0.32f, 0.28f) : new Color(0.52f, 0.52f, 0.55f));
+                FillRect(new Rect(marker.xMax - border, marker.y, border, marker.height),
+                    active ? new Color(1f, 0.32f, 0.28f) : new Color(0.52f, 0.52f, 0.55f));
+                GUI.Label(marker, (i + 1).ToString(), _importStepStyle);
+                GUI.Label(new Rect(centerX - area.width * 0.12f,
+                        marker.yMax + 4f * scale, area.width * 0.24f,
+                        Mathf.Max(20f, area.yMax - marker.yMax - 3f * scale)),
+                    labels[i], _importStepStyle);
+            }
+        }
+
+        private void DrawImportProgressBar(Rect rect, float progress, float scale)
+        {
+            FillRect(rect, new Color(0.68f, 0.68f, 0.70f, 0.88f));
+            var border = Mathf.Max(1f, 2f * scale);
+            var inner = Inset(rect, border);
+            FillRect(inner, new Color(0.12f, 0.12f, 0.14f, 1f));
+            var fillWidth = inner.width * Mathf.Clamp01(progress);
+            if (fillWidth > 0f)
+            {
+                FillRect(new Rect(inner.x, inner.y, fillWidth, inner.height),
+                    new Color(0.82f, 0.02f, 0.015f, 1f));
+                var markerWidth = Mathf.Max(2f, 3f * scale);
+                FillRect(new Rect(Mathf.Min(inner.xMax - markerWidth,
+                        inner.x + fillWidth - markerWidth * 0.5f), rect.y,
+                        markerWidth, rect.height), Color.white);
+            }
+        }
+
+        private static int ImportStage(string status, float progress, bool running,
+            bool initializationAttempted)
+        {
+            if (initializationAttempted || progress >= 0.995f || ContainsImportText(status, "导入成功"))
+            {
+                return 3;
+            }
+            if (progress >= 0.1f || ContainsImportText(status, "解压"))
+            {
+                return 2;
+            }
+            if (running || ContainsImportText(status, "校验") ||
+                ContainsImportText(status, "SHA-256") || ContainsImportText(status, "已选择"))
+            {
+                return 1;
+            }
+            return 0;
+        }
+
+        private static string ImportHeadline(string status, bool running,
+            bool initializationAttempted)
+        {
+            if (IsImportFailure(status)) return "数据包导入失败";
+            if (initializationAttempted &&
+                (ContainsImportText(status, "failed") || ContainsImportText(status, "fault")))
+                return "游戏启动失败";
+            if (initializationAttempted) return "正在启动游戏";
+            if (ContainsImportText(status, "解压")) return "正在解压并校验";
+            if (ContainsImportText(status, "SHA-256") || ContainsImportText(status, "验证"))
+                return "正在验证数据包";
+            if (ContainsImportText(status, "读取文件清单")) return "正在读取文件清单";
+            if (ContainsImportText(status, "导入成功")) return "数据包导入完成";
+            if (running || ContainsImportText(status, "已选择")) return "正在准备校验";
+            return "请选择对应章节的数据包";
+        }
+
+        private static string ImportSecurityStatus(int stage)
+        {
+            if (stage >= 3) return "数据包校验完成，正在准备游戏资源";
+            if (stage >= 2) return "整包 SHA-256 已通过，正在逐文件校验";
+            if (stage == 1) return "正在进行整包 SHA-256 校验";
+            return "将验证整包 SHA-256 与每个文件的完整性";
+        }
+
+        private static bool IsImportFailure(string status)
+        {
+            return ContainsImportText(status, "导入失败") ||
+                   ContainsImportText(status, "未找到所选数据包");
+        }
+
+        private static bool ContainsImportText(string value, string expected)
+        {
+            return !string.IsNullOrEmpty(value) &&
+                   value.IndexOf(expected, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private bool UiConsumesPoint(Vector2 guiPoint)
@@ -2380,6 +2591,21 @@ namespace Higurashi.IOS.Runtime
                 TextAnchor.MiddleCenter, FontStyle.Bold, Color.white);
             _portSubtitleStyle = MakeStyle(FontPixels(0.017f, 16, 28) * textScale,
                 TextAnchor.MiddleCenter, FontStyle.Normal, new Color(0.96f, 0.96f, 0.96f));
+            _importTitleStyle = MakeStyle(FontPixels(0.034f, 27, 54),
+                TextAnchor.MiddleLeft, FontStyle.Bold, Color.white);
+            _importStepStyle = MakeStyle(FontPixels(0.017f, 13, 25),
+                TextAnchor.MiddleCenter, FontStyle.Bold, Color.white);
+            _importStatusStyle = MakeStyle(FontPixels(0.030f, 23, 46),
+                TextAnchor.MiddleLeft, FontStyle.Bold, Color.white);
+            _importPercentStyle = MakeStyle(FontPixels(0.038f, 28, 58),
+                TextAnchor.MiddleRight, FontStyle.Normal, Color.white);
+            _importDetailStyle = MakeStyle(FontPixels(0.016f, 13, 25),
+                TextAnchor.MiddleLeft, FontStyle.Normal, new Color(0.68f, 0.68f, 0.72f));
+            _importDetailStyle.clipping = TextClipping.Clip;
+            _importDetailRightStyle = new GUIStyle(_importDetailStyle)
+            {
+                alignment = TextAnchor.MiddleRight
+            };
 
             _pcButtonStyle = MakeButtonStyle(FontPixels(0.029f, 26, 48) * textScale);
             _pcSmallButtonStyle = MakeButtonStyle(FontPixels(0.020f, 18, 34) * textScale);

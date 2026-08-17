@@ -271,6 +271,8 @@ internal static class Program
         var englishChoices = new[] { "Enable opening", "Disable opening" };
         True(OpeningChoicePolicy.IsOpeningPrompt("开场动画包含剧透，要播放吗？"));
         True(OpeningChoicePolicy.IsOpeningPrompt(
+            "开场动画中包含了一些剧透的要素，要启用播放吗？"));
+        True(OpeningChoicePolicy.IsOpeningPrompt(
             "Video opening might contain minor spoilers. Do you want to enable it anyway?"));
         True(OpeningChoicePolicy.IsOpeningPrompt(
             "オープニング動画は多少のネタバレ要素を含んでいますが、再生を有効にしますか？"));
@@ -281,6 +283,9 @@ internal static class Program
 
         var japaneseChoices = new[] { "動画再生を有効化", "動画再生を無効化" };
         True(OpeningChoicePolicy.IsOpeningChoice("動画を再生しますか？", japaneseChoices));
+
+        var laterChineseChoices = new[] { "启用播放", "禁用播放" };
+        True(OpeningChoicePolicy.IsOpeningChoice(string.Empty, laterChineseChoices));
 
         var storyChoices = new[] { "寻找机会", "向他求饶" };
         Equal(false, OpeningChoicePolicy.IsOpeningChoice("你要怎么做？", storyChoices));
