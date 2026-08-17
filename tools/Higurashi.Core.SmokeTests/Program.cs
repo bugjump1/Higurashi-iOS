@@ -24,6 +24,10 @@ internal static class Program
             TimelineHonorsCapacity,
             TimelineCopiesOnlyThroughCurrent,
             TimelineCanPreserveChapterFloor,
+            TimelineCanDiscardFutureForScriptReplay,
+            AutoAdvanceDelayStartsAfterReveal,
+            AutoAdvanceDelayResetsForNewDialogue,
+            AutoAdvanceWaitsForVoiceCompletion,
             SceneLayerBatchPreservesOnlyPreparedLayers,
             SavePolicyRejectsContentBrowsers,
             SavePolicyRejectsRuntimeControlScripts,
@@ -395,6 +399,48 @@ internal static class Program
         Equal(10, copied[0]);
         Equal(30, copied[1]);
         Equal(40, copied[2]);
+    }
+
+    private static void TimelineCanDiscardFutureForScriptReplay()
+    {
+        var timeline = new CheckpointTimeline<int>(10);
+        timeline.Push(1);
+        timeline.Push(2);
+        timeline.Push(3);
+        True(timeline.TryMovePrevious(out var previous) && previous == 2);
+        timeline.DiscardFuture();
+        Equal(2, timeline.Count);
+        True(!timeline.CanMoveNext);
+        True(timeline.TryGetCurrent(out var current) && current == 2);
+    }
+
+    private static void AutoAdvanceDelayStartsAfterReveal()
+    {
+        var scheduler = new AutoAdvanceScheduler();
+        Equal(false, scheduler.ShouldAdvance(1, false, false, 0, 2, 0.7));
+        Equal(false, scheduler.ShouldAdvance(1, false, false, 20, 2, 0.7));
+        Equal(false, scheduler.ShouldAdvance(1, true, false, 20, 2, 0.7));
+        Equal(false, scheduler.ShouldAdvance(1, true, false, 21.99, 2, 0.7));
+        Equal(true, scheduler.ShouldAdvance(1, true, false, 22, 2, 0.7));
+    }
+
+    private static void AutoAdvanceDelayResetsForNewDialogue()
+    {
+        var scheduler = new AutoAdvanceScheduler();
+        Equal(false, scheduler.ShouldAdvance(1, true, false, 0, 2, 0.7));
+        Equal(false, scheduler.ShouldAdvance(2, true, false, 10, 2, 0.7));
+        Equal(false, scheduler.ShouldAdvance(2, true, false, 11.99, 2, 0.7));
+        Equal(true, scheduler.ShouldAdvance(2, true, false, 12, 2, 0.7));
+    }
+
+    private static void AutoAdvanceWaitsForVoiceCompletion()
+    {
+        var scheduler = new AutoAdvanceScheduler();
+        Equal(false, scheduler.ShouldAdvance(1, true, true, 0, 2, 0.7));
+        Equal(false, scheduler.ShouldAdvance(1, true, true, 3, 2, 0.7));
+        Equal(false, scheduler.ShouldAdvance(1, true, false, 3, 2, 0.7));
+        Equal(false, scheduler.ShouldAdvance(1, true, false, 3.69, 2, 0.7));
+        Equal(true, scheduler.ShouldAdvance(1, true, false, 3.7, 2, 0.7));
     }
 
     private static void SingleFingerLeftSwipeAdvances()

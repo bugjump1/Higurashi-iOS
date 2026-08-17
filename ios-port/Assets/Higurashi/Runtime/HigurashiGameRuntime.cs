@@ -35,6 +35,7 @@ namespace Higurashi.IOS.Runtime
         // always have one unambiguous latest save to use.
         private const int LatestSaveSlot = 1;
         private readonly FastTraversalController _fastTraversal = new FastTraversalController(10f);
+        private readonly AutoAdvanceScheduler _autoAdvanceScheduler = new AutoAdvanceScheduler();
         private readonly DataPackImportService _dataPack = new DataPackImportService();
         private readonly CheckpointTimeline<RuntimeCheckpoint> _timeline =
             new CheckpointTimeline<RuntimeCheckpoint>(200, preserveFirst: true);
@@ -55,9 +56,7 @@ namespace Higurashi.IOS.Runtime
         private bool _systemMenuVisible;
         private bool _saveLoadVisible;
         private bool _autoMode;
-        private bool _autoWasVoicePlaying;
         private bool _showHelpWhenGameplayStarts;
-        private float _nextAutoAdvanceAt;
         private float _episodeEightCreditsAutoAdvanceAt = -1f;
         private bool _initializationAttempted;
         private RuntimeCheckpoint _titleCheckpoint;
@@ -240,25 +239,19 @@ namespace Higurashi.IOS.Runtime
             }
             if (_autoMode && _runtime != null && _host != null && !IsModalVisible &&
                 !_host.TitleVisible && !_host.CreditsVisible && !_host.ChoiceVisible &&
-                !_host.HistoryVisible && _runtime.BlockReason == BurikoBlockReason.WaitForInput &&
-                _host.IsDialogueRevealComplete)
+                !_host.HistoryVisible && _runtime.BlockReason == BurikoBlockReason.WaitForInput)
             {
-                if (_host.IsVoicePlaying)
+                var normalized = Mathf.Clamp01(_settings.autoSpeed / 100f);
+                var readingDelay = Mathf.Lerp(6f, 1.2f, normalized);
+                if (_autoAdvanceScheduler.ShouldAdvance(
+                        _host.DialogueSerial,
+                        _host.IsDialogueRevealComplete,
+                        _host.IsVoicePlaying,
+                        Time.unscaledTime,
+                        readingDelay,
+                        0.7f))
                 {
-                    _autoWasVoicePlaying = true;
-                }
-                else
-                {
-                    if (_autoWasVoicePlaying)
-                    {
-                        _autoWasVoicePlaying = false;
-                        _nextAutoAdvanceAt = Mathf.Max(_nextAutoAdvanceAt, Time.unscaledTime + 0.7f);
-                    }
-                    if (Time.unscaledTime >= _nextAutoAdvanceAt)
-                    {
-                        StepForward();
-                        ScheduleNextAutoAdvance();
-                    }
+                    StepForward();
                 }
             }
 
@@ -389,14 +382,14 @@ namespace Higurashi.IOS.Runtime
             {
                 case NovelInputAction.StartFastForward:
                     _autoMode = false;
-                    _autoWasVoicePlaying = false;
+                    _autoAdvanceScheduler.Reset();
                     _host.StopVoices();
                     _host.HistoryVisible = false;
                     _fastTraversal.StartForward();
                     break;
                 case NovelInputAction.StartFastRewind:
                     _autoMode = false;
-                    _autoWasVoicePlaying = false;
+                    _autoAdvanceScheduler.Reset();
                     _host.StopVoices();
                     _host.HistoryVisible = false;
                     _fastTraversal.StartRewind();
@@ -510,17 +503,13 @@ namespace Higurashi.IOS.Runtime
                 return false;
             }
 
-            if (_timeline.TryMoveNext(out var existing))
+            if (_timeline.CanMoveNext)
             {
-                var previousPresentation = _host.CaptureSnapshot();
-                _host.StopVoices();
-                RestoreCheckpoint(existing);
-                _host.ReplayRestoredCheckpointAnimations(previousPresentation, _runtime.Memory);
-                if (!_fastTraversal.IsActive)
-                {
-                    _host.ReplayRestoredVoice(_runtime.Memory);
-                }
-                return true;
+                // Continue from the restored interpreter state. Replaying future
+                // snapshots skips the scene script's pans/fades and restarts BGM.
+                _timeline.DiscardFuture();
+                HigurashiDiagnosticLog.Info("Timeline",
+                    "Discarded future checkpoints before script replay " + RuntimeLocation());
             }
 
             if (!_fastTraversal.IsActive &&
@@ -722,7 +711,7 @@ namespace Higurashi.IOS.Runtime
             using (var runtimeState = new MemoryStream(checkpoint.RuntimeState, false))
             using (var presentationState = new MemoryStream(checkpoint.PresentationState, false))
             {
-                _host.StopAllAudio();
+                _host.StopTransientAudio();
                 _runtime.ReadPersistentState(runtimeState);
                 _host.ApplySettings(_runtime.Memory);
                 _host.ReadPersistentState(presentationState, _runtime.Memory);
@@ -1436,23 +1425,15 @@ namespace Higurashi.IOS.Runtime
         {
             _autoMode = !_autoMode;
             _fastTraversal.Stop();
+            _autoAdvanceScheduler.Reset();
             if (_autoMode)
             {
-                _autoWasVoicePlaying = _host != null && _host.IsVoicePlaying;
-                ScheduleNextAutoAdvance();
                 ShowToast("自动播放：开");
             }
             else
             {
-                _autoWasVoicePlaying = false;
                 ShowToast("自动播放：关");
             }
-        }
-
-        private void ScheduleNextAutoAdvance()
-        {
-            var normalized = Mathf.Clamp01(_settings.autoSpeed / 100f);
-            _nextAutoAdvanceAt = Time.unscaledTime + Mathf.Lerp(6f, 1.2f, normalized);
         }
 
         private void SaveOpeningPreference()

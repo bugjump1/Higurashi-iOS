@@ -1467,6 +1467,13 @@ namespace Higurashi.IOS.Runtime.Buriko
             ResetLipSyncFrames();
         }
 
+        public void StopTransientAudio()
+        {
+            _audio?.StopNonBgm();
+            _currentVoiceCharacter = -1;
+            ResetLipSyncFrames();
+        }
+
         public void StopBgmChannel(int channel)
         {
             _audio?.StopBgm(channel);
@@ -3983,6 +3990,12 @@ namespace Higurashi.IOS.Runtime.Buriko
             StopAllWithPrefix(RuntimeAudioKind.Voice + ":");
         }
 
+        public void StopNonBgm()
+        {
+            StopAllWithPrefix(RuntimeAudioKind.Se + ":");
+            StopAllWithPrefix(RuntimeAudioKind.Voice + ":");
+        }
+
         public void StopAll()
         {
             StopAllWithPrefix(string.Empty);
@@ -4003,23 +4016,55 @@ namespace Higurashi.IOS.Runtime.Buriko
 
         public void RestoreBgmState(RuntimeBgmState[] state, BurikoMemory memory)
         {
+            var desired = new Dictionary<int, RuntimeBgmState>();
+            if (state != null)
+            {
+                for (var i = 0; i < state.Length; i++)
+                {
+                    var item = state[i];
+                    if (item != null && !string.IsNullOrEmpty(item.Filename))
+                    {
+                        desired[item.Channel] = item;
+                    }
+                }
+            }
+
             var channels = new List<int>(_bgmState.Keys);
             for (var i = 0; i < channels.Count; i++)
             {
-                StopBgm(channels[i]);
-            }
-            if (state == null)
-            {
-                return;
-            }
-            for (var i = 0; i < state.Length; i++)
-            {
-                var item = state[i];
-                if (item != null && !string.IsNullOrEmpty(item.Filename))
+                var channel = channels[i];
+                if (!desired.TryGetValue(channel, out var target) ||
+                    !_bgmState.TryGetValue(channel, out var current) ||
+                    !string.Equals(current.Filename, target.Filename,
+                        StringComparison.OrdinalIgnoreCase))
                 {
-                    PlayBgm(item.Channel, item.Filename, item.Volume, memory);
+                    StopBgm(channel);
                 }
             }
+
+            foreach (var pair in desired)
+            {
+                var item = pair.Value;
+                if (_bgmState.TryGetValue(item.Channel, out var current) &&
+                    string.Equals(current.Filename, item.Filename,
+                        StringComparison.OrdinalIgnoreCase) &&
+                    IsChannelActive(RuntimeAudioKind.Bgm, item.Channel))
+                {
+                    _bgmState[item.Channel] =
+                        new RuntimeBgmState(item.Channel, item.Filename, item.Volume);
+                    SetBgmVolume(item.Channel, item.Volume);
+                    continue;
+                }
+
+                PlayBgm(item.Channel, item.Filename, item.Volume, memory);
+            }
+        }
+
+        private bool IsChannelActive(RuntimeAudioKind kind, int channel)
+        {
+            var key = Key(kind, channel);
+            return _pendingGenerations.ContainsKey(key) ||
+                   (_sources.TryGetValue(key, out var source) && source.isPlaying);
         }
 
         private void StopAllWithPrefix(string prefix)

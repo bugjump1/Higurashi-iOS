@@ -93,6 +93,16 @@ namespace Higurashi.IOS.Playback
             return true;
         }
 
+        public void DiscardFuture()
+        {
+            if (_cursor < 0 || _cursor >= _items.Count - 1)
+            {
+                return;
+            }
+
+            _items.RemoveRange(_cursor + 1, _items.Count - _cursor - 1);
+        }
+
         public T[] CopyThroughCurrent()
         {
             if (_cursor < 0)
