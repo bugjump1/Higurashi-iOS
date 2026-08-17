@@ -391,12 +391,14 @@ namespace Higurashi.IOS.Buriko
                     JumpSection(arguments[0].AsString(Memory));
                     return BurikoValue.Null;
                 case 10:
+                    _host.CommitPendingPresentation();
                     _remainingWaitMilliseconds = Math.Max(0, arguments[0].AsInt(Memory));
                     BlockReason = _remainingWaitMilliseconds == 0
                         ? BurikoBlockReason.None
                         : BurikoBlockReason.WaitForTime;
                     return BurikoValue.Null;
                 case 11:
+                    _host.CommitPendingPresentation();
                     BlockReason = BurikoBlockReason.WaitForInput;
                     return BurikoValue.Null;
                 case 12:

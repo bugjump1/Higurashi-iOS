@@ -24,6 +24,7 @@ internal static class Program
             TimelineHonorsCapacity,
             TimelineCopiesOnlyThroughCurrent,
             TimelineCanPreserveChapterFloor,
+            SceneLayerBatchPreservesOnlyPreparedLayers,
             SavePolicyRejectsContentBrowsers,
             SavePolicyRejectsRuntimeControlScripts,
             SavePolicyKeepsExplicitResumePoints,
@@ -45,6 +46,7 @@ internal static class Program
             Episode07OperationCatalogNormalizesShiftedCodes,
             Episode08OperationCatalogNormalizesFragmentCodes,
             BurikoRuntimeExecutesDialogueAndFlags,
+            BurikoRuntimeCommitsPresentationAtWaitBoundaries,
             BurikoRuntimeCallsAndReturnsFromScript,
             BurikoRuntimeCallsFragmentScriptFromUi,
             BurikoRuntimeSnapshotRestoresExecutionAndMemory,
@@ -191,6 +193,33 @@ internal static class Program
         Equal((short)147, BurikoOperationCatalog.Get(161).Code);
         Equal("ModGenericCall", BurikoOperationCatalog.Get(161).Name);
         BurikoOperationCatalog.ConfigureForEpisode(1);
+    }
+
+    private static void SceneLayerBatchPreservesOnlyPreparedLayers()
+    {
+        var tracker = new SceneLayerBatchTracker();
+        tracker.Prepare(2);
+        tracker.Prepare(1);
+        tracker.Prepare(2);
+        Equal(2, tracker.Count);
+
+        var prepared = tracker.ConsumeForSceneChange();
+        Equal(2, prepared.Length);
+        Equal(1, prepared[0]);
+        Equal(2, prepared[1]);
+        Equal(0, tracker.Count);
+
+        tracker.Prepare(7);
+        tracker.Prepare(8);
+        tracker.Discard(7);
+        var remaining = tracker.ConsumeForSceneChange();
+        Equal(1, remaining.Length);
+        Equal(8, remaining[0]);
+
+        tracker.Prepare(7);
+        tracker.Commit();
+        Equal(0, tracker.Count);
+        Equal(0, tracker.ConsumeForSceneChange().Length);
     }
 
     private static void SavePolicyRejectsContentBrowsers()
@@ -969,6 +998,26 @@ internal static class Program
         Equal(0xFFFFFF, memory.GetLocalFlag("LTextColor"));
     }
 
+    private static void BurikoRuntimeCommitsPresentationAtWaitBoundaries()
+    {
+        var data = BuildBytecode(writer =>
+        {
+            WriteOperation(writer, 10, () => WriteIntValue(writer, 1));
+            WriteOperation(writer, 11, null);
+            writer.Write((short)0);
+        });
+        var host = new CapturingHost();
+        var runtime = new BurikoRuntime(
+            new DictionaryScriptRepository(("init", WrapScript(data))), host);
+
+        runtime.Start();
+        Equal(BurikoBlockReason.WaitForTime, runtime.RunUntilBlocked());
+        Equal(1, host.PresentationCommitCount);
+        runtime.AdvanceTime(1);
+        Equal(BurikoBlockReason.WaitForInput, runtime.RunUntilBlocked());
+        Equal(2, host.PresentationCommitCount);
+    }
+
     private static byte[] BuildBytecode(Action<BinaryWriter> write)
     {
         using var stream = new MemoryStream();
@@ -1106,6 +1155,7 @@ internal static class Program
     private sealed class CapturingHost : IBurikoHost
     {
         public string LastDialogue { get; private set; }
+        public int PresentationCommitCount { get; private set; }
 
         public BurikoHostResponse Execute(BurikoOperationInvocation invocation, BurikoMemory memory)
         {
@@ -1115,6 +1165,11 @@ internal static class Program
             }
 
             return BurikoHostResponse.Continue;
+        }
+
+        public void CommitPendingPresentation()
+        {
+            PresentationCommitCount++;
         }
     }
 }

@@ -164,6 +164,10 @@ internal static class Program
             return BurikoHostResponse.Continue;
         }
 
+        public void CommitPendingPresentation()
+        {
+        }
+
         private static bool WaitsForInput(int textMode)
         {
             return textMode == 0 || textMode == 2;

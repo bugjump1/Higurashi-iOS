@@ -5,6 +5,7 @@ using System.IO;
 using Higurashi.IOS.Buriko;
 using Higurashi.IOS.Compatibility;
 using Higurashi.IOS.Data;
+using Higurashi.IOS.Playback;
 using UnityEngine;
 using UnityEngine.Networking;
 using UnityEngine.Video;
@@ -31,6 +32,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             new SortedDictionary<int, PresentationLayer>();
         private readonly List<PresentationLayer> _previousSceneLayers =
             new List<PresentationLayer>();
+        private readonly SceneLayerBatchTracker _sceneLayerBatch =
+            new SceneLayerBatchTracker();
         private readonly List<string> _history = new List<string>();
         private readonly List<HistoryVoiceCue> _historyVoices = new List<HistoryVoiceCue>();
         private readonly HashSet<short> _reportedOperations = new HashSet<short>();
@@ -391,7 +394,6 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 42:
                 case 43:
                 case 44:
-                case 61:
                 case 68:
                 case 70:
                 case 71:
@@ -432,7 +434,11 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 155:
                     ReportApproximated(invocation);
                     return BurikoHostResponse.Continue;
+                case 61:
+                    CommitPendingPresentation();
+                    return BurikoHostResponse.Continue;
                 case 16:
+                    CommitPendingPresentation();
                     return SetDialogue(
                         Text(invocation, 0, memory),
                         Text(invocation, 1, memory),
@@ -440,6 +446,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                         Text(invocation, 3, memory),
                         Int(invocation, 4, memory));
                 case 17:
+                    CommitPendingPresentation();
                     return SetDialogue(
                         Text(invocation, 0, memory),
                         Text(invocation, 1, memory),
@@ -488,10 +495,12 @@ namespace Higurashi.IOS.Runtime.Buriko
                     return BurikoHostResponse.Continue;
                 case 159:
                     DrawFixedSizeSprite(invocation, memory, false);
+                    _sceneLayerBatch.Prepare(Int(invocation, 0, memory));
                     return AnimationResponse(Int(invocation, 16, memory) / 1000f,
                         invocation.Arguments[17].AsBool(memory));
                 case 160:
                     DrawFixedSizeSprite(invocation, memory, true);
+                    _sceneLayerBatch.Prepare(Int(invocation, 0, memory));
                     return AnimationResponse(Int(invocation, 13, memory) / 1000f,
                         invocation.Arguments[14].AsBool(memory));
                 case 161:
@@ -653,41 +662,50 @@ namespace Higurashi.IOS.Runtime.Buriko
                 }
                 case 55:
                     DrawAnimatedLayer(invocation, memory, true, 0, 1, 2, 3, 4, 5, 6, 7, 8, 13, 14);
+                    _sceneLayerBatch.Prepare(Int(invocation, 0, memory));
                     return AnimationResponse(Int(invocation, 14, memory) / 1000f,
                         invocation.Arguments[15].AsBool(memory));
                 case 56:
                     MoveBustshot(invocation, memory);
+                    _sceneLayerBatch.Prepare(Int(invocation, 0, memory));
                     return AnimationResponse(Int(invocation, 6, memory) / 1000f,
                         invocation.Arguments[7].AsBool(memory));
                 case 57:
                     FadeBustshot(invocation, memory);
+                    _sceneLayerBatch.Discard(Int(invocation, 0, memory));
                     return AnimationResponse(Int(invocation, 6, memory) / 1000f,
                         invocation.Arguments[7].AsBool(memory));
                 case 64:
                     FadeLayer(Int(invocation, 0, memory), Int(invocation, 1, memory) / 1000f);
+                    _sceneLayerBatch.Discard(Int(invocation, 0, memory));
                     return AnimationResponse(Int(invocation, 1, memory) / 1000f,
                         invocation.Arguments[2].AsBool(memory));
                 case 65:
                     FadeLayerWithMask(Int(invocation, 0, memory), Text(invocation, 1, memory),
                         Int(invocation, 2, memory), Int(invocation, 3, memory) / 1000f, memory);
+                    _sceneLayerBatch.Discard(Int(invocation, 0, memory));
                     return AnimationResponse(Int(invocation, 3, memory) / 1000f,
                         invocation.Arguments[4].AsBool(memory));
                 case 58:
                     DrawAnimatedLayer(invocation, memory, true, 0, 1, 4, 5, 10, 6, 7, 8, 9, 12, 13);
                     SetLayerMask(Int(invocation, 0, memory), Text(invocation, 2, memory),
                         0, false, memory);
+                    _sceneLayerBatch.Prepare(Int(invocation, 0, memory));
                     return AnimationResponse(Int(invocation, 13, memory) / 1000f,
                         invocation.Arguments[14].AsBool(memory));
                 case 152:
                     ChangeBustshot(invocation, memory);
+                    _sceneLayerBatch.Prepare(Int(invocation, 0, memory));
                     return AnimationResponse(Int(invocation, 2, memory) / 1000f,
                         invocation.Arguments[3].AsBool(memory));
                 case 59:
                     DrawLayer(1000, Text(invocation, 0, memory), 213, 131, 0, 1000, memory,
                         false, 1f, Int(invocation, 1, memory) / 1000f);
+                    _sceneLayerBatch.Prepare(1000);
                     return BurikoHostResponse.Continue;
                 case 60:
                     FadeLayer(1000, Int(invocation, 0, memory) / 1000f);
+                    _sceneLayerBatch.Discard(1000);
                     return BurikoHostResponse.Continue;
                 case 62:
                     DrawLayer(
@@ -701,6 +719,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                         false,
                         1f - Int(invocation, 12, memory) / 256f,
                         Int(invocation, 14, memory) / 1000f);
+                    _sceneLayerBatch.Prepare(Int(invocation, 0, memory));
                     return AnimationResponse(Int(invocation, 14, memory) / 1000f,
                         invocation.Arguments[15].AsBool(memory));
                 case 63:
@@ -717,10 +736,12 @@ namespace Higurashi.IOS.Runtime.Buriko
                         Int(invocation, 11, memory) / 1000f);
                     SetLayerMask(Int(invocation, 0, memory), Text(invocation, 2, memory),
                         Int(invocation, 3, memory), false, memory);
+                    _sceneLayerBatch.Prepare(Int(invocation, 0, memory));
                     return AnimationResponse(Int(invocation, 11, memory) / 1000f,
                         invocation.Arguments[12].AsBool(memory));
                 case 66:
                     MoveLayer(invocation, memory);
+                    _sceneLayerBatch.Prepare(Int(invocation, 0, memory));
                     return AnimationResponse(Int(invocation, 8, memory) / 1000f,
                         invocation.Arguments[9].AsBool(memory));
                 case 67:
@@ -731,17 +752,21 @@ namespace Higurashi.IOS.Runtime.Buriko
                     return BurikoHostResponse.Continue;
                 case 79:
                     FadeLayerRange(1, 19, Int(invocation, 0, memory) / 1000f);
+                    DiscardPreparedLayerRange(1, 19);
                     return BurikoHostResponse.Continue;
                 case 80:
                     FadeLayerWithMask(Int(invocation, 0, memory), Text(invocation, 1, memory),
                         Int(invocation, 2, memory), Int(invocation, 6, memory) / 1000f, memory);
+                    _sceneLayerBatch.Discard(Int(invocation, 0, memory));
                     return AnimationResponse(Int(invocation, 6, memory) / 1000f,
                         invocation.Arguments[7].AsBool(memory));
                 case 98:
                     FadeLayerRange(2, 3, Int(invocation, 0, memory) / 1000f);
+                    DiscardPreparedLayerRange(2, 3);
                     return BurikoHostResponse.Continue;
                 case 99:
                     FadeLayerRange(5, 8, Int(invocation, 0, memory) / 1000f);
+                    DiscardPreparedLayerRange(5, 8);
                     return BurikoHostResponse.Continue;
                 case 89:
                     ChapterPreviewVisible = true;
@@ -818,12 +843,14 @@ namespace Higurashi.IOS.Runtime.Buriko
                     return BurikoHostResponse.Continue;
                 case 128:
                     DrawModCharacter(invocation, memory, false);
+                    _sceneLayerBatch.Prepare(Int(invocation, 0, memory));
                     return AnimationResponse(Int(invocation, 16, memory) / 1000f,
                         invocation.Arguments[17].AsBool(memory));
                 case 129:
                     DrawModCharacter(invocation, memory, true);
                     SetLayerMask(Int(invocation, 0, memory), Text(invocation, 4, memory),
                         0, false, memory);
+                    _sceneLayerBatch.Prepare(Int(invocation, 0, memory));
                     return AnimationResponse(Int(invocation, 15, memory) / 1000f,
                         invocation.Arguments[16].AsBool(memory));
                 case 130:
@@ -883,6 +910,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             }
 
             memory.SetLocalFlag("LOCALWORK_NO_RESULT", 0);
+            CommitPendingPresentation();
             TitleVisible = false;
             ChapterPreviewVisible = false;
             _fragmentChapterVisible = false;
@@ -900,6 +928,7 @@ namespace Higurashi.IOS.Runtime.Buriko
 
         public void PrepareForChapterJump()
         {
+            CommitPendingPresentation();
             TitleVisible = false;
             ChapterPreviewVisible = false;
             _fragmentChapterVisible = false;
@@ -1748,6 +1777,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 }
                 ReadStrings(reader, Choices, 100);
                 var layerCount = ReadCount(reader, 10000, "presentation layer");
+                CommitPendingPresentation();
                 _layers.Clear();
                 for (var i = 0; i < layerCount; i++)
                 {
@@ -2102,6 +2132,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             {
                 _historyVoices.RemoveRange(_history.Count, _historyVoices.Count - _history.Count);
             }
+            CommitPendingPresentation();
             _layers.Clear();
             for (var i = 0; i < snapshot.Layers.Length; i++)
             {
@@ -2297,6 +2328,23 @@ namespace Higurashi.IOS.Runtime.Buriko
         private void SetBackground(string textureName, BurikoMemory memory, bool clearLayers = true,
             float duration = 0f, string transitionMask = null)
         {
+            var preparedLayerIds = clearLayers
+                ? _sceneLayerBatch.ConsumeForSceneChange()
+                : System.Array.Empty<int>();
+            if (!clearLayers)
+            {
+                _sceneLayerBatch.Commit();
+            }
+            var preparedLayers = new List<PresentationLayer>(preparedLayerIds.Length);
+            var preparedLookup = new HashSet<int>(preparedLayerIds);
+            for (var i = 0; i < preparedLayerIds.Length; i++)
+            {
+                if (_layers.TryGetValue(preparedLayerIds[i], out var prepared))
+                {
+                    preparedLayers.Add(prepared);
+                }
+            }
+
             var nextTexture = LoadTexture(textureName, memory);
             _previousBackgroundTexture = duration > 0f ? _backgroundTexture : null;
             _backgroundTransitionMask = duration > 0f && !string.IsNullOrWhiteSpace(transitionMask)
@@ -2313,6 +2361,10 @@ namespace Higurashi.IOS.Runtime.Buriko
                 {
                     foreach (var pair in _layers)
                     {
+                        if (preparedLookup.Contains(pair.Key))
+                        {
+                            continue;
+                        }
                         var source = pair.Value;
                         source.GetRenderState(out var x, out var y, out var z, out var alpha);
                         var copy = source.CloneWithoutTexture();
@@ -2330,6 +2382,23 @@ namespace Higurashi.IOS.Runtime.Buriko
                     }
                 }
                 _layers.Clear();
+                for (var i = 0; i < preparedLayers.Count; i++)
+                {
+                    _layers[preparedLayers[i].Id] = preparedLayers[i];
+                }
+            }
+        }
+
+        public void CommitPendingPresentation()
+        {
+            _sceneLayerBatch.Commit();
+        }
+
+        private void DiscardPreparedLayerRange(int first, int last)
+        {
+            for (var id = first; id <= last; id++)
+            {
+                _sceneLayerBatch.Discard(id);
             }
         }
 

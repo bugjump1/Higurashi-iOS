@@ -381,15 +381,22 @@ namespace Higurashi.IOS.Runtime
             var previousColor = GUI.color;
             GUI.color = new Color(1f, 1f, 1f, alpha);
             var destination = new Rect(x, y, width, height);
-            if (cropTransparentEdges)
+            var originalDestination = destination;
+            var edgeInset = cropTransparentEdges
+                ? Mathf.Min(3f / Mathf.Max(1f, texture.height), 0.01f)
+                : 0f;
+            var source = new Rect(0f, edgeInset, 1f, 1f - edgeInset * 2f);
+            if (ClipTextureToBounds(content, ref destination, ref source))
             {
-                var edgeInset = Mathf.Min(3f / Mathf.Max(1f, texture.height), 0.01f);
-                GUI.DrawTextureWithTexCoords(destination, texture,
-                    new Rect(0f, edgeInset, 1f, 1f - edgeInset * 2f), true);
-            }
-            else
-            {
-                GUI.DrawTexture(destination, texture, ScaleMode.StretchToFill, true);
+                var wasClipped = !ApproximatelyEqual(originalDestination, destination);
+                if (!cropTransparentEdges && !wasClipped)
+                {
+                    GUI.DrawTexture(destination, texture, ScaleMode.StretchToFill, true);
+                }
+                else
+                {
+                    GUI.DrawTextureWithTexCoords(destination, texture, source, true);
+                }
             }
             GUI.color = previousColor;
         }
@@ -415,8 +422,51 @@ namespace Higurashi.IOS.Runtime
             var edgeInset = cropTransparentEdges
                 ? Mathf.Min(3f / Mathf.Max(1f, texture.height), 0.01f)
                 : 0f;
-            DrawMaskedTexture(new Rect(x, y, width, height), texture, mask,
-                new Rect(0f, edgeInset, 1f, 1f - edgeInset * 2f), progress, fuzziness, alpha);
+            var destination = new Rect(x, y, width, height);
+            var source = new Rect(0f, edgeInset, 1f, 1f - edgeInset * 2f);
+            if (ClipTextureToBounds(content, ref destination, ref source))
+            {
+                DrawMaskedTexture(destination, texture, mask, source, progress, fuzziness, alpha);
+            }
+        }
+
+        private static bool ClipTextureToBounds(Rect bounds, ref Rect destination, ref Rect source)
+        {
+            if (destination.width <= 0f || destination.height <= 0f ||
+                source.width <= 0f || source.height <= 0f)
+            {
+                return false;
+            }
+
+            var clippedXMin = Mathf.Max(bounds.xMin, destination.xMin);
+            var clippedYMin = Mathf.Max(bounds.yMin, destination.yMin);
+            var clippedXMax = Mathf.Min(bounds.xMax, destination.xMax);
+            var clippedYMax = Mathf.Min(bounds.yMax, destination.yMax);
+            if (clippedXMax <= clippedXMin || clippedYMax <= clippedYMin)
+            {
+                return false;
+            }
+
+            var left = (clippedXMin - destination.xMin) / destination.width;
+            var right = (destination.xMax - clippedXMax) / destination.width;
+            var top = (clippedYMin - destination.yMin) / destination.height;
+            var bottom = (destination.yMax - clippedYMax) / destination.height;
+            var originalSource = source;
+            source = Rect.MinMaxRect(
+                originalSource.xMin + originalSource.width * left,
+                originalSource.yMin + originalSource.height * bottom,
+                originalSource.xMax - originalSource.width * right,
+                originalSource.yMax - originalSource.height * top);
+            destination = Rect.MinMaxRect(clippedXMin, clippedYMin, clippedXMax, clippedYMax);
+            return true;
+        }
+
+        private static bool ApproximatelyEqual(Rect left, Rect right)
+        {
+            return Mathf.Approximately(left.x, right.x) &&
+                   Mathf.Approximately(left.y, right.y) &&
+                   Mathf.Approximately(left.width, right.width) &&
+                   Mathf.Approximately(left.height, right.height);
         }
 
         private static bool IsCinemaMatte(string textureName)

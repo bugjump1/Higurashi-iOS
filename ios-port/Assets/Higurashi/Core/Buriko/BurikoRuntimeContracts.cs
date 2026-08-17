@@ -45,6 +45,7 @@ namespace Higurashi.IOS.Buriko
     public interface IBurikoHost
     {
         BurikoHostResponse Execute(BurikoOperationInvocation invocation, BurikoMemory memory);
+        void CommitPendingPresentation();
     }
 
     public interface IBurikoScriptRepository
