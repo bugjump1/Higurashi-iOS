@@ -34,6 +34,7 @@ internal static class Program
             ChapterProfilesHaveWholeZipFingerprints,
             EpisodeEightChapterProgressMapsToOriginalFlow,
             OpeningChoiceLocalizationRecognizesEpisodeEight,
+            MobileOptionNamesAreLocalized,
             BurikoTextContinuationFollowsPreviousMode,
             Episode02OperationCatalogNormalizesShiftedModCodes,
             Episode03OperationCatalogNormalizesShiftedModCodes,
@@ -286,6 +287,16 @@ internal static class Program
         Equal("OP 动画中包含剧透，是否要启用？", OpeningChoicePolicy.LocalizedPrompt);
         Equal("启用 OP 动画", OpeningChoicePolicy.LocalizedEnable);
         Equal("禁用 OP 动画", OpeningChoicePolicy.LocalizedDisable);
+    }
+
+    private static void MobileOptionNamesAreLocalized()
+    {
+        Equal("主机版", MobileOptionDisplayName.ArtSet("Console"));
+        Equal("重制版", MobileOptionDisplayName.ArtSet("Remake"));
+        Equal("原版", MobileOptionDisplayName.ArtSet("Original"));
+        Equal("新版 BGM/SE", MobileOptionDisplayName.AudioSet("New BGM/SE"));
+        Equal("GIN 版 BGM/SE", MobileOptionDisplayName.AudioSet("GIN's BGM/SE"));
+        Equal("自定义", MobileOptionDisplayName.ArtSet("自定义"));
     }
 
     private static void TimelineCopiesOnlyThroughCurrent()

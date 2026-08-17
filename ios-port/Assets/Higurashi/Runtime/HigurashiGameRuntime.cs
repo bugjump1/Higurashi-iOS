@@ -1217,12 +1217,17 @@ namespace Higurashi.IOS.Runtime
 
             _fastTraversal.Stop();
             _autoMode = false;
+            // The PC fragment browser owns BGM channel 1. Do not let that loop
+            // continue underneath the BGM started by the selected fragment.
+            _host.StopBgmChannel(1);
             _host.StopVoices();
             _runtime.CallScriptFromUi(scriptName);
             _suppressInputUntilFrame = Time.frameCount + 2;
             HigurashiDiagnosticLog.Info("Fragment",
                 "Started script=" + scriptName + " read=" +
-                _runtime.Memory.GetLocalFlag("LFragmentRead") + " " + RuntimeLocation());
+                _runtime.Memory.GetLocalFlag("LFragmentRead") + " page=" +
+                _runtime.Memory.GetLocalFlag("LFragmentPage") +
+                " stoppedListBgmChannel=1 " + RuntimeLocation());
             DriveRuntime(false);
             CaptureDialogueCheckpoint();
         }

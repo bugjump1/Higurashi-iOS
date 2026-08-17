@@ -965,7 +965,7 @@ namespace Higurashi.IOS.Runtime
                 DrawFragmentEntry(card, entries[entryIndex]);
             }
 
-            var footerHeight = 46f * scale;
+            var footerHeight = Mathf.Max(44f, 46f * scale);
             var footerY = panel.yMax - footerHeight - 18f * scale;
             var info = new Rect(panel.x + 22f * scale, gridY + gridHeight + 14f * scale,
                 panel.width - 44f * scale, footerY - gridY - gridHeight - 26f * scale);
@@ -976,6 +976,9 @@ namespace Higurashi.IOS.Runtime
                     navWidth, footerHeight), "上一页", true))
             {
                 _host.ChangeFragmentPage(-1, _runtime.Memory);
+                HigurashiDiagnosticLog.Info("Fragment",
+                    "Changed page=" + _host.FragmentPage + " direction=previous " +
+                    RuntimeLocation());
                 SuppressInput();
             }
             else if (page == 0)
@@ -990,20 +993,28 @@ namespace Higurashi.IOS.Runtime
             var centerAvailable = Mathf.Max(260f * scale,
                 panel.width - navWidth * 2f - 92f * scale);
             var centerGap = 8f * scale;
-            var centerButtonWidth = Mathf.Min(170f * scale,
-                (centerAvailable - centerGap) * 0.5f);
-            var centerGroupWidth = centerButtonWidth * 2f + centerGap;
+            var centerButtonWidth = Mathf.Min(145f * scale,
+                (centerAvailable - centerGap * 2f) / 3f);
+            var centerGroupWidth = centerButtonWidth * 3f + centerGap * 2f;
             var centerX = panel.center.x - centerGroupWidth * 0.5f;
-            if (PcButton(new Rect(centerX, footerY,
-                    centerButtonWidth, footerHeight), "返回总览", true))
+            if (FittedPcButton(new Rect(centerX, footerY,
+                    centerButtonWidth, footerHeight), "返回总览", 11))
             {
                 ExitFragmentList();
             }
-            if (PcButton(new Rect(centerX + centerButtonWidth + centerGap, footerY,
-                    centerButtonWidth, footerHeight), "保存与载入", true))
+            if (FittedPcButton(new Rect(centerX + centerButtonWidth + centerGap, footerY,
+                    centerButtonWidth, footerHeight), "保存与载入", 11))
             {
                 _saveLoadVisible = true;
                 SuppressInput();
+            }
+            if (FittedPcButton(new Rect(centerX + (centerButtonWidth + centerGap) * 2f, footerY,
+                    centerButtonWidth, footerHeight), "返回主菜单", 11))
+            {
+                HigurashiDiagnosticLog.Info("Fragment",
+                    "Returning to title from fragment list page=" + page + " " +
+                    RuntimeLocation());
+                ReturnToTitle();
             }
 
             var nextRect = new Rect(panel.xMax - 22f * scale - navWidth, footerY,
@@ -1011,6 +1022,9 @@ namespace Higurashi.IOS.Runtime
             if (page < pageCount - 1 && PcButton(nextRect, "下一页", true))
             {
                 _host.ChangeFragmentPage(1, _runtime.Memory);
+                HigurashiDiagnosticLog.Info("Fragment",
+                    "Changed page=" + _host.FragmentPage + " direction=next " +
+                    RuntimeLocation());
                 SuppressInput();
             }
             else if (page >= pageCount - 1)
@@ -1759,7 +1773,9 @@ namespace Higurashi.IOS.Runtime
             var y = 0f;
             var artName = _host.ArtSets.Count == 0
                 ? "CG"
-                : _host.ArtSets[Mathf.Clamp(_settings.artSetIndex, 0, _host.ArtSets.Count - 1)].DisplayName;
+                : MobileOptionDisplayName.ArtSet(
+                    _host.ArtSets[Mathf.Clamp(_settings.artSetIndex, 0, _host.ArtSets.Count - 1)]
+                        .DisplayName);
             if (FittedPcButton(new Rect(x, y, width, buttonHeight), "立绘与背景：" + artName, 13))
             {
                 _settings.artSetIndex = Next(_settings.artSetIndex, _host.ArtSets.Count);
@@ -1769,7 +1785,9 @@ namespace Higurashi.IOS.Runtime
 
             var audioName = _host.AudioSets.Count == 0
                 ? "脚本默认"
-                : _host.AudioSets[Mathf.Clamp(_settings.audioPresetIndex, 0, _host.AudioSets.Count - 1)].DisplayName;
+                : MobileOptionDisplayName.AudioSet(
+                    _host.AudioSets[Mathf.Clamp(_settings.audioPresetIndex, 0,
+                        _host.AudioSets.Count - 1)].DisplayName);
             if (FittedPcButton(new Rect(x, y, width, buttonHeight), "BGM / SE：" + audioName, 11,
                     "BGM / SE\n" + audioName))
             {

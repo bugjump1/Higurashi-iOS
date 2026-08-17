@@ -1320,6 +1320,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             var pageCount = Math.Max(1,
                 Mathf.CeilToInt(_fragmentCatalog.GetVisible(memory).Count / 8f));
             _fragmentPage = Mathf.Clamp(_fragmentPage + delta, 0, pageCount - 1);
+            memory.SetLocalFlag("LFragmentPage", _fragmentPage);
             _selectedFragmentId = -1;
         }
 
@@ -1433,6 +1434,11 @@ namespace Higurashi.IOS.Runtime.Buriko
             _lastVoiceFilename = string.Empty;
             _lastVoiceVolume = 0f;
             ResetLipSyncFrames();
+        }
+
+        public void StopBgmChannel(int channel)
+        {
+            _audio?.StopBgm(channel);
         }
 
         public RuntimeBgmState[] CaptureBgmState()
