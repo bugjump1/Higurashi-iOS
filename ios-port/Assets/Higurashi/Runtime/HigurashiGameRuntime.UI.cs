@@ -1258,13 +1258,13 @@ namespace Higurashi.IOS.Runtime
                 previousGuiColor.b, previousGuiColor.a * windowFade);
             if (!string.IsNullOrEmpty(_host.Speaker))
             {
-                GUI.Label(new Rect(left, top, dialogueWidth, 40f * scale),
+                DrawDialogueLabel(new Rect(left, top, dialogueWidth, 40f * scale),
                     _host.Speaker, _speakerStyle);
                 top += 39f * scale;
             }
             var previousDialogueColor = _dialogueStyle.normal.textColor;
             _dialogueStyle.normal.textColor = _host.DialogueColor;
-            GUI.Label(
+            DrawDialogueLabel(
                 new Rect(left, top, dialogueWidth, rect.yMax - top - 14f * scale),
                 _host.VisibleDialogue + (_host.IsDialogueRevealComplete ? "　▼" : string.Empty),
                 _dialogueStyle);
@@ -1286,7 +1286,7 @@ namespace Higurashi.IOS.Runtime
                 previousGuiColor.b, previousGuiColor.a * windowFade);
             var previousDialogueColor = _dialogueStyle.normal.textColor;
             _dialogueStyle.normal.textColor = _host.DialogueColor;
-            DrawShadowLabel(rect, text, _dialogueStyle);
+            DrawDialogueLabel(rect, text, _dialogueStyle);
             _dialogueStyle.normal.textColor = previousDialogueColor;
             GUI.color = previousGuiColor;
         }
@@ -2665,6 +2665,39 @@ namespace Higurashi.IOS.Runtime
             var original = style.normal.textColor;
             style.normal.textColor = Color.black;
             GUI.Label(new Rect(rect.x + 3f * UiScale, rect.y + 3f * UiScale, rect.width, rect.height), text, style);
+            style.normal.textColor = original;
+            GUI.Label(rect, text, style);
+        }
+
+        private void DrawDialogueLabel(Rect rect, string text, GUIStyle style)
+        {
+            var original = style.normal.textColor;
+            var outlineDistance = Mathf.Max(1f, 1.2f * UiScale);
+            var shadowDistance = Mathf.Max(1f, 1.8f * UiScale);
+
+            // Keep the script-selected fill color, but separate it from bright backgrounds.
+            style.normal.textColor = new Color(0f, 0f, 0f, original.a * 0.45f);
+            GUI.Label(new Rect(rect.x + shadowDistance, rect.y + shadowDistance,
+                rect.width, rect.height), text, style);
+
+            style.normal.textColor = new Color(0f, 0f, 0f, original.a);
+            for (var y = -1; y <= 1; y++)
+            {
+                for (var x = -1; x <= 1; x++)
+                {
+                    if (x == 0 && y == 0)
+                    {
+                        continue;
+                    }
+
+                    GUI.Label(new Rect(
+                        rect.x + x * outlineDistance,
+                        rect.y + y * outlineDistance,
+                        rect.width,
+                        rect.height), text, style);
+                }
+            }
+
             style.normal.textColor = original;
             GUI.Label(rect, text, style);
         }
