@@ -1953,6 +1953,11 @@ namespace Higurashi.IOS.Runtime
 
         private void DrawChoices()
         {
+            if (TryDrawScriptedChoiceOverlay())
+            {
+                return;
+            }
+
             var safe = GetGuiSafeArea();
             DrawModalShade(safe);
             var scale = UiScale;
@@ -1992,6 +1997,113 @@ namespace Higurashi.IOS.Runtime
                 }
                 y += choiceHeights[i] + 10f * scale;
             }
+        }
+
+        private bool TryDrawScriptedChoiceOverlay()
+        {
+            if (_host.Choices.Count != 2 || _host.IsOpeningChoice)
+            {
+                return false;
+            }
+
+            PresentationLayer layer = null;
+            foreach (var pair in _host.Layers)
+            {
+                var candidate = pair.Value;
+                if (candidate.Texture == null || string.IsNullOrEmpty(candidate.TextureName) ||
+                    !candidate.TextureName.StartsWith("2choices", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                layer = candidate;
+                break;
+            }
+            if (layer == null)
+            {
+                return false;
+            }
+
+            var content = GetContentRect();
+            var layerRect = GetPresentationLayerRect(content, layer);
+            if (layerRect.width <= 0f || layerRect.height <= 0f)
+            {
+                return false;
+            }
+
+            // These are the two selectable bands embedded in the original 1920x1080
+            // 2choices artwork. Keep the mobile labels in the same artwork space.
+            var normalizedBands = new[]
+            {
+                new Rect(351f / 1920f, 357f / 1080f, 1201f / 1920f, 71f / 1080f),
+                new Rect(351f / 1920f, 464f / 1080f, 1201f / 1920f, 71f / 1080f)
+            };
+            var textScale = Mathf.Clamp(_settings != null ? _settings.textScale : 100, 80, 150) / 100f;
+            var labelStyle = new GUIStyle(_pcButtonStyle)
+            {
+                normal = { background = _transparent },
+                hover = { background = _transparent },
+                active = { background = _transparent },
+                focused = { background = _transparent },
+                wordWrap = true,
+                clipping = TextClipping.Clip,
+                fontSize = Mathf.RoundToInt(Mathf.Clamp(content.height * 0.034f * textScale, 20f, 52f)),
+                padding = new RectOffset(6, 6, 2, 2)
+            };
+            var hitPadding = Mathf.Max(12f, content.height / 480f * 14f);
+            for (var i = 0; i < normalizedBands.Length; i++)
+            {
+                var band = normalizedBands[i];
+                var visible = new Rect(
+                    layerRect.x + layerRect.width * band.x,
+                    layerRect.y + layerRect.height * band.y,
+                    layerRect.width * band.width,
+                    layerRect.height * band.height);
+                visible = ClipRect(visible, content);
+                if (visible.width <= 0f || visible.height <= 0f)
+                {
+                    continue;
+                }
+
+                var hit = ClipRect(new Rect(visible.x, visible.y - hitPadding,
+                    visible.width, visible.height + hitPadding * 2f), content);
+                if (GUI.Button(hit, GUIContent.none, GUIStyle.none))
+                {
+                    SelectChoice(i);
+                }
+                DrawShadowLabel(visible, _host.Choices[i], labelStyle);
+            }
+            return true;
+        }
+
+        private static Rect GetPresentationLayerRect(Rect content, PresentationLayer layer)
+        {
+            layer.GetRenderState(out var layerX, out var layerY, out var layerZ, out _);
+            var canonicalHeight = layer.OverrideHeight > 0
+                ? layer.OverrideHeight
+                : Mathf.Min(layer.Texture.height, 480f);
+            var canonicalWidth = layer.OverrideWidth > 0
+                ? layer.OverrideWidth
+                : layer.Texture.width * canonicalHeight / layer.Texture.height;
+            var screenScale = content.height / 480f;
+            var depthScale = Mathf.Max(0.05f, 1f - layerZ / 400f);
+            var width = canonicalWidth * screenScale * depthScale;
+            var height = canonicalHeight * screenScale * depthScale;
+            var x = layer.IsCentered
+                ? content.center.x + layerX * screenScale - width * 0.5f
+                : content.center.x + layerX * screenScale;
+            var y = layer.IsCentered
+                ? content.center.y + layerY * screenScale - height * 0.5f
+                : content.center.y + layerY * screenScale;
+            return new Rect(x, y, width, height);
+        }
+
+        private static Rect ClipRect(Rect rect, Rect bounds)
+        {
+            var xMin = Mathf.Max(rect.xMin, bounds.xMin);
+            var yMin = Mathf.Max(rect.yMin, bounds.yMin);
+            var xMax = Mathf.Min(rect.xMax, bounds.xMax);
+            var yMax = Mathf.Min(rect.yMax, bounds.yMax);
+            return Rect.MinMaxRect(xMin, yMin, xMax, yMax);
         }
 
         private void DrawHistory()
