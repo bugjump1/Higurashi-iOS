@@ -40,6 +40,7 @@ internal static class Program
             AllEpisodeChapterJumpMapsMatchOriginalFlows,
             EpisodeEightChapterProgressMapsToOriginalFlow,
             OpeningChoiceLocalizationRecognizesEpisodeEight,
+            BadEndingChoicesMatchOriginalFlows,
             StoryChoiceLocalizationCoversAllStoryBranches,
             MobileOptionNamesAreLocalized,
             BurikoTextContinuationFollowsPreviousMode,
@@ -387,6 +388,17 @@ internal static class Program
         Equal("Ｂ．什么都不做，在旁边看着",
             StoryChoiceLocalization.Localize("Ｂ．私は何もせず、成り行きを見守った。"));
         Equal("未识别选项", StoryChoiceLocalization.Localize("未识别选项"));
+    }
+
+    private static void BadEndingChoicesMatchOriginalFlows()
+    {
+        True(BadEndingChoicePolicy.IsBadEndingChoice(4, "hima_003_03", 1));
+        Equal(false, BadEndingChoicePolicy.IsBadEndingChoice(4, "hima_003_03", 0));
+        True(BadEndingChoicePolicy.IsBadEndingChoice(5, "_meak_024", 0));
+        Equal(false, BadEndingChoicePolicy.IsBadEndingChoice(5, "_meak_024", 1));
+        True(BadEndingChoicePolicy.IsBadEndingChoice(6, "_tsum_024_1", 1));
+        True(BadEndingChoicePolicy.IsBadEndingChoice(6, "_tsum_026", 0));
+        Equal(false, BadEndingChoicePolicy.IsBadEndingChoice(7, "_mina_002_1", 0));
     }
 
     private static void TimelineCopiesOnlyThroughCurrent()

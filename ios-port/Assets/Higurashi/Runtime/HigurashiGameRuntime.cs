@@ -69,6 +69,7 @@ namespace Higurashi.IOS.Runtime
         private int _timelineChapterNumber = -1;
         private string _storyChoiceScript = string.Empty;
         private int _storyChoiceLine = -1;
+        private bool _badEndingChoiceSelected;
         private bool _badEndingPlaybackActive;
         private bool _badEndingDecisionVisible;
         private Vector2 _historyScroll;
@@ -769,6 +770,7 @@ namespace Higurashi.IOS.Runtime
             _storyChoiceCheckpoint = CaptureCurrentCheckpoint();
             _storyChoiceScript = _runtime.CurrentScriptName ?? string.Empty;
             _storyChoiceLine = _runtime.CurrentLine;
+            _badEndingChoiceSelected = false;
             _badEndingPlaybackActive = false;
             _badEndingDecisionVisible = false;
 
@@ -803,7 +805,8 @@ namespace Higurashi.IOS.Runtime
             }
 
             var script = _runtime.CurrentScriptName ?? string.Empty;
-            if (script.IndexOf("badend", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            if (_badEndingChoiceSelected ||
+                script.IndexOf("badend", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 script.IndexOf("bad_end", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 _badEndingPlaybackActive = true;
@@ -857,6 +860,7 @@ namespace Higurashi.IOS.Runtime
             _storyChoiceCheckpoint = null;
             _storyChoiceScript = string.Empty;
             _storyChoiceLine = -1;
+            _badEndingChoiceSelected = false;
             _badEndingPlaybackActive = false;
             _badEndingDecisionVisible = false;
         }
@@ -1354,11 +1358,14 @@ namespace Higurashi.IOS.Runtime
         private void SelectChoice(int index)
         {
             var openingChoice = _host.IsOpeningChoice;
+            var badEndingChoice = !openingChoice && BadEndingChoicePolicy.IsBadEndingChoice(
+                HigurashiActiveChapter.Profile.EpisodeNumber, _runtime.CurrentScriptName, index);
             if (!_host.Choose(index, _runtime.Memory))
             {
                 return;
             }
 
+            _badEndingChoiceSelected = badEndingChoice;
             _runtime.ResumeInput();
             _suppressInputUntilFrame = Time.frameCount + 2;
             DriveRuntime(false);

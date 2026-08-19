@@ -20,6 +20,7 @@
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Compatibility\EpisodeChapterJumpMap.cs" Link="Core\EpisodeChapterJumpMap.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Compatibility\EpisodeEightChapterMap.cs" Link="Core\EpisodeEightChapterMap.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Compatibility\OpeningChoicePolicy.cs" Link="Core\OpeningChoicePolicy.cs" />
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Compatibility\BadEndingChoicePolicy.cs" Link="Core\BadEndingChoicePolicy.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Compatibility\StoryChoiceLocalization.cs" Link="Core\StoryChoiceLocalization.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Compatibility\MobileOptionDisplayName.cs" Link="Core\MobileOptionDisplayName.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Buriko\CompiledScriptContainer.cs" Link="Core\CompiledScriptContainer.cs" />
