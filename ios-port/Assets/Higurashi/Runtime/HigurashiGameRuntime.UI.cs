@@ -1259,7 +1259,7 @@ namespace Higurashi.IOS.Runtime
             if (!string.IsNullOrEmpty(_host.Speaker))
             {
                 DrawDialogueLabel(new Rect(left, top, dialogueWidth, 40f * scale),
-                    _host.Speaker, _speakerStyle);
+                    _host.Speaker, _speakerStyle, true);
                 top += 39f * scale;
             }
             var previousDialogueColor = _dialogueStyle.normal.textColor;
@@ -2669,18 +2669,25 @@ namespace Higurashi.IOS.Runtime
             GUI.Label(rect, text, style);
         }
 
-        private void DrawDialogueLabel(Rect rect, string text, GUIStyle style)
+        private void DrawDialogueLabel(Rect rect, string text, GUIStyle style,
+            bool stripRichTextForOutline = false)
         {
             var original = style.normal.textColor;
-            var outlineDistance = Mathf.Max(1f, 1.2f * UiScale);
-            var shadowDistance = Mathf.Max(1f, 1.8f * UiScale);
+            var originalRichText = style.richText;
+            var outlineDistance = Mathf.Max(1f,
+                (stripRichTextForOutline ? 1.65f : 1.2f) * UiScale);
+            var shadowDistance = Mathf.Max(1f,
+                (stripRichTextForOutline ? 2.2f : 1.8f) * UiScale);
+            var outlineText = stripRichTextForOutline ? StripRichTextTags(text) : text;
 
             // Keep the script-selected fill color, but separate it from bright backgrounds.
+            style.richText = false;
             style.normal.textColor = new Color(0f, 0f, 0f, original.a * 0.45f);
             GUI.Label(new Rect(rect.x + shadowDistance, rect.y + shadowDistance,
-                rect.width, rect.height), text, style);
+                rect.width, rect.height), outlineText, style);
 
-            style.normal.textColor = new Color(0f, 0f, 0f, original.a);
+            style.normal.textColor = new Color(0f, 0f, 0f,
+                Mathf.Clamp01(original.a));
             for (var y = -1; y <= 1; y++)
             {
                 for (var x = -1; x <= 1; x++)
@@ -2694,12 +2701,43 @@ namespace Higurashi.IOS.Runtime
                         rect.x + x * outlineDistance,
                         rect.y + y * outlineDistance,
                         rect.width,
-                        rect.height), text, style);
+                        rect.height), outlineText, style);
                 }
             }
 
+            style.richText = originalRichText;
             style.normal.textColor = original;
             GUI.Label(rect, text, style);
+        }
+
+        private static string StripRichTextTags(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                return text ?? string.Empty;
+            }
+
+            var result = new System.Text.StringBuilder(text.Length);
+            var insideTag = false;
+            for (var i = 0; i < text.Length; i++)
+            {
+                var character = text[i];
+                if (character == '<')
+                {
+                    insideTag = true;
+                    continue;
+                }
+                if (insideTag)
+                {
+                    if (character == '>')
+                    {
+                        insideTag = false;
+                    }
+                    continue;
+                }
+                result.Append(character);
+            }
+            return result.ToString();
         }
 
         private void DrawOutlinedLabel(Rect rect, string text, GUIStyle style)
