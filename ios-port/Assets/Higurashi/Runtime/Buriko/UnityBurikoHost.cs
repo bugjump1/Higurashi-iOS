@@ -2263,7 +2263,8 @@ namespace Higurashi.IOS.Runtime.Buriko
 
             for (var i = 0; i < count; i++)
             {
-                Choices.Add(memory.Get(new BurikoReference(reference.Name, i)).AsString(memory));
+                Choices.Add(StoryChoiceLocalization.Localize(
+                    memory.Get(new BurikoReference(reference.Name, i)).AsString(memory)));
             }
 
             if (OpeningChoicePolicy.IsOpeningChoice(Dialogue, Choices))

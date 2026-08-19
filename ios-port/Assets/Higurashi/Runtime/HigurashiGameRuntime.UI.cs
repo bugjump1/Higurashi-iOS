@@ -1958,19 +1958,39 @@ namespace Higurashi.IOS.Runtime
             var scale = UiScale;
             var width = Mathf.Min(820f * scale, safe.width - 80f * scale);
             var x = safe.x + (safe.width - width) * 0.5f;
-            var height = 56f * scale;
-            var totalHeight = _host.Choices.Count * (height + 10f * scale);
-            var promptHeight = 110f * scale;
+            var height = Mathf.Max(64f * scale, 56f * scale);
+            var choiceStyle = new GUIStyle(_pcButtonStyle)
+            {
+                wordWrap = true,
+                clipping = TextClipping.Clip,
+                padding = new RectOffset(Mathf.RoundToInt(18f * scale),
+                    Mathf.RoundToInt(18f * scale), Mathf.RoundToInt(8f * scale),
+                    Mathf.RoundToInt(8f * scale))
+            };
+            var choiceHeights = new float[_host.Choices.Count];
+            var totalChoicesHeight = 0f;
+            for (var i = 0; i < _host.Choices.Count; i++)
+            {
+                var measured = choiceStyle.CalcHeight(new GUIContent(_host.Choices[i]), width);
+                choiceHeights[i] = Mathf.Max(height, measured + 12f * scale);
+                totalChoicesHeight += choiceHeights[i];
+            }
+            var totalHeight = totalChoicesHeight + Mathf.Max(0, _host.Choices.Count - 1) * 10f * scale;
+            var promptHeight = Mathf.Max(96f * scale,
+                _panelTitleStyle.CalcHeight(new GUIContent(_host.Dialogue), width));
             var y = safe.y + (safe.height - totalHeight - promptHeight) * 0.5f;
-            GUI.Label(new Rect(x, y, width, promptHeight - 15f * scale),
-                _host.Dialogue, _panelTitleStyle);
+            var promptRect = new Rect(x, y, width, promptHeight);
+            GUI.Label(promptRect, _host.Dialogue,
+                FitWrappedLabelStyle(_panelTitleStyle, _host.Dialogue, promptRect, 16));
             y += promptHeight;
             for (var i = 0; i < _host.Choices.Count; i++)
             {
-                if (PcButton(new Rect(x, y + i * (height + 10f * scale), width, height), _host.Choices[i]))
+                var choiceRect = new Rect(x, y, width, choiceHeights[i]);
+                if (GUI.Button(choiceRect, _host.Choices[i], choiceStyle))
                 {
                     SelectChoice(i);
                 }
+                y += choiceHeights[i] + 10f * scale;
             }
         }
 
@@ -2040,16 +2060,19 @@ namespace Higurashi.IOS.Runtime
             DrawModalShade(safe);
             var scale = UiScale;
             var width = Mathf.Min(760f * scale, safe.width - 64f * scale);
-            var height = Mathf.Min(310f * scale, safe.height - 54f * scale);
+            var height = Mathf.Min(360f * scale, safe.height - 54f * scale);
             var panel = new Rect(safe.center.x - width * 0.5f,
                 safe.center.y - height * 0.5f, width, height);
             DrawPcModalPanel(panel);
             DrawSectionHeader(panel, "坏结局");
 
-            GUI.Label(new Rect(panel.x + 38f * scale, panel.y + 82f * scale,
-                    panel.width - 76f * scale, 62f * scale),
+            var messageRect = new Rect(panel.x + 38f * scale, panel.y + 82f * scale,
+                panel.width - 76f * scale, 92f * scale);
+            GUI.Label(messageRect,
                 "本路线已结束。可以返回刚才的剧情选项重新选择，或返回主菜单。",
-                _dialogueStyle);
+                FitWrappedLabelStyle(_dialogueStyle,
+                    "本路线已结束。可以返回刚才的剧情选项重新选择，或返回主菜单。",
+                    messageRect, 16));
 
             var gap = 18f * scale;
             var buttonWidth = (panel.width - 76f * scale - gap) * 0.5f;

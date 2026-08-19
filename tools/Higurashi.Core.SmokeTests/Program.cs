@@ -40,6 +40,7 @@ internal static class Program
             AllEpisodeChapterJumpMapsMatchOriginalFlows,
             EpisodeEightChapterProgressMapsToOriginalFlow,
             OpeningChoiceLocalizationRecognizesEpisodeEight,
+            StoryChoiceLocalizationCoversAllStoryBranches,
             MobileOptionNamesAreLocalized,
             BurikoTextContinuationFollowsPreviousMode,
             Episode02OperationCatalogNormalizesShiftedModCodes,
@@ -371,6 +372,21 @@ internal static class Program
         Equal("新版 BGM/SE", MobileOptionDisplayName.AudioSet("New BGM/SE"));
         Equal("GIN 版 BGM/SE", MobileOptionDisplayName.AudioSet("GIN's BGM/SE"));
         Equal("自定义", MobileOptionDisplayName.ArtSet("自定义"));
+    }
+
+    private static void StoryChoiceLocalizationCoversAllStoryBranches()
+    {
+        Equal("向他求饶", StoryChoiceLocalization.Localize("命乞いをする"));
+        Equal("寻找机会", StoryChoiceLocalization.Localize("隙を窺う"));
+        Equal("那时，我注意到了圭一的视线",
+            StoryChoiceLocalization.Localize("その時、私は圭一の視線に気がついた"));
+        Equal("然后，我回头看向圭一",
+            StoryChoiceLocalization.Localize("そして私は、圭一に振り返った "));
+        Equal("Ａ．建议圭一要把人偶交给谁",
+            StoryChoiceLocalization.Localize("Ａ．圭一に人形を誰に渡すべきか助言した。"));
+        Equal("Ｂ．什么都不做，在旁边看着",
+            StoryChoiceLocalization.Localize("Ｂ．私は何もせず、成り行きを見守った。"));
+        Equal("未识别选项", StoryChoiceLocalization.Localize("未识别选项"));
     }
 
     private static void TimelineCopiesOnlyThroughCurrent()
