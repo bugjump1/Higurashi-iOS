@@ -42,6 +42,7 @@ internal static class Program
             OpeningChoiceLocalizationRecognizesEpisodeEight,
             BadEndingChoicesMatchOriginalFlows,
             StoryChoiceLocalizationCoversAllStoryBranches,
+            StoryChoiceResultMirrorsOriginalEngineFlags,
             MobileOptionNamesAreLocalized,
             BurikoTextContinuationFollowsPreviousMode,
             Episode02OperationCatalogNormalizesShiftedModCodes,
@@ -388,6 +389,19 @@ internal static class Program
         Equal("Ｂ．什么都不做，在旁边看着",
             StoryChoiceLocalization.Localize("Ｂ．私は何もせず、成り行きを見守った。"));
         Equal("未识别选项", StoryChoiceLocalization.Localize("未识别选项"));
+    }
+
+    private static void StoryChoiceResultMirrorsOriginalEngineFlags()
+    {
+        var memory = new BurikoMemory();
+
+        memory.SetChoiceResult(0);
+        Equal(0, memory.GetLocalFlag("SelectResult"));
+        Equal(0, memory.GetLocalFlag("LOCALWORK_NO_RESULT"));
+
+        memory.SetChoiceResult(1);
+        Equal(1, memory.GetLocalFlag("SelectResult"));
+        Equal(1, memory.GetLocalFlag("LOCALWORK_NO_RESULT"));
     }
 
     private static void BadEndingChoicesMatchOriginalFlows()

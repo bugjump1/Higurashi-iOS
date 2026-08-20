@@ -1419,7 +1419,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 return false;
             }
 
-            memory.SetLocalFlag("SelectResult", index);
+            memory.SetChoiceResult(index);
             Choices.Clear();
             return true;
         }

@@ -628,6 +628,11 @@ namespace Higurashi.IOS.Runtime
                 if (_tipsLibraryReturnCheckpoint != null &&
                     (_runtime.CallDepth <= _tipsLibraryReturnCallDepth ||
                      _host.TitleVisible ||
+                     // Some episode flows enter the chapter-opening preview
+                     // immediately after a content script returns. The PC
+                     // content browser must still regain control at that
+                     // boundary instead of exposing the opening screen.
+                     _host.ChapterPreviewVisible ||
                      _runtime.BlockReason == BurikoBlockReason.Completed))
                 {
                     RestoreCheckpoint(_tipsLibraryReturnCheckpoint);

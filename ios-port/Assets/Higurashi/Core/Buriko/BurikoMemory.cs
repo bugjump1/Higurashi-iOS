@@ -24,6 +24,14 @@ namespace Higurashi.IOS.Buriko
         public void SetGlobalFlag(string name, int value) => _globalFlags[name] = value;
         public void SetLocalFlag(string name, int value) => _localFlags[name] = value;
 
+        // The original engine mirrors a choice into both names. Different
+        // scripts use different names when reading the selected option.
+        public void SetChoiceResult(int index)
+        {
+            SetLocalFlag("SelectResult", index);
+            SetLocalFlag("LOCALWORK_NO_RESULT", index);
+        }
+
         public BurikoMemorySnapshot CaptureSnapshot()
         {
             var scopes = new Dictionary<string, MemoryObjectSnapshot>[_scopes.Count];
