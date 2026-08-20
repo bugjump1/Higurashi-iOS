@@ -76,6 +76,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         private int _tipsScope;
         private int _tipsPage;
         private int _selectedTipId = -1;
+        private bool _tipReturnRequested;
         private bool _tipReading;
         private int _tipsVisibleChapterOverride = -1;
         private Texture2D _tipsBackgroundTexture;
@@ -769,6 +770,14 @@ namespace Higurashi.IOS.Runtime.Buriko
                     DiscardPreparedLayerRange(5, 8);
                     return BurikoHostResponse.Continue;
                 case 89:
+                    if (_tipReading)
+                    {
+                        // Content scripts return into flow.txt. Some flows immediately
+                        // request the next chapter preview before yielding, so signal
+                        // the runtime here rather than rendering that preview for a frame.
+                        _tipReturnRequested = true;
+                        return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
+                    }
                     ChapterPreviewVisible = true;
                     _chapterPreviewAccepted = false;
                     _fragmentChapterVisible = false;
@@ -806,6 +815,11 @@ namespace Higurashi.IOS.Runtime.Buriko
                     SetWindowVisibilityImmediate(false);
                     return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
                 case 101:
+                    if (_tipReading)
+                    {
+                        _tipReturnRequested = true;
+                        return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
+                    }
                     TitleVisible = true;
                     ChapterPreviewVisible = false;
                     _fragmentChapterVisible = false;
@@ -1246,6 +1260,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             scriptName = tip.Script;
             _tipsListVisible = false;
             _selectedTipId = -1;
+            _tipReturnRequested = false;
             _tipReading = true;
             SavingEnabled = false;
             GameplayUiVisible = true;
@@ -1269,6 +1284,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             _tipsScope = 1;
             _tipsPage = 0;
             _selectedTipId = -1;
+            _tipReturnRequested = false;
             GameplayUiVisible = true;
             InterfaceEnabled = true;
             HistoryVisible = false;
@@ -1288,6 +1304,17 @@ namespace Higurashi.IOS.Runtime.Buriko
             _fragmentListVisible = false;
             _selectedFragmentId = -1;
             SetWindowVisibilityImmediate(false);
+            return true;
+        }
+
+        public bool ConsumeTipReturnRequest()
+        {
+            if (!_tipReturnRequested)
+            {
+                return false;
+            }
+
+            _tipReturnRequested = false;
             return true;
         }
 

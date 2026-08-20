@@ -626,7 +626,8 @@ namespace Higurashi.IOS.Runtime
                 }
 
                 if (_tipsLibraryReturnCheckpoint != null &&
-                    (_runtime.CallDepth <= _tipsLibraryReturnCallDepth ||
+                    (_host.ConsumeTipReturnRequest() ||
+                     _runtime.CallDepth <= _tipsLibraryReturnCallDepth ||
                      _host.TitleVisible ||
                      // Some episode flows enter the chapter-opening preview
                      // immediately after a content script returns. The PC
@@ -635,8 +636,11 @@ namespace Higurashi.IOS.Runtime
                      _host.ChapterPreviewVisible ||
                      _runtime.BlockReason == BurikoBlockReason.Completed))
                 {
+                    _fastTraversal.Stop();
+                    _autoMode = false;
                     RestoreCheckpoint(_tipsLibraryReturnCheckpoint);
                     _tipsLibraryReturnCheckpoint = null;
+                    _suppressInputUntilFrame = Time.frameCount + 2;
                     return;
                 }
 
