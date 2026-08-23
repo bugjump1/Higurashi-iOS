@@ -1064,6 +1064,7 @@ namespace Higurashi.IOS.Runtime
             if (FittedPcButton(new Rect(centerX + centerButtonWidth + centerGap, footerY,
                     centerButtonWidth, footerHeight), "保存与载入", 11))
             {
+                AutoSaveFragmentProgress("fragment-list-save-load");
                 _saveLoadVisible = true;
                 SuppressInput();
             }
@@ -1073,7 +1074,8 @@ namespace Higurashi.IOS.Runtime
                 HigurashiDiagnosticLog.Info("Fragment",
                     "Returning to title from fragment list page=" + page + " " +
                     RuntimeLocation());
-                ReturnToTitle();
+                AutoSaveFragmentProgress("fragment-list-return-title");
+                ReturnToTitle(autoSave: false);
             }
 
             var nextRect = new Rect(panel.xMax - 22f * scale - navWidth, footerY,

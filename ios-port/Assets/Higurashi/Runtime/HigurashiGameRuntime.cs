@@ -471,6 +471,10 @@ namespace Higurashi.IOS.Runtime
                 return false;
             }
 
+            if (_activeFragmentId > 0)
+            {
+                AutoSaveFragmentProgress("fragment-credits-complete-" + _activeFragmentId);
+            }
             _runtime.ResumeInput();
             _suppressInputUntilFrame = Time.frameCount + 2;
             DriveRuntime(false);
@@ -627,16 +631,23 @@ namespace Higurashi.IOS.Runtime
                     _runtime.RunUntilBlocked();
                 }
 
-                if (_activeFragmentId == 51 && _host.FragmentListVisible)
+                if (_activeFragmentId > 0 && _host.FragmentListVisible)
                 {
+                    var completedFragmentId = _activeFragmentId;
                     _activeFragmentId = -1;
-                    if (_runtime.Memory.GetLocalFlag("LFragment51NoticeShown") == 0)
+                    if (completedFragmentId == 51 &&
+                        _runtime.Memory.GetLocalFlag("LFragment51NoticeShown") == 0)
                     {
                         _runtime.Memory.SetLocalFlag("LFragment51NoticeShown", 1);
                         _fragment51ContinuationNoticeVisible = true;
                         HigurashiDiagnosticLog.Info("Fragment",
                             "Fragment 51 returned to list; continuation notice shown " +
                             RuntimeLocation());
+                    }
+                    if (_runtime.Memory.GetLocalFlag(
+                            HigurashiFragmentCatalog.FragmentReadFlag(completedFragmentId)) != 0)
+                    {
+                        AutoSaveFragmentProgress("fragment-complete-" + completedFragmentId);
                     }
                 }
 
@@ -646,6 +657,7 @@ namespace Higurashi.IOS.Runtime
                         _runtime.Memory.GetLocalFlag("LFragmentLoop"),
                         _runtime.CurrentScriptName))
                 {
+                    AutoSaveFragmentProgress("fragment-complete-50-story-continuation");
                     _activeFragmentId = -1;
                     HigurashiDiagnosticLog.Info("Fragment",
                         "Fragment 50 continued into _mats_009 " + RuntimeLocation());
@@ -1255,7 +1267,13 @@ namespace Higurashi.IOS.Runtime
 
         private void ExitFragmentList()
         {
-            if (_runtime == null || !_host.ExitFragmentList(_runtime.Memory))
+            if (_runtime == null || _host == null || !_host.FragmentListVisible)
+            {
+                return;
+            }
+
+            AutoSaveFragmentProgress("fragment-list-return-overview");
+            if (!_host.ExitFragmentList(_runtime.Memory))
             {
                 return;
             }
@@ -1269,6 +1287,28 @@ namespace Higurashi.IOS.Runtime
                 _runtime.Memory.GetLocalFlag("LFragmentRead") + " " + RuntimeLocation());
             DriveRuntime(false);
             CaptureDialogueCheckpoint();
+        }
+
+        private void AutoSaveFragmentProgress(string reason)
+        {
+            if (_runtime == null || _host == null ||
+                HigurashiActiveChapter.Profile.EpisodeNumber != 8)
+            {
+                return;
+            }
+
+            var surface = CurrentSaveSurface();
+            if (surface != SaveSurface.FragmentChapter &&
+                surface != SaveSurface.FragmentList &&
+                surface != SaveSurface.FragmentReading &&
+                surface != SaveSurface.Story)
+            {
+                return;
+            }
+
+            HigurashiDiagnosticLog.Info("AutoSave",
+                "Fragment progress save reason=" + reason + " " + RuntimeLocation());
+            SaveGame(FindOldestOrEmptySlot(201, 203), showToast: false);
         }
 
         private void StartSelectedFragment()
@@ -2234,14 +2274,17 @@ namespace Higurashi.IOS.Runtime
             _lastAutoSaveAt = Time.unscaledTime;
         }
 
-        private void ReturnToTitle()
+        private void ReturnToTitle(bool autoSave = true)
         {
             if (_titleCheckpoint == null)
             {
                 ShowToast("主菜单状态尚未准备完成");
                 return;
             }
-            MaybeAutoSave(true);
+            if (autoSave)
+            {
+                MaybeAutoSave(true);
+            }
             _host.StopAllAudio();
             _autoMode = false;
             _showHelpWhenGameplayStarts = false;
@@ -2297,7 +2340,8 @@ namespace Higurashi.IOS.Runtime
             text = (text ?? string.Empty).Replace('\n', ' ').Replace('\r', ' ').Trim();
             text = text.Length <= 80 ? text : text.Substring(0, 80) + "…";
             return fragmentProgress
-                ? "已解锁碎片\n" + (string.IsNullOrEmpty(text) ? "碎片编织中" : text)
+                ? "已阅读碎片 " + Math.Max(0, _runtime.Memory.GetLocalFlag("LFragmentRead")) +
+                  "个 " + (string.IsNullOrEmpty(text) ? "碎片编织中" : text)
                 : text;
         }
 
