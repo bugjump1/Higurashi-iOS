@@ -1349,11 +1349,10 @@ namespace Higurashi.IOS.Runtime
                 "参与人员", headingStyle);
 
             var credits = "翻译：990，麻生早纪\n" +
-                          "校对：枝瀬愛\n" +
-                          "程序：饭\n" +
+                          "校对：枝愛\n" +
+                          "程序：-饭-，qutezsy001\n" +
                           "润色：990，麻生早纪\n" +
-                          "特别鸣谢：蝉吧全体吧友\n" +
-                          "　　　　　DS，DB，GPT";
+                          "特别鸣谢：蝉吧全体吧友,DS,DB,GPT";
             var bodyRect = new Rect(content.x + marginX,
                 content.y + marginY + headingHeight + 4f * scale,
                 content.width * 0.64f,
