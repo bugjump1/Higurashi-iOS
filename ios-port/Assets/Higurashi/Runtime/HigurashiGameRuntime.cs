@@ -640,6 +640,22 @@ namespace Higurashi.IOS.Runtime
                     }
                 }
 
+                if (EpisodeEightFragmentContinuationPolicy.HasReachedStoryContinuation(
+                        HigurashiActiveChapter.Profile.EpisodeNumber,
+                        _activeFragmentId,
+                        _runtime.Memory.GetLocalFlag("LFragmentLoop"),
+                        _runtime.CurrentScriptName))
+                {
+                    _activeFragmentId = -1;
+                    HigurashiDiagnosticLog.Info("Fragment",
+                        "Fragment 50 continued into _mats_009 " + RuntimeLocation());
+                }
+
+                if (TryRecoverEpisodeEightFragmentContinuation())
+                {
+                    continue;
+                }
+
                 if (_tipsLibraryReturnCheckpoint != null &&
                     (_host.ConsumeTipReturnRequest() ||
                      _runtime.CallDepth <= _tipsLibraryReturnCallDepth ||
@@ -696,6 +712,36 @@ namespace Higurashi.IOS.Runtime
             _fastTraversal.Stop();
         }
 
+        private bool TryRecoverEpisodeEightFragmentContinuation()
+        {
+            if (_runtime == null || _host == null ||
+                !EpisodeEightFragmentContinuationPolicy.ShouldRecoverFromUnexpectedExit(
+                    HigurashiActiveChapter.Profile.EpisodeNumber,
+                    _activeFragmentId,
+                    _runtime.Memory.GetLocalFlag("LFragmentLoop"),
+                    _runtime.Memory.GetLocalFlag("FragmentRead51"),
+                    _host.TitleVisible,
+                    _runtime.BlockReason == BurikoBlockReason.Completed))
+            {
+                return false;
+            }
+
+            _fastTraversal.Stop();
+            _autoMode = false;
+            _activeFragmentId = -1;
+            _runtime.Memory.SetLocalFlag("TipsMode", 0);
+            _runtime.Memory.SetLocalFlag("s_jump",
+                EpisodeEightFragmentContinuationPolicy.ResumeStoryJumpValue);
+            _host.PrepareStoryContinuation();
+            _runtime.JumpToScriptSectionFromUi("flow", "Game");
+            _suppressInputUntilFrame = Time.frameCount + 2;
+            HigurashiDiagnosticLog.Warning("Fragment",
+                "Recovered fragment 50 continuation at flow.Game s_jump=" +
+                EpisodeEightFragmentContinuationPolicy.ResumeStoryJumpValue + " " +
+                RuntimeLocation());
+            return true;
+        }
+
         private void CaptureDialogueCheckpoint()
         {
             if (_runtime == null || _host == null ||
@@ -738,6 +784,7 @@ namespace Higurashi.IOS.Runtime
             {
                 _host.StopTransientAudio();
                 _runtime.ReadPersistentState(runtimeState);
+                RestoreLegacyEpisodeEightFragmentState();
                 _host.ApplySettings(_runtime.Memory);
                 _host.ReadPersistentState(presentationState, _runtime.Memory);
             }
@@ -1707,6 +1754,7 @@ namespace Higurashi.IOS.Runtime
                 // cannot leak into the restored scene.
                 _host.StopAllAudio();
                 _runtime.ReadPersistentState(stream);
+                RestoreLegacyEpisodeEightFragmentState();
                 // Art/audio choices are app-wide preferences. An older save
                 // restores story flags, but must not override Settings.
                 _host.ApplySettings(_runtime.Memory);
@@ -1716,6 +1764,20 @@ namespace Higurashi.IOS.Runtime
             HigurashiDiagnosticLog.Info("LoadIO",
                 "State restored file=" + Path.GetFileName(path) + " surface=" +
                 CurrentSaveSurface() + " " + RuntimeLocation());
+        }
+
+        private void RestoreLegacyEpisodeEightFragmentState()
+        {
+            if (_runtime == null ||
+                !EpisodeEightFragmentContinuationPolicy.RestoreMissingFragmentDefaults(
+                    HigurashiActiveChapter.Profile.EpisodeNumber, _runtime.Memory))
+            {
+                return;
+            }
+
+            HigurashiDiagnosticLog.Warning("Load",
+                "Restored missing init globals for a legacy EP08 fragment save " +
+                RuntimeLocation());
         }
 
         private bool IsRecoverableStorySaveState()

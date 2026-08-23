@@ -288,6 +288,27 @@ namespace Higurashi.IOS.Buriko
             LastError = null;
         }
 
+        public void JumpToScriptSectionFromUi(string scriptName, string sectionName)
+        {
+            if (_current == null)
+            {
+                throw new InvalidOperationException("Buriko runtime has not been started.");
+            }
+            if (string.IsNullOrWhiteSpace(scriptName))
+            {
+                throw new ArgumentException("A script name is required.", nameof(scriptName));
+            }
+            if (string.IsNullOrWhiteSpace(sectionName))
+            {
+                throw new ArgumentException("A section name is required.", nameof(sectionName));
+            }
+
+            JumpScript(scriptName, sectionName);
+            BlockReason = BurikoBlockReason.None;
+            _remainingWaitMilliseconds = 0;
+            LastError = null;
+        }
+
         public void AdvanceTime(int elapsedMilliseconds)
         {
             if (BlockReason != BurikoBlockReason.WaitForTime)

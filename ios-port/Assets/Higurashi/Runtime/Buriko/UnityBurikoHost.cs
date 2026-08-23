@@ -951,6 +951,28 @@ namespace Higurashi.IOS.Runtime.Buriko
             return true;
         }
 
+        public void PrepareStoryContinuation()
+        {
+            TitleVisible = false;
+            CreditsVisible = false;
+            CreditsPage = 0;
+            ChapterPreviewVisible = false;
+            _fragmentChapterVisible = false;
+            _fragmentListVisible = false;
+            _tipsChapterVisible = false;
+            _tipsListVisible = false;
+            _tipsLibraryStandalone = false;
+            _tipReading = false;
+            _selectedFragmentId = -1;
+            _selectedTipId = -1;
+            Choices.Clear();
+            HistoryVisible = false;
+            GameplayUiVisible = true;
+            SavingEnabled = true;
+            InterfaceEnabled = true;
+            SetWindowVisibilityImmediate(false);
+        }
+
         public void PrepareForChapterJump()
         {
             CommitPendingPresentation();

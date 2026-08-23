@@ -21,6 +21,7 @@ namespace Higurashi.IOS.Buriko
 
         public int GetGlobalFlag(string name) => GetFlag(_globalFlags, name);
         public int GetLocalFlag(string name) => GetFlag(_localFlags, name);
+        public bool HasGlobalFlag(string name) => _globalFlags.ContainsKey(name);
         public void SetGlobalFlag(string name, int value) => _globalFlags[name] = value;
         public void SetLocalFlag(string name, int value) => _localFlags[name] = value;
 

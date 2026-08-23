@@ -39,6 +39,8 @@ internal static class Program
             ChapterProfilesHaveWholeZipFingerprints,
             AllEpisodeChapterJumpMapsMatchOriginalFlows,
             EpisodeEightChapterProgressMapsToOriginalFlow,
+            EpisodeEightFragmentContinuationRecoversOnlyUnexpectedFinalExit,
+            EpisodeEightLegacyFragmentSaveRestoresMissingGlobals,
             OpeningChoiceLocalizationRecognizesEpisodeEight,
             BadEndingChoicesMatchOriginalFlows,
             StoryChoiceLocalizationCoversAllStoryBranches,
@@ -337,6 +339,55 @@ internal static class Program
                 episode, EpisodeChapterJumpMap.Token(episode, i), out var actual));
             Equal(expected[i], actual);
         }
+    }
+
+    private static void EpisodeEightFragmentContinuationRecoversOnlyUnexpectedFinalExit()
+    {
+        Equal(9, EpisodeEightFragmentContinuationPolicy.ResumeStoryJumpValue);
+        Equal(true, EpisodeEightFragmentContinuationPolicy.ShouldRecoverFromUnexpectedExit(
+            8, 50, 0, 1, true, false));
+        Equal(true, EpisodeEightFragmentContinuationPolicy.ShouldRecoverFromUnexpectedExit(
+            8, 50, 0, 1, false, true));
+        Equal(false, EpisodeEightFragmentContinuationPolicy.ShouldRecoverFromUnexpectedExit(
+            8, 50, 1, 1, true, false));
+        Equal(false, EpisodeEightFragmentContinuationPolicy.ShouldRecoverFromUnexpectedExit(
+            8, 50, 0, 0, true, false));
+        Equal(false, EpisodeEightFragmentContinuationPolicy.ShouldRecoverFromUnexpectedExit(
+            8, 51, 0, 1, true, false));
+        Equal(false, EpisodeEightFragmentContinuationPolicy.ShouldRecoverFromUnexpectedExit(
+            7, 50, 0, 1, true, false));
+        Equal(true, EpisodeEightFragmentContinuationPolicy.HasReachedStoryContinuation(
+            8, 50, 0, "_mats_009"));
+        Equal(false, EpisodeEightFragmentContinuationPolicy.HasReachedStoryContinuation(
+            8, 50, 0, "_mats_010"));
+        Equal(false, EpisodeEightFragmentContinuationPolicy.HasReachedStoryContinuation(
+            8, 50, 1, "_mats_009"));
+    }
+
+    private static void EpisodeEightLegacyFragmentSaveRestoresMissingGlobals()
+    {
+        var legacyFragmentMemory = new BurikoMemory();
+        legacyFragmentMemory.SetLocalFlag("LFragmentLoop", 1);
+
+        Equal(true, EpisodeEightFragmentContinuationPolicy.RestoreMissingFragmentDefaults(
+            8, legacyFragmentMemory));
+        Equal(1, legacyFragmentMemory.GetGlobalFlag("GADVMode"));
+        Equal(0, legacyFragmentMemory.GetGlobalFlag("GLinemodeSp"));
+        Equal(50, legacyFragmentMemory.GetGlobalFlag("GWindowOpacity"));
+        Equal(75, legacyFragmentMemory.GetGlobalFlag("GVoiceVolume"));
+        Equal(50, legacyFragmentMemory.GetGlobalFlag("GBGMVolume"));
+        Equal(50, legacyFragmentMemory.GetGlobalFlag("GSEVolume"));
+        Equal(0, legacyFragmentMemory.GetGlobalFlag("GLanguage"));
+        Equal(3, legacyFragmentMemory.GetGlobalFlag("GMOD_SETTING_LOADER"));
+
+        legacyFragmentMemory.SetGlobalFlag("GADVMode", 0);
+        Equal(false, EpisodeEightFragmentContinuationPolicy.RestoreMissingFragmentDefaults(
+            8, legacyFragmentMemory));
+
+        var anotherEpisodeMemory = new BurikoMemory();
+        anotherEpisodeMemory.SetLocalFlag("LFragmentLoop", 1);
+        Equal(false, EpisodeEightFragmentContinuationPolicy.RestoreMissingFragmentDefaults(
+            7, anotherEpisodeMemory));
     }
 
     private static void OpeningChoiceLocalizationRecognizesEpisodeEight()
@@ -866,14 +917,26 @@ internal static class Program
     {
         var init = BuildBytecode(writer =>
         {
-            WriteOperation(writer, 3, () =>
-            {
-                WriteReferenceValue(writer, "GReturnedFromFragment");
-                WriteIntValue(writer, 1);
-            });
+            WriteOperation(writer, 6, () => WriteStringValue(writer, "flow"));
+            writer.Write((short)0);
+        });
+        var flow = BuildBytecode(writer =>
+        {
+            WriteOperation(writer, 11, null);
+            WriteOperation(writer, 6, () => WriteStringValue(writer, "nextchapter"));
             writer.Write((short)0);
         });
         var fragment = BuildBytecode(writer =>
+        {
+            WriteOperation(writer, 6, () => WriteStringValue(writer, "fragment02"));
+            WriteOperation(writer, 2, () =>
+            {
+                WriteReferenceValue(writer, "LFragmentLoop");
+                WriteIntValue(writer, 0);
+            });
+            writer.Write((short)0);
+        });
+        var fragment02 = BuildBytecode(writer =>
         {
             WriteOperation(writer, 3, () =>
             {
@@ -882,18 +945,33 @@ internal static class Program
             });
             writer.Write((short)0);
         });
+        var nextChapter = BuildBytecode(writer =>
+        {
+            WriteOperation(writer, 3, () =>
+            {
+                WriteReferenceValue(writer, "GChapterSixReached");
+                WriteIntValue(writer, 1);
+            });
+            writer.Write((short)0);
+        });
 
         var runtime = new BurikoRuntime(
             new DictionaryScriptRepository(
                 ("init", WrapScript(init)),
-                ("fragment", WrapScript(fragment))),
+                ("flow", WrapScript(flow)),
+                ("fragment", WrapScript(fragment)),
+                ("fragment02", WrapScript(fragment02)),
+                ("nextchapter", WrapScript(nextChapter))),
             new CapturingHost());
         runtime.Start();
+        runtime.Memory.SetLocalFlag("LFragmentLoop", 1);
+        Equal(BurikoBlockReason.WaitForInput, runtime.RunUntilBlocked());
         runtime.CallScriptFromUi("fragment");
 
         Equal(BurikoBlockReason.Completed, runtime.RunUntilBlocked());
         Equal(1, runtime.Memory.GetGlobalFlag("GFragmentRead"));
-        Equal(1, runtime.Memory.GetGlobalFlag("GReturnedFromFragment"));
+        Equal(0, runtime.Memory.GetLocalFlag("LFragmentLoop"));
+        Equal(1, runtime.Memory.GetGlobalFlag("GChapterSixReached"));
     }
 
     private static void BurikoRuntimeSnapshotRestoresExecutionAndMemory()

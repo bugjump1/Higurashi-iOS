@@ -1923,6 +1923,8 @@ namespace Higurashi.IOS.Runtime
                     "画面适配：" + PresentationModeName(_settings.presentationMode), 13))
             {
                 _settings.presentationMode = (MobilePresentationMode)(((int)_settings.presentationMode + 1) % 3);
+                SaveSettings();
+                SuppressInput();
             }
             y += buttonHeight + 9f * scale;
             if (FittedPcButton(new Rect(x, y, width, buttonHeight),
