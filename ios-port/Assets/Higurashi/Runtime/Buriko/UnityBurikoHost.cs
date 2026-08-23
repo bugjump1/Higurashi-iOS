@@ -2852,12 +2852,14 @@ namespace Higurashi.IOS.Runtime.Buriko
                 var source = _artSets[i];
                 var spriteFolders = source.Folders;
                 var backgroundFolders = source.Folders;
-                if (string.Equals(source.DisplayName, "Remake", StringComparison.OrdinalIgnoreCase))
+                var isOriginal = i == _artSets.Count - 1 && _artSets.Count >= 3;
+                var isRemake = i == 1 && _artSets.Count >= 3;
+                if (isRemake)
                 {
                     // Console and Remake share the same background set.
                     backgroundFolders = console.Folders;
                 }
-                else if (string.Equals(source.DisplayName, "Original", StringComparison.OrdinalIgnoreCase))
+                else if (isOriginal)
                 {
                     spriteFolders = FoldersWithFallback(source.Folders, "OGSprites", "CG");
                     backgroundFolders = FoldersWithFallback(source.Folders, "OGBackgrounds", "CG");
@@ -2865,8 +2867,7 @@ namespace Higurashi.IOS.Runtime.Buriko
 
                 _spriteSets.Add(new RuntimePathCascade(source.NameEnglish,
                     source.NameAsian, spriteFolders));
-                if (i == 0 || string.Equals(source.DisplayName, "Original",
-                        StringComparison.OrdinalIgnoreCase))
+                if (i == 0 || isOriginal)
                 {
                     _backgroundSets.Add(new RuntimePathCascade(source.NameEnglish,
                         source.NameAsian, backgroundFolders));
