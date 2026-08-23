@@ -9,6 +9,12 @@ namespace Higurashi.IOS.Compatibility
             var text = (value ?? string.Empty).Trim();
             switch (text)
             {
+                case "Open the red box":
+                case "赤い箱を開ける":
+                    return "打开红色箱子";
+                case "Open the blue box":
+                case "青い箱を開ける":
+                    return "打开蓝色箱子";
                 case "Plead for my life":
                 case "命乞いをする":
                     return "向他求饶";

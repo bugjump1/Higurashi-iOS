@@ -72,6 +72,8 @@ namespace Higurashi.IOS.Runtime
         private bool _badEndingChoiceSelected;
         private bool _badEndingPlaybackActive;
         private bool _badEndingDecisionVisible;
+        private int _activeFragmentId = -1;
+        private bool _fragment51ContinuationNoticeVisible;
         private Vector2 _historyScroll;
         private bool _historyAutoScrollPending;
         private GUIStyle _dialogueStyle;
@@ -623,6 +625,19 @@ namespace Higurashi.IOS.Runtime
                 if (_runtime.BlockReason == BurikoBlockReason.None)
                 {
                     _runtime.RunUntilBlocked();
+                }
+
+                if (_activeFragmentId == 51 && _host.FragmentListVisible)
+                {
+                    _activeFragmentId = -1;
+                    if (_runtime.Memory.GetLocalFlag("LFragment51NoticeShown") == 0)
+                    {
+                        _runtime.Memory.SetLocalFlag("LFragment51NoticeShown", 1);
+                        _fragment51ContinuationNoticeVisible = true;
+                        HigurashiDiagnosticLog.Info("Fragment",
+                            "Fragment 51 returned to list; continuation notice shown " +
+                            RuntimeLocation());
+                    }
                 }
 
                 if (_tipsLibraryReturnCheckpoint != null &&
@@ -1211,11 +1226,14 @@ namespace Higurashi.IOS.Runtime
 
         private void StartSelectedFragment()
         {
+            var selectedFragmentId = _host == null ? -1 : _host.SelectedFragmentId;
             if (_runtime == null ||
                 !_host.TryStartSelectedFragment(_runtime.Memory, out var scriptName))
             {
                 return;
             }
+
+            _activeFragmentId = selectedFragmentId;
 
             _fastTraversal.Stop();
             _autoMode = false;

@@ -394,6 +394,10 @@ internal static class Program
 
     private static void StoryChoiceLocalizationCoversAllStoryBranches()
     {
+        Equal("打开红色箱子", StoryChoiceLocalization.Localize("Open the red box"));
+        Equal("打开蓝色箱子", StoryChoiceLocalization.Localize("Open the blue box"));
+        Equal("打开红色箱子", StoryChoiceLocalization.Localize("赤い箱を開ける"));
+        Equal("打开蓝色箱子", StoryChoiceLocalization.Localize("青い箱を開ける"));
         Equal("向他求饶", StoryChoiceLocalization.Localize("命乞いをする"));
         Equal("寻找机会", StoryChoiceLocalization.Localize("隙を窺う"));
         Equal("那时，我注意到了圭一的视线",

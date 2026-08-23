@@ -60,7 +60,8 @@ namespace Higurashi.IOS.Runtime
 
         private bool IsModalVisible =>
             _settingsVisible || _helpVisible || _systemMenuVisible || _saveLoadVisible ||
-            _extrasVisible || _chapterJumpVisible || _badEndingDecisionVisible;
+            _extrasVisible || _chapterJumpVisible || _badEndingDecisionVisible ||
+            _fragment51ContinuationNoticeVisible;
 
         private float UiScale => Mathf.Clamp(GetGuiSafeArea().height / 900f, 0.8f, 2.2f);
 
@@ -989,8 +990,9 @@ namespace Higurashi.IOS.Runtime
             DrawPcModalPanel(panel);
             DrawSectionHeader(panel, "碎片列表");
             var tutorialPending = PlayerPrefs.GetInt(FragmentTutorialSeenKey, 0) == 0;
+            var continuationNoticePending = _fragment51ContinuationNoticeVisible;
             var previousGuiEnabled = GUI.enabled;
-            if (tutorialPending)
+            if (tutorialPending || continuationNoticePending)
             {
                 GUI.enabled = false;
             }
@@ -1094,6 +1096,10 @@ namespace Higurashi.IOS.Runtime
             {
                 DrawFragmentTutorialIfNeeded();
             }
+            else if (continuationNoticePending)
+            {
+                DrawFragment51ContinuationNotice();
+            }
         }
 
         private void DrawFragmentEntry(Rect rect, HigurashiFragmentDefinition entry)
@@ -1182,6 +1188,32 @@ namespace Higurashi.IOS.Runtime
             {
                 PlayerPrefs.SetInt(FragmentTutorialSeenKey, 1);
                 PlayerPrefs.Save();
+                SuppressInput();
+            }
+        }
+
+        private void DrawFragment51ContinuationNotice()
+        {
+            if (!_fragment51ContinuationNoticeVisible)
+            {
+                return;
+            }
+
+            var safe = GetGuiSafeArea();
+            DrawModalShade(safe);
+            var scale = UiScale;
+            var panel = new Rect(safe.x + safe.width * 0.14f, safe.y + safe.height * 0.20f,
+                safe.width * 0.72f, safe.height * 0.60f);
+            DrawPcModalPanel(panel);
+            DrawSectionHeader(panel, "提示");
+            GUI.Label(new Rect(panel.x + 42f * scale, panel.y + 92f * scale,
+                panel.width - 84f * scale, panel.height - 185f * scale),
+                "请再次阅读‘碎片50 祭囃篇的碎片’，以继续正篇流程。",
+                _dialogueStyle);
+            if (PcButton(new Rect(panel.center.x - 160f * scale, panel.yMax - 58f * scale,
+                    320f * scale, 43f * scale), "我知道了", true))
+            {
+                _fragment51ContinuationNoticeVisible = false;
                 SuppressInput();
             }
         }
@@ -2551,6 +2583,7 @@ namespace Higurashi.IOS.Runtime
             _saveLoadVisible = false;
             _extrasVisible = false;
             _chapterJumpVisible = false;
+            _fragment51ContinuationNoticeVisible = false;
             _deleteConfirmSlot = -1;
             _returnTitleConfirm = false;
         }
