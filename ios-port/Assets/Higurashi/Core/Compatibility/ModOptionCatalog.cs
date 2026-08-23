@@ -14,6 +14,8 @@ namespace Higurashi.IOS.Compatibility
     public sealed class HigurashiUserSettings
     {
         public int artSetIndex = 0;
+        public int spriteStyleIndex = 0;
+        public int backgroundStyleIndex = 0;
         public int audioPresetIndex;
         public int censorshipLevel = 2;
         public int bgmVolume = 100;
@@ -27,6 +29,60 @@ namespace Higurashi.IOS.Compatibility
         public bool autoSave = true;
         public bool skipUnread;
         public MobilePresentationMode presentationMode = MobilePresentationMode.Fit;
+    }
+
+    public static class VisualStylePolicy
+    {
+        public const int ConsolePreset = 0;
+        public const int RemakePreset = 1;
+        public const int OriginalPreset = 2;
+        public const int CustomPreset = -1;
+
+        public static int PresetFor(int spriteStyleIndex, int backgroundStyleIndex)
+        {
+            if (spriteStyleIndex == ConsolePreset && backgroundStyleIndex == 0)
+            {
+                return ConsolePreset;
+            }
+            if (spriteStyleIndex == RemakePreset && backgroundStyleIndex == 0)
+            {
+                return RemakePreset;
+            }
+            if (spriteStyleIndex == OriginalPreset && backgroundStyleIndex == 1)
+            {
+                return OriginalPreset;
+            }
+            return CustomPreset;
+        }
+
+        public static void ApplyPreset(HigurashiUserSettings settings, int preset)
+        {
+            if (settings == null)
+            {
+                return;
+            }
+
+            switch (preset)
+            {
+                case ConsolePreset:
+                    settings.spriteStyleIndex = ConsolePreset;
+                    settings.backgroundStyleIndex = 0;
+                    break;
+                case RemakePreset:
+                    settings.spriteStyleIndex = RemakePreset;
+                    settings.backgroundStyleIndex = 0;
+                    break;
+                case OriginalPreset:
+                    settings.spriteStyleIndex = OriginalPreset;
+                    settings.backgroundStyleIndex = 1;
+                    break;
+                default:
+                    ApplyPreset(settings, ConsolePreset);
+                    break;
+            }
+
+            settings.artSetIndex = settings.spriteStyleIndex;
+        }
     }
 
     public sealed class PathCascadeDefinition

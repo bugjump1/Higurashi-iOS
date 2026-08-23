@@ -44,6 +44,7 @@ internal static class Program
             StoryChoiceLocalizationCoversAllStoryBranches,
             StoryChoiceResultMirrorsOriginalEngineFlags,
             MobileOptionNamesAreLocalized,
+            VisualStylePresetsStayConsistent,
             BurikoTextContinuationFollowsPreviousMode,
             Episode02OperationCatalogNormalizesShiftedModCodes,
             Episode03OperationCatalogNormalizesShiftedModCodes,
@@ -374,6 +375,21 @@ internal static class Program
         Equal("新版 BGM/SE", MobileOptionDisplayName.AudioSet("New BGM/SE"));
         Equal("GIN 版 BGM/SE", MobileOptionDisplayName.AudioSet("GIN's BGM/SE"));
         Equal("自定义", MobileOptionDisplayName.ArtSet("自定义"));
+    }
+
+    private static void VisualStylePresetsStayConsistent()
+    {
+        Equal(VisualStylePolicy.ConsolePreset, VisualStylePolicy.PresetFor(0, 0));
+        Equal(VisualStylePolicy.RemakePreset, VisualStylePolicy.PresetFor(1, 0));
+        Equal(VisualStylePolicy.OriginalPreset, VisualStylePolicy.PresetFor(2, 1));
+        Equal(VisualStylePolicy.CustomPreset, VisualStylePolicy.PresetFor(0, 1));
+        Equal(VisualStylePolicy.CustomPreset, VisualStylePolicy.PresetFor(2, 0));
+
+        var settings = new HigurashiUserSettings();
+        VisualStylePolicy.ApplyPreset(settings, VisualStylePolicy.OriginalPreset);
+        Equal(2, settings.spriteStyleIndex);
+        Equal(1, settings.backgroundStyleIndex);
+        Equal(2, settings.artSetIndex);
     }
 
     private static void StoryChoiceLocalizationCoversAllStoryBranches()

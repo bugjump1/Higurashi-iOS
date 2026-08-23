@@ -1414,6 +1414,17 @@ namespace Higurashi.IOS.Runtime
                     {
                         loaded.autoSave = true;
                     }
+                    if (json.IndexOf("\"spriteStyleIndex\"", StringComparison.Ordinal) < 0)
+                    {
+                        // Migrate the former combined art/background choice into
+                        // the new independent global style fields.
+                        loaded.spriteStyleIndex = Mathf.Clamp(loaded.artSetIndex, 0, 2);
+                        loaded.backgroundStyleIndex = loaded.spriteStyleIndex ==
+                            VisualStylePolicy.OriginalPreset ? 1 : 0;
+                    }
+                    loaded.spriteStyleIndex = Mathf.Clamp(loaded.spriteStyleIndex, 0, 2);
+                    loaded.backgroundStyleIndex = Mathf.Clamp(loaded.backgroundStyleIndex, 0, 1);
+                    loaded.artSetIndex = loaded.spriteStyleIndex;
                     return loaded;
                 }
             }

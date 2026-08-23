@@ -25,6 +25,8 @@ namespace Higurashi.IOS.Runtime.Buriko
         private const int PersistentLayerAnchorStateMagic = 0x39414848; // HHA9
         private const int PersistentTipReadingStateMagic = 0x31525448; // HTR1
         private readonly List<RuntimePathCascade> _artSets = new List<RuntimePathCascade>();
+        private readonly List<RuntimePathCascade> _spriteSets = new List<RuntimePathCascade>();
+        private readonly List<RuntimePathCascade> _backgroundSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _bgmSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _seSets = new List<RuntimePathCascade>();
         private readonly List<RuntimeAudioSet> _audioSets = new List<RuntimeAudioSet>();
@@ -148,6 +150,8 @@ namespace Higurashi.IOS.Runtime.Buriko
         public IReadOnlyList<PresentationLayer> PreviousSceneLayers => _previousSceneLayers;
         public IReadOnlyList<string> History => _history;
         public IReadOnlyList<RuntimePathCascade> ArtSets => _artSets;
+        public IReadOnlyList<RuntimePathCascade> SpriteSets => _spriteSets;
+        public IReadOnlyList<RuntimePathCascade> BackgroundSets => _backgroundSets;
         public IReadOnlyList<RuntimeAudioSet> AudioSets => _audioSets;
         public int FontSize { get; private set; } = 30;
         public int WindowX { get; private set; }
@@ -324,9 +328,13 @@ namespace Higurashi.IOS.Runtime.Buriko
                 return;
             }
 
-            var artIndex = ClampIndex(_settings.artSetIndex, _artSets.Count);
-            _settings.artSetIndex = artIndex;
-            memory.SetGlobalFlag("GArtStyle", artIndex);
+            RebuildVisualStyleCatalog();
+            var spriteIndex = ClampIndex(_settings.spriteStyleIndex, _spriteSets.Count);
+            var backgroundIndex = ClampIndex(_settings.backgroundStyleIndex, _backgroundSets.Count);
+            _settings.spriteStyleIndex = spriteIndex;
+            _settings.backgroundStyleIndex = backgroundIndex;
+            _settings.artSetIndex = spriteIndex;
+            memory.SetGlobalFlag("GArtStyle", spriteIndex);
             memory.SetGlobalFlag("GLipSync", _settings.lipSync ? 1 : 0);
             memory.SetGlobalFlag("GCensor", _settings.censorshipLevel);
 
@@ -525,7 +533,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                     _windowBackgroundName = Text(invocation, 0, memory);
                     _windowBackgroundTexture = string.IsNullOrWhiteSpace(_windowBackgroundName)
                         ? null
-                        : LoadTexture(_windowBackgroundName, memory);
+                        : LoadBackgroundTexture(_windowBackgroundName, memory);
                     return BurikoHostResponse.Continue;
                 case 24:
                     ShowChoices(invocation, memory);
@@ -792,7 +800,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 86:
                     _tipReading = false;
                     _tipsVisibleChapterOverride = -1;
-                    _tipsBackgroundTexture = LoadTexture("ex_tips", memory);
+                    _tipsBackgroundTexture = LoadBackgroundTexture("ex_tips", memory);
                     _tipsChapterVisible = false;
                     _tipsListVisible = true;
                     _tipsLibraryStandalone = false;
@@ -882,9 +890,12 @@ namespace Higurashi.IOS.Runtime.Buriko
                         "GHighestChapter" + Int(invocation, 0, memory)));
                 case 138:
                     AddCascade(_artSets, invocation, memory);
+                    RebuildVisualStyleCatalog();
                     return BurikoHostResponse.Continue;
                 case 139:
                     _artSets.Clear();
+                    _spriteSets.Clear();
+                    _backgroundSets.Clear();
                     return BurikoHostResponse.Continue;
                 case 142:
                     PlayBgm(invocation, memory, true);
@@ -1043,7 +1054,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             _selectedTipId = -1;
             _tipsVisibleChapterOverride = Math.Max(0, unlockedChapter);
             TitleVisible = false;
-            _tipsBackgroundTexture = LoadTexture("ex_tips", memory);
+            _tipsBackgroundTexture = LoadBackgroundTexture("ex_tips", memory);
             GameplayUiVisible = true;
             InterfaceEnabled = true;
             HistoryVisible = false;
@@ -1595,7 +1606,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             var backgroundChanged = !string.Equals(previous.BackgroundName, _backgroundName,
                 StringComparison.OrdinalIgnoreCase);
             _previousBackgroundTexture = backgroundChanged
-                ? LoadTexture(previous.BackgroundName, memory)
+                ? LoadBackgroundTexture(previous.BackgroundName, memory)
                 : null;
             _backgroundTransitionMask = null;
             _backgroundTransitionStartedAt = now;
@@ -1630,7 +1641,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 current.TransitionDuration = replayDuration;
                 if (!sameTexture)
                 {
-                    current.PreviousTexture = LoadTexture(old.TextureName, memory);
+                    current.PreviousTexture = LoadSpriteTexture(old.TextureName, memory);
                     current.PreviousX = old.X;
                     current.PreviousY = old.Y;
                     current.PreviousZ = old.Z;
@@ -1645,7 +1656,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             foreach (var pair in previousLayers)
             {
                 var old = pair.Value.CloneWithoutTexture();
-                old.Texture = LoadTexture(old.TextureName, memory);
+                old.Texture = LoadSpriteTexture(old.TextureName, memory);
                 if (old.Texture != null)
                 {
                     _previousSceneLayers.Add(old);
@@ -1831,7 +1842,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                     layer.FromZ = layer.Z;
                     layer.FromAlpha = layer.Alpha;
                     layer.IsCentered = layer.IsBustshot || (layer.X == 0 && layer.Y == 0);
-                    layer.Texture = LoadTexture(layer.TextureName, memory);
+                    layer.Texture = LoadSpriteTexture(layer.TextureName, memory);
                     _layers[layer.Id] = layer;
                 }
 
@@ -2044,16 +2055,16 @@ namespace Higurashi.IOS.Runtime.Buriko
             }
             HistoryVisible = false;
             MovieVisible = false;
-            _backgroundTexture = LoadTexture(_backgroundName, memory);
+            _backgroundTexture = LoadBackgroundTexture(_backgroundName, memory);
             _previousBackgroundTexture = null;
             _backgroundTransitionMask = null;
             _backgroundTransitionDuration = 0f;
             _fragmentTexture = string.IsNullOrWhiteSpace(_fragmentTextureName)
                 ? null
-                : LoadTexture(_fragmentTextureName, memory);
+                : LoadSpriteTexture(_fragmentTextureName, memory);
             _windowBackgroundTexture = string.IsNullOrWhiteSpace(_windowBackgroundName)
                 ? null
-                : LoadTexture(_windowBackgroundName, memory);
+                : LoadBackgroundTexture(_windowBackgroundName, memory);
             _fragmentStartedAt = Time.unscaledTime;
             _fragmentTransitionDuration = 0f;
             _fragmentTransitionFrom = _fragmentTexture != null ? 1f : 0f;
@@ -2135,7 +2146,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             WindowHeight = snapshot.WindowHeight;
             ScreenAspect = snapshot.ScreenAspect;
             _backgroundName = snapshot.BackgroundName;
-            _backgroundTexture = LoadTexture(_backgroundName, memory);
+            _backgroundTexture = LoadBackgroundTexture(_backgroundName, memory);
             _previousBackgroundTexture = null;
             _backgroundTransitionMask = null;
             _backgroundTransitionDuration = 0f;
@@ -2144,11 +2155,11 @@ namespace Higurashi.IOS.Runtime.Buriko
             _fragmentStyle = snapshot.FragmentStyle;
             _fragmentTexture = string.IsNullOrWhiteSpace(_fragmentTextureName)
                 ? null
-                : LoadTexture(_fragmentTextureName, memory);
+                : LoadSpriteTexture(_fragmentTextureName, memory);
             _windowBackgroundName = snapshot.WindowBackgroundName;
             _windowBackgroundTexture = string.IsNullOrWhiteSpace(_windowBackgroundName)
                 ? null
-                : LoadTexture(_windowBackgroundName, memory);
+                : LoadBackgroundTexture(_windowBackgroundName, memory);
             _fragmentStartedAt = Time.unscaledTime;
             _fragmentTransitionDuration = 0f;
             _fragmentTransitionFrom = _fragmentTexture != null ? 1f : 0f;
@@ -2171,23 +2182,23 @@ namespace Higurashi.IOS.Runtime.Buriko
             for (var i = 0; i < snapshot.Layers.Length; i++)
             {
                 var layer = snapshot.Layers[i].CloneWithoutTexture();
-                layer.Texture = LoadTexture(layer.TextureName, memory);
+                layer.Texture = LoadSpriteTexture(layer.TextureName, memory);
                 _layers[layer.Id] = layer;
             }
         }
 
         public void ReloadVisualAssets(BurikoMemory memory)
         {
-            _backgroundTexture = LoadTexture(_backgroundName, memory);
+            _backgroundTexture = LoadBackgroundTexture(_backgroundName, memory);
             _fragmentTexture = string.IsNullOrWhiteSpace(_fragmentTextureName)
                 ? null
-                : LoadTexture(_fragmentTextureName, memory);
+                : LoadSpriteTexture(_fragmentTextureName, memory);
             _windowBackgroundTexture = string.IsNullOrWhiteSpace(_windowBackgroundName)
                 ? null
-                : LoadTexture(_windowBackgroundName, memory);
+                : LoadBackgroundTexture(_windowBackgroundName, memory);
             foreach (var pair in _layers)
             {
-                pair.Value.Texture = LoadTexture(pair.Value.TextureName, memory);
+                pair.Value.Texture = LoadSpriteTexture(pair.Value.TextureName, memory);
             }
         }
 
@@ -2380,10 +2391,10 @@ namespace Higurashi.IOS.Runtime.Buriko
                 }
             }
 
-            var nextTexture = LoadTexture(textureName, memory);
+            var nextTexture = LoadBackgroundTexture(textureName, memory);
             _previousBackgroundTexture = duration > 0f ? _backgroundTexture : null;
             _backgroundTransitionMask = duration > 0f && !string.IsNullOrWhiteSpace(transitionMask)
-                ? LoadTexture(transitionMask, memory)
+                ? LoadBackgroundTexture(transitionMask, memory)
                 : null;
             _backgroundName = textureName;
             _backgroundTexture = nextTexture;
@@ -2474,7 +2485,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             {
                 Id = id,
                 TextureName = textureName,
-                Texture = LoadTexture(textureName, memory),
+                Texture = LoadSpriteTexture(textureName, memory),
                 X = x,
                 Y = y,
                 Z = z,
@@ -2575,7 +2586,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             if (!string.IsNullOrEmpty(textureName))
             {
                 layer.TextureName = textureName;
-                layer.Texture = LoadTexture(textureName, memory);
+                layer.Texture = LoadSpriteTexture(textureName, memory);
             }
         }
 
@@ -2789,25 +2800,104 @@ namespace Higurashi.IOS.Runtime.Buriko
                 if (!string.IsNullOrEmpty(textureName))
                 {
                     layer.TextureName = textureName;
-                    layer.Texture = LoadTexture(textureName, memory);
+                    layer.Texture = LoadSpriteTexture(textureName, memory);
                 }
             }
         }
 
         private Texture2D LoadTexture(string textureName, BurikoMemory memory)
         {
+            return LoadSpriteTexture(textureName, memory);
+        }
+
+        private Texture2D LoadSpriteTexture(string textureName, BurikoMemory memory)
+        {
+            return LoadTextureFromSet(textureName, memory, _spriteSets,
+                _settings == null ? 0 : _settings.spriteStyleIndex, "CG");
+        }
+
+        private Texture2D LoadBackgroundTexture(string textureName, BurikoMemory memory)
+        {
+            return LoadTextureFromSet(textureName, memory, _backgroundSets,
+                _settings == null ? 0 : _settings.backgroundStyleIndex, "CG");
+        }
+
+        private Texture2D LoadTextureFromSet(string textureName, BurikoMemory memory,
+            List<RuntimePathCascade> sets, int index, string fallback)
+        {
             if (string.IsNullOrWhiteSpace(textureName) || _assets == null)
             {
                 return null;
             }
 
-            var index = ClampIndex(memory.GetGlobalFlag("GArtStyle"), _artSets.Count);
-            var folders = _artSets.Count == 0
-                ? new[] { "CG" }
-                : _artSets[index].Folders;
+            var selected = ClampIndex(index, sets.Count);
+            var folders = sets.Count == 0 ? new[] { fallback } : sets[selected].Folders;
             // GLanguage 0 is the installed Chinese script set.  The un-suffixed
             // textures are localized; the optional _j files are Japanese.
             return _assets.LoadTexture(textureName, folders, preferAsianVariant: false);
+        }
+
+        private void RebuildVisualStyleCatalog()
+        {
+            _spriteSets.Clear();
+            _backgroundSets.Clear();
+            if (_artSets.Count == 0)
+            {
+                return;
+            }
+
+            var console = _artSets[0];
+            for (var i = 0; i < _artSets.Count; i++)
+            {
+                var source = _artSets[i];
+                var spriteFolders = source.Folders;
+                var backgroundFolders = source.Folders;
+                if (string.Equals(source.DisplayName, "Remake", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Console and Remake share the same background set.
+                    backgroundFolders = console.Folders;
+                }
+                else if (string.Equals(source.DisplayName, "Original", StringComparison.OrdinalIgnoreCase))
+                {
+                    spriteFolders = FoldersWithFallback(source.Folders, "OGSprites", "CG");
+                    backgroundFolders = FoldersWithFallback(source.Folders, "OGBackgrounds", "CG");
+                }
+
+                _spriteSets.Add(new RuntimePathCascade(source.NameEnglish,
+                    source.NameAsian, spriteFolders));
+                if (i == 0 || string.Equals(source.DisplayName, "Original",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    _backgroundSets.Add(new RuntimePathCascade(source.NameEnglish,
+                        source.NameAsian, backgroundFolders));
+                }
+            }
+        }
+
+        private static string[] FoldersWithFallback(string[] folders, string preferred,
+            string fallback)
+        {
+            var result = new List<string>(2);
+            if (folders != null)
+            {
+                for (var i = 0; i < folders.Length; i++)
+                {
+                    if (string.Equals(folders[i], preferred, StringComparison.OrdinalIgnoreCase))
+                    {
+                        result.Add(folders[i]);
+                        break;
+                    }
+                }
+            }
+            if (result.Count == 0)
+            {
+                result.Add(fallback);
+            }
+            else if (!string.Equals(result[0], fallback, StringComparison.OrdinalIgnoreCase))
+            {
+                result.Add(fallback);
+            }
+            return result.ToArray();
         }
 
         private void UpdateLipSync()
@@ -2838,11 +2928,11 @@ namespace Higurashi.IOS.Runtime.Buriko
                 }
 
                 var textureName = layer.LipSyncBaseName + targetFrame;
-                var texture = LoadTexture(textureName, _memory);
+                var texture = LoadSpriteTexture(textureName, _memory);
                 if (texture == null && targetFrame != 0)
                 {
                     textureName = layer.LipSyncBaseName + "0";
-                    texture = LoadTexture(textureName, _memory);
+                    texture = LoadSpriteTexture(textureName, _memory);
                 }
                 if (texture != null)
                 {
@@ -2867,7 +2957,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                     continue;
                 }
                 var textureName = layer.LipSyncBaseName + "0";
-                var texture = LoadTexture(textureName, _memory);
+                var texture = LoadSpriteTexture(textureName, _memory);
                 if (texture != null)
                 {
                     layer.TextureName = textureName;

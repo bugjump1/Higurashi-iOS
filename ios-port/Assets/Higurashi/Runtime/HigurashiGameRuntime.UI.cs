@@ -1817,7 +1817,7 @@ namespace Higurashi.IOS.Runtime
             var contentBottom = panel.yMax - 66f * scale;
             var viewport = new Rect(innerX, contentTop, innerWidth,
                 Mathf.Max(80f * scale, contentBottom - contentTop));
-            var leftContentHeight = 6f * buttonHeight + 5f * 9f * scale;
+            var leftContentHeight = 8f * buttonHeight + 7f * 9f * scale;
             var rightContentHeight = 6f * 66f * scale;
             var contentHeight = Mathf.Max(viewport.height,
                 Mathf.Max(leftContentHeight, rightContentHeight) + 8f * scale);
@@ -1827,15 +1827,51 @@ namespace Higurashi.IOS.Runtime
 
             var x = 0f;
             var y = 0f;
-            var artName = _host.ArtSets.Count == 0
-                ? "CG"
+            var preset = VisualStylePolicy.PresetFor(
+                _settings.spriteStyleIndex, _settings.backgroundStyleIndex);
+            var presetName = preset < 0
+                ? "自定义"
                 : MobileOptionDisplayName.ArtSet(
-                    _host.ArtSets[Mathf.Clamp(_settings.artSetIndex, 0, _host.ArtSets.Count - 1)]
-                        .DisplayName);
-            if (FittedPcButton(new Rect(x, y, width, buttonHeight), "立绘与背景：" + artName, 13))
+                    preset == VisualStylePolicy.ConsolePreset ? "Console" :
+                    preset == VisualStylePolicy.RemakePreset ? "Remake" : "Original");
+            if (FittedPcButton(new Rect(x, y, width, buttonHeight),
+                    "风格预设：" + presetName, 13))
             {
-                _settings.artSetIndex = Next(_settings.artSetIndex, _host.ArtSets.Count);
+                var nextPreset = preset < 0 ? VisualStylePolicy.ConsolePreset :
+                    (preset + 1) % 3;
+                VisualStylePolicy.ApplyPreset(_settings, nextPreset);
                 _host.ApplySettings(_runtime.Memory);
+                SaveSettings();
+            }
+            y += buttonHeight + 9f * scale;
+
+            var spriteName = _host.SpriteSets.Count == 0
+                ? "主机版"
+                : MobileOptionDisplayName.ArtSet(_host.SpriteSets[
+                    Mathf.Clamp(_settings.spriteStyleIndex, 0, _host.SpriteSets.Count - 1)]
+                    .DisplayName);
+            if (FittedPcButton(new Rect(x, y, width, buttonHeight),
+                    "立绘风格：" + spriteName, 13,
+                    "立绘风格\n" + spriteName))
+            {
+                _settings.spriteStyleIndex = Next(_settings.spriteStyleIndex,
+                    _host.SpriteSets.Count);
+                _settings.artSetIndex = _settings.spriteStyleIndex;
+                _host.ApplySettings(_runtime.Memory);
+                SaveSettings();
+            }
+            y += buttonHeight + 9f * scale;
+
+            var backgroundName = _settings.backgroundStyleIndex == 0
+                ? "主机版/重制版背景"
+                : "原版背景";
+            if (FittedPcButton(new Rect(x, y, width, buttonHeight),
+                    "背景风格：" + backgroundName, 13,
+                    "背景风格\n" + backgroundName))
+            {
+                _settings.backgroundStyleIndex = (_settings.backgroundStyleIndex + 1) % 2;
+                _host.ApplySettings(_runtime.Memory);
+                SaveSettings();
             }
             y += buttonHeight + 9f * scale;
 
