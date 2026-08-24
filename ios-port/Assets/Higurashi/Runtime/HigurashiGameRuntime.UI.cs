@@ -1030,9 +1030,16 @@ namespace Higurashi.IOS.Runtime
                 panel.width - 44f * scale, footerY - gridY - gridHeight - 26f * scale);
             DrawFragmentDetails(info);
 
-            var navWidth = Mathf.Min(142f * scale, panel.width * 0.18f);
-            if (page > 0 && PcButton(new Rect(panel.x + 22f * scale, footerY,
-                    navWidth, footerHeight), "上一页", true))
+            var sideInset = 22f * scale;
+            var sideGap = 12f * scale;
+            var desiredNavWidth = Mathf.Min(142f * scale, panel.width * 0.18f);
+            var minimumCenterWidth = 3f * 82f * scale + 2f * 6f * scale;
+            var maximumNavWidth = (panel.width - sideInset * 2f - sideGap * 2f - minimumCenterWidth) * 0.5f;
+            var navWidth = Mathf.Min(desiredNavWidth, Mathf.Max(1f, maximumNavWidth));
+            var previousRect = new Rect(panel.x + sideInset, footerY, navWidth, footerHeight);
+            var nextRect = new Rect(panel.xMax - sideInset - navWidth, footerY,
+                navWidth, footerHeight);
+            if (page > 0 && PcButton(previousRect, "上一页", true))
             {
                 _host.ChangeFragmentPage(-1, _runtime.Memory);
                 HigurashiDiagnosticLog.Info("Fragment",
@@ -1042,20 +1049,22 @@ namespace Higurashi.IOS.Runtime
             }
             else if (page == 0)
             {
-                DrawDisabledPcButton(new Rect(panel.x + 22f * scale, footerY,
-                    navWidth, footerHeight), "上一页", true);
+                DrawDisabledPcButton(previousRect, "上一页", true);
             }
 
-            GUI.Label(new Rect(panel.center.x - 60f * scale, footerY - 25f * scale,
-                120f * scale, 24f * scale),
-                (page + 1).ToString() + " / " + pageCount.ToString(), _panelTitleStyle);
-            var centerAvailable = Mathf.Max(260f * scale,
-                panel.width - navWidth * 2f - 92f * scale);
-            var centerGap = 8f * scale;
-            var centerButtonWidth = Mathf.Min(145f * scale,
-                (centerAvailable - centerGap * 2f) / 3f);
+            var centerLeft = previousRect.xMax + sideGap;
+            var centerRight = nextRect.xMin - sideGap;
+            var centerWidth = Mathf.Max(1f, centerRight - centerLeft);
+            var centerGap = Mathf.Min(8f * scale, centerWidth / 12f);
+            var centerButtonWidth = Mathf.Max(1f,
+                (centerWidth - centerGap * 2f) / 3f);
             var centerGroupWidth = centerButtonWidth * 3f + centerGap * 2f;
-            var centerX = panel.center.x - centerGroupWidth * 0.5f;
+            var centerX = centerLeft + (centerWidth - centerGroupWidth) * 0.5f;
+            var pageHeight = Mathf.Max(20f, 24f * scale);
+            var pageGap = Mathf.Max(5f, 7f * scale);
+            GUI.Label(new Rect(centerLeft, footerY - pageHeight - pageGap,
+                centerWidth, pageHeight),
+                (page + 1).ToString() + " / " + pageCount.ToString(), _panelTitleStyle);
             if (FittedPcButton(new Rect(centerX, footerY,
                     centerButtonWidth, footerHeight), "返回总览", 11))
             {
@@ -1078,8 +1087,6 @@ namespace Higurashi.IOS.Runtime
                 ReturnToTitle(autoSave: false);
             }
 
-            var nextRect = new Rect(panel.xMax - 22f * scale - navWidth, footerY,
-                navWidth, footerHeight);
             if (page < pageCount - 1 && PcButton(nextRect, "下一页", true))
             {
                 _host.ChangeFragmentPage(1, _runtime.Memory);
