@@ -631,6 +631,11 @@ namespace Higurashi.IOS.Runtime
                     _runtime.RunUntilBlocked();
                 }
 
+                if (TryRestoreTipsLibraryBeforeFlowTransition())
+                {
+                    return;
+                }
+
                 if (_activeFragmentId > 0 && _host.FragmentListVisible)
                 {
                     var completedFragmentId = _activeFragmentId;
@@ -751,6 +756,30 @@ namespace Higurashi.IOS.Runtime
                 "Recovered fragment 50 continuation at flow.Game s_jump=" +
                 EpisodeEightFragmentContinuationPolicy.ResumeStoryJumpValue + " " +
                 RuntimeLocation());
+            return true;
+        }
+
+        private bool TryRestoreTipsLibraryBeforeFlowTransition()
+        {
+            if (_tipsLibraryReturnCheckpoint == null || _runtime == null ||
+                _host == null || !_host.TipReading ||
+                !string.Equals(_runtime.CurrentScriptName, "flow",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            // Some TIPS scripts end with a direct JumpScriptSection("flow",
+            // "Title") instead of returning through the normal ViewTips path.
+            // Restore before flow.Title can execute its opening waits and render
+            // a one-frame chapter-opening screen.
+            _fastTraversal.Stop();
+            _autoMode = false;
+            RestoreCheckpoint(_tipsLibraryReturnCheckpoint);
+            _tipsLibraryReturnCheckpoint = null;
+            _suppressInputUntilFrame = Time.frameCount + 2;
+            HigurashiDiagnosticLog.Info("TIPS",
+                "Restored TIPS list before flow transition " + RuntimeLocation());
             return true;
         }
 
