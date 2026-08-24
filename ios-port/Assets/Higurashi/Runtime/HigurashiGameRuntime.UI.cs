@@ -43,6 +43,7 @@ namespace Higurashi.IOS.Runtime
         private Texture2D _creditsSeriesLogo;
         private Texture2D _creditsChapterTitle;
         private Material _maskedTransitionMaterial;
+        private Material _negativeMaterial;
         private Font _uiFont;
         private float _styledForHeight;
         private string _toast = string.Empty;
@@ -324,13 +325,17 @@ namespace Higurashi.IOS.Runtime
 
         private void DrawBackgroundTexture(Rect content, Texture texture, float alpha)
         {
+            GetBackgroundGeometry(content, texture, out var destination, out var source);
+            var negativeStrength = _host == null ? 0f : _host.NegativeFilmStrength;
+            if (negativeStrength > 0.0001f)
+            {
+                DrawTextureWithNegative(destination, texture, source, alpha, negativeStrength);
+                return;
+            }
+
             var previous = GUI.color;
             GUI.color = new Color(1f, 1f, 1f, Mathf.Clamp01(alpha));
-            GUI.DrawTexture(content, texture,
-                _settings.presentationMode == MobilePresentationMode.Fill
-                    ? ScaleMode.ScaleAndCrop
-                    : ScaleMode.ScaleToFit,
-                true);
+            GUI.DrawTextureWithTexCoords(destination, texture, source, true);
             GUI.color = previous;
         }
 
@@ -356,7 +361,7 @@ namespace Higurashi.IOS.Runtime
             source = new Rect(0f, 0f, 1f, 1f);
         }
 
-        private static void DrawPresentationTexture(Rect content, Texture2D texture,
+        private void DrawPresentationTexture(Rect content, Texture2D texture,
             float layerX, float layerY, float layerZ, float alpha, bool centered, float screenScale,
             bool cropTransparentEdges = false, int overrideWidth = 0, int overrideHeight = 0)
         {
@@ -390,7 +395,12 @@ namespace Higurashi.IOS.Runtime
             if (ClipTextureToBounds(content, ref destination, ref source))
             {
                 var wasClipped = !ApproximatelyEqual(originalDestination, destination);
-                if (!cropTransparentEdges && !wasClipped)
+                var negativeStrength = _host == null ? 0f : _host.NegativeFilmStrength;
+                if (negativeStrength > 0.0001f)
+                {
+                    DrawTextureWithNegative(destination, texture, source, alpha, negativeStrength);
+                }
+                else if (!cropTransparentEdges && !wasClipped)
                 {
                     GUI.DrawTexture(destination, texture, ScaleMode.StretchToFill, true);
                 }
@@ -482,6 +492,32 @@ namespace Higurashi.IOS.Runtime
                 StringComparison.OrdinalIgnoreCase);
         }
 
+        private void DrawTextureWithNegative(Rect destination, Texture texture, Rect source,
+            float alpha, float negativeStrength)
+        {
+            if (_negativeMaterial == null)
+            {
+                var shader = Resources.Load<Shader>("HigurashiNegative");
+                if (shader != null)
+                {
+                    _negativeMaterial = new Material(shader);
+                }
+            }
+
+            if (_negativeMaterial == null)
+            {
+                var previous = GUI.color;
+                GUI.color = new Color(1f, 1f, 1f, Mathf.Clamp01(alpha));
+                GUI.DrawTextureWithTexCoords(destination, texture, source, true);
+                GUI.color = previous;
+                return;
+            }
+
+            _negativeMaterial.SetFloat("_Strength", Mathf.Clamp01(negativeStrength));
+            Graphics.DrawTexture(destination, texture, source, 0, 0, 0, 0,
+                new Color(1f, 1f, 1f, Mathf.Clamp01(alpha)), _negativeMaterial);
+        }
+
         private void DrawMaskedTexture(Rect destination, Texture texture, Texture mask, Rect source,
             float progress, float fuzziness, float alpha)
         {
@@ -506,6 +542,8 @@ namespace Higurashi.IOS.Runtime
             _maskedTransitionMaterial.SetTexture("_MaskTex", mask);
             _maskedTransitionMaterial.SetFloat("_Progress", Mathf.Clamp01(progress));
             _maskedTransitionMaterial.SetFloat("_Fuzziness", Mathf.Max(0.001f, fuzziness));
+            _maskedTransitionMaterial.SetFloat("_NegativeStrength",
+                _host == null ? 0f : _host.NegativeFilmStrength);
             Graphics.DrawTexture(destination, texture, source, 0, 0, 0, 0,
                 new Color(1f, 1f, 1f, Mathf.Clamp01(alpha)), _maskedTransitionMaterial);
         }

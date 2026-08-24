@@ -23,6 +23,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         private const int PersistentTipsUiStateMagic = 0x37544848; // HHT7
         private const int PersistentLastVoiceStateMagic = 0x38564848; // HHV8
         private const int PersistentLayerAnchorStateMagic = 0x39414848; // HHA9
+        private const int PersistentFilmStateMagic = 0x31464848; // HHF1
         private const int PersistentTipReadingStateMagic = 0x31525448; // HTR1
         private readonly List<RuntimePathCascade> _artSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _spriteSets = new List<RuntimePathCascade>();
@@ -63,6 +64,10 @@ namespace Higurashi.IOS.Runtime.Buriko
         private float _windowTransitionDuration;
         private float _windowTransitionFrom = 1f;
         private float _windowTransitionTo = 1f;
+        private float _filmTransitionStartedAt;
+        private float _filmTransitionDuration;
+        private float _filmStrength;
+        private float _filmTargetStrength;
         private Texture2D _fragmentTexture;
         private string _fragmentTextureName = string.Empty;
         private string _fragmentStyle = string.Empty;
@@ -142,6 +147,19 @@ namespace Higurashi.IOS.Runtime.Buriko
                 var progress = Mathf.Clamp01((Time.unscaledTime - _backgroundTransitionStartedAt) /
                                              _backgroundTransitionDuration);
                 return progress >= 1f ? 1f : 1f - Mathf.Pow(2f, -10f * progress);
+            }
+        }
+        public float NegativeFilmStrength
+        {
+            get
+            {
+                if (_filmTransitionDuration <= 0f)
+                {
+                    return Mathf.Clamp01(_filmTargetStrength);
+                }
+                var progress = Mathf.Clamp01((Time.unscaledTime - _filmTransitionStartedAt) /
+                                             _filmTransitionDuration);
+                return Mathf.Lerp(_filmStrength, _filmTargetStrength, progress);
             }
         }
         public Texture MovieTexture => _videoPlayer != null ? _videoPlayer.texture : null;
@@ -412,10 +430,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 74:
                 case 75:
                 case 76:
-                case 77:
                 case 78:
                 case 81:
-                case 82:
                 case 83:
                 case 84:
                 case 106:
@@ -760,10 +776,22 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 69:
                     ReportApproximated(invocation);
                     return BurikoHostResponse.Continue;
+                case 77:
+                {
+                    var duration = Int(invocation, 0, memory) / 1000f;
+                    StartFilmTransition(0f, duration);
+                    return AnimationResponse(duration, invocation.Arguments[1].AsBool(memory));
+                }
                 case 79:
                     FadeLayerRange(1, 19, Int(invocation, 0, memory) / 1000f);
                     DiscardPreparedLayerRange(1, 19);
                     return BurikoHostResponse.Continue;
+                case 82:
+                {
+                    var duration = Int(invocation, 0, memory) / 1000f;
+                    StartFilmTransition(255f / 256f, duration);
+                    return AnimationResponse(duration, invocation.Arguments[1].AsBool(memory));
+                }
                 case 80:
                     FadeLayerWithMask(Int(invocation, 0, memory), Text(invocation, 1, memory),
                         Int(invocation, 2, memory), Int(invocation, 6, memory) / 1000f, memory);
@@ -1619,7 +1647,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                 ScreenAspect,
                 _fragmentTextureName,
                 _fragmentStyle,
-                _windowBackgroundName);
+                _windowBackgroundName,
+                NegativeFilmStrength);
         }
 
         public void ReplayRestoredCheckpointAnimations(
@@ -1702,6 +1731,9 @@ namespace Higurashi.IOS.Runtime.Buriko
                 _backgroundTransitionStartedAt = now;
                 _backgroundTransitionDuration = replayDuration;
             }
+
+            StartFilmTransitionFrom(previous.NegativeFilmStrength, NegativeFilmStrength,
+                replayDuration);
         }
 
         public void WritePersistentState(Stream output)
@@ -1803,6 +1835,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                 writer.Write(PersistentTipReadingStateMagic);
                 writer.Write(_tipReading);
                 writer.Write(_tipsVisibleChapterOverride);
+                writer.Write(PersistentFilmStateMagic);
+                writer.Write(NegativeFilmStrength);
             }
         }
 
@@ -1811,6 +1845,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             var hasPersistedUiState = false;
             var hasPersistedAppendState = false;
             var hasPersistedBgmState = false;
+            var hasPersistedFilmState = false;
+            var persistedFilmStrength = 0f;
             var persistedBgmState = Array.Empty<RuntimeBgmState>();
             _fragmentTextureName = string.Empty;
             _fragmentStyle = string.Empty;
@@ -2071,6 +2107,20 @@ namespace Higurashi.IOS.Runtime.Buriko
                         input.Position = tipReadingTailPosition;
                     }
                 }
+
+                if (input.CanSeek && input.Length - input.Position >= sizeof(int) + sizeof(float))
+                {
+                    var filmTailPosition = input.Position;
+                    if (reader.ReadInt32() == PersistentFilmStateMagic)
+                    {
+                        persistedFilmStrength = Mathf.Clamp01(reader.ReadSingle());
+                        hasPersistedFilmState = true;
+                    }
+                    else
+                    {
+                        input.Position = filmTailPosition;
+                    }
+                }
             }
 
             CreditsVisible = false;
@@ -2104,6 +2154,10 @@ namespace Higurashi.IOS.Runtime.Buriko
             _fragmentTransitionFrom = _fragmentTexture != null ? 1f : 0f;
             _fragmentTransitionTo = _fragmentTransitionFrom;
             _blockingAnimationUntil = 0f;
+            StartFilmTransitionFrom(
+                hasPersistedFilmState ? persistedFilmStrength : 0f,
+                hasPersistedFilmState ? persistedFilmStrength : 0f,
+                0f);
             _previousSceneLayers.Clear();
             _dialogueRevealForced = true;
             if (!hasPersistedAppendState)
@@ -2185,6 +2239,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             _backgroundTransitionMask = null;
             _backgroundTransitionDuration = 0f;
             _blockingAnimationUntil = 0f;
+            StartFilmTransitionFrom(snapshot.NegativeFilmStrength,
+                snapshot.NegativeFilmStrength, 0f);
             _fragmentTextureName = snapshot.FragmentTextureName;
             _fragmentStyle = snapshot.FragmentStyle;
             _fragmentTexture = string.IsNullOrWhiteSpace(_fragmentTextureName)
@@ -3058,6 +3114,32 @@ namespace Higurashi.IOS.Runtime.Buriko
             return new BurikoHostResponse(BurikoValue.FromInt(value ? 1 : 0));
         }
 
+        private void StartFilmTransition(float targetStrength, float duration)
+        {
+            var currentStrength = NegativeFilmStrength;
+            _filmStrength = currentStrength;
+            _filmTargetStrength = Mathf.Clamp01(targetStrength);
+            _filmTransitionStartedAt = Time.unscaledTime;
+            _filmTransitionDuration = Mathf.Max(0f, duration);
+            if (_filmTransitionDuration <= 0f)
+            {
+                _filmStrength = _filmTargetStrength;
+            }
+        }
+
+        private void StartFilmTransitionFrom(float currentStrength, float targetStrength,
+            float duration)
+        {
+            _filmStrength = Mathf.Clamp01(currentStrength);
+            _filmTargetStrength = Mathf.Clamp01(targetStrength);
+            _filmTransitionStartedAt = Time.unscaledTime;
+            _filmTransitionDuration = Mathf.Max(0f, duration);
+            if (_filmTransitionDuration <= 0f)
+            {
+                _filmStrength = _filmTargetStrength;
+            }
+        }
+
         private BurikoHostResponse AnimationResponse(float duration, bool blocking)
         {
             if (!blocking || duration <= 0f)
@@ -3444,7 +3526,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             string screenAspect,
             string fragmentTextureName,
             string fragmentStyle,
-            string windowBackgroundName)
+            string windowBackgroundName,
+            float negativeFilmStrength)
         {
             BackgroundName = backgroundName;
             Layers = layers;
@@ -3478,6 +3561,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             FragmentTextureName = fragmentTextureName ?? string.Empty;
             FragmentStyle = fragmentStyle ?? string.Empty;
             WindowBackgroundName = windowBackgroundName ?? string.Empty;
+            NegativeFilmStrength = Mathf.Clamp01(negativeFilmStrength);
         }
 
         public string BackgroundName { get; }
@@ -3512,6 +3596,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         public string FragmentTextureName { get; }
         public string FragmentStyle { get; }
         public string WindowBackgroundName { get; }
+        public float NegativeFilmStrength { get; }
     }
 
     internal enum HigurashiFragmentViewState

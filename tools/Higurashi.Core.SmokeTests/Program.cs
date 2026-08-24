@@ -56,6 +56,7 @@ internal static class Program
             Episode06OperationCatalogNormalizesShiftedCodes,
             Episode07OperationCatalogNormalizesShiftedCodes,
             Episode08OperationCatalogNormalizesFragmentCodes,
+            NegativeFilmOperationsRemainAvailableForAllEpisodes,
             BurikoRuntimeExecutesDialogueAndFlags,
             BurikoRuntimeCommitsPresentationAtWaitBoundaries,
             BurikoRuntimeCallsAndReturnsFromScript,
@@ -86,6 +87,45 @@ internal static class Program
         Equal(NovelInputAction.Advance, Frame(input, 0.1, false, P(1, 502, 301, PointerPhase.Ended)));
     }
 
+    private static void NegativeFilmOperationsRemainAvailableForAllEpisodes()
+    {
+        for (var episode = 1; episode <= 8; episode++)
+        {
+            BurikoOperationCatalog.ConfigureForEpisode(episode);
+            BurikoOperationSpecification negative = default;
+            BurikoOperationSpecification fadeFilm = default;
+            var foundNegative = false;
+            var foundFadeFilm = false;
+            for (short rawCode = 0; rawCode < 256; rawCode++)
+            {
+                try
+                {
+                    var specification = BurikoOperationCatalog.Get(rawCode);
+                    if (specification.Name == "Negative")
+                    {
+                        negative = specification;
+                        foundNegative = true;
+                    }
+                    else if (specification.Name == "FadeFilm")
+                    {
+                        fadeFilm = specification;
+                        foundFadeFilm = true;
+                    }
+                }
+                catch (ArgumentOutOfRangeException)
+                {
+                    // Sparse operation tables contain unused raw codes.
+                }
+            }
+            True(foundNegative);
+            Equal("Negative", negative.Name);
+            Equal("ib", negative.Signature);
+            True(foundFadeFilm);
+            Equal("FadeFilm", fadeFilm.Name);
+            Equal("ib", fadeFilm.Signature);
+        }
+        BurikoOperationCatalog.ConfigureForEpisode(1);
+    }
     private static void Episode02OperationCatalogNormalizesShiftedModCodes()
     {
         BurikoOperationCatalog.ConfigureForEpisode(2);
