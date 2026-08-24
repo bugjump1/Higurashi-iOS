@@ -7,28 +7,26 @@ namespace Higurashi.IOS.Compatibility
     {
         private static readonly string[] Episode01Sections =
         {
-            "Day1", "Day2", "Day3", "Day4", "Day5", "Day9", "Day9_2", "Day10",
-            "Day11", "Day12", "Day13", "Day14", "Day14_2", "Day15", "Day15_2", "Day15_3"
+            "Day1", "Day2", "Day3", "Day4", "Day5", "Day9_2",
+            "Day10", "Day11", "Day12", "Day13", "Day14_2", "Day15"
         };
 
         private static readonly string[] Episode02Sections =
         {
-            "Day1", "Day2", "Day3", "Day4", "Day5", "Day6", "Day7", "Day8",
-            "Day9", "Day9_2", "Day10", "Day10_2", "Day10_3", "Day10_4", "Day11",
-            "Day11_2", "Day12", "Day12_2", "Day12_3"
+            "Day1", "Day2", "Day3", "Day4", "Day5", "Day7",
+            "Day8", "Day9_2", "Day10_2", "Day10_4", "Day11_2", "Day12"
         };
 
         private static readonly string[] Episode03Sections =
         {
-            "Day1", "Day2", "Day3", "Day4", "Day5", "Day8", "Day8_2", "Day9",
-            "Day9_2", "Day10", "Day10_2", "Day10_3", "Day10_4", "Day11", "Day11_2",
-            "Day11_3", "Day12", "Day13", "Day13_2", "Day14"
+            "Day1", "Day2", "Day3", "Day4", "Day5", "Day8",
+            "Day9", "Day10_2", "Day10_4", "Day11_3", "Day12",
+            "Day13_2", "Day14"
         };
 
         private static readonly string[] Episode04Sections =
         {
-            "Day1", "Day2", "Day2_2", "Day2_3", "Day3", "Day3_2", "Day3_3",
-            "Day3_4", "Day3_5", "Day4"
+            "Day1", "Day2", "Day2_3", "Day3", "Day3_4", "Day4"
         };
 
         // Original flow scripts use these non-contiguous s_jump values as chapter starts.

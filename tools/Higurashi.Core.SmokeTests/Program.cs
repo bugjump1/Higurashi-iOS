@@ -308,7 +308,7 @@ internal static class Program
 
     private static void AllEpisodeChapterJumpMapsMatchOriginalFlows()
     {
-        var expectedCounts = new[] { 0, 16, 19, 20, 10, 14, 13, 12, 10 };
+        var expectedCounts = new[] { 0, 12, 12, 13, 6, 14, 13, 12, 10 };
         for (var episode = 1; episode <= 8; episode++)
         {
             Equal(expectedCounts[episode], EpisodeChapterJumpMap.Count(episode));
@@ -320,14 +320,34 @@ internal static class Program
         }
 
         Equal("Day1", EpisodeChapterJumpMap.Token(1, 0));
-        Equal("Day15_3", EpisodeChapterJumpMap.Token(1, 15));
-        Equal("Day12_3", EpisodeChapterJumpMap.Token(2, 18));
-        Equal("Day14", EpisodeChapterJumpMap.Token(3, 19));
-        Equal("Day4", EpisodeChapterJumpMap.Token(4, 9));
+        Equal("Day15", EpisodeChapterJumpMap.Token(1, 11));
+        Equal("Day12", EpisodeChapterJumpMap.Token(2, 11));
+        Equal("Day14", EpisodeChapterJumpMap.Token(3, 12));
+        Equal("Day4", EpisodeChapterJumpMap.Token(4, 5));
+        Equal("Day3", EpisodeChapterJumpMap.Token(4, 3));
+        Equal("Day3_4", EpisodeChapterJumpMap.Token(4, 4));
+        Equal(false, ContainsToken(4, "Day2_2"));
+        Equal(false, ContainsToken(4, "Day3_2"));
+        Equal(false, ContainsToken(4, "Day3_3"));
+        Equal(false, ContainsToken(4, "Day3_5"));
 
         AssertFlowJumpValues(5, new[] { 1, 2, 4, 6, 8, 10, 12, 14, 15, 17, 19, 21, 23, 25 });
         AssertFlowJumpValues(6, new[] { 1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24 });
         AssertFlowJumpValues(7, new[] { 1, 2, 3, 6, 9, 11, 13, 15, 17, 19, 21, 25 });
+    }
+
+    private static bool ContainsToken(int episode, string token)
+    {
+        for (var chapter = 0; chapter < EpisodeChapterJumpMap.Count(episode); chapter++)
+        {
+            if (string.Equals(EpisodeChapterJumpMap.Token(episode, chapter), token,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static void AssertFlowJumpValues(int episode, int[] expected)
