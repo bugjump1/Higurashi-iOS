@@ -167,6 +167,7 @@ namespace Higurashi.IOS.Runtime
         {
             Application.targetFrameRate = 60;
             Screen.sleepTimeout = SleepTimeout.NeverSleep;
+            ApplyLandscapeOrientation();
             HigurashiDiagnosticLog.Initialize(Application.persistentDataPath);
             _settings = LoadSettings();
             _touchInput = gameObject.AddComponent<TouchInputBehaviour>();
@@ -182,6 +183,22 @@ namespace Higurashi.IOS.Runtime
             }
         }
 
+        private void OnApplicationFocus(bool hasFocus)
+        {
+            if (hasFocus)
+            {
+                ApplyLandscapeOrientation();
+            }
+        }
+
+        private static void ApplyLandscapeOrientation()
+        {
+            Screen.autorotateToPortrait = false;
+            Screen.autorotateToPortraitUpsideDown = false;
+            Screen.autorotateToLandscapeLeft = true;
+            Screen.autorotateToLandscapeRight = true;
+            Screen.orientation = ScreenOrientation.AutoRotation;
+        }
         private void OnDestroy()
         {
             if (_touchInput != null)

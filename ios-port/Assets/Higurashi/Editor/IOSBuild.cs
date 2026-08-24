@@ -90,7 +90,9 @@ namespace Higurashi.IOS.Editor
             PlayerSettings.SetScriptingBackend(NamedBuildTarget.iOS, ScriptingImplementation.IL2CPP);
             PlayerSettings.SetManagedStrippingLevel(NamedBuildTarget.iOS, ManagedStrippingLevel.Low);
             PlayerSettings.statusBarHidden = true;
-            PlayerSettings.defaultInterfaceOrientation = UIOrientation.AutoRotation;
+            // Launch in landscape and expose only the two landscape orientations
+            // to iOS. Portrait remains disabled for every device target.
+            PlayerSettings.defaultInterfaceOrientation = UIOrientation.LandscapeLeft;
             PlayerSettings.allowedAutorotateToPortrait = false;
             PlayerSettings.allowedAutorotateToPortraitUpsideDown = false;
             PlayerSettings.allowedAutorotateToLandscapeLeft = true;
