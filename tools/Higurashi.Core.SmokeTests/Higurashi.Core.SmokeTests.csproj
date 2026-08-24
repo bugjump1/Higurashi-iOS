@@ -22,6 +22,7 @@
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Compatibility\EpisodeEightFragmentContinuationPolicy.cs" Link="Core\EpisodeEightFragmentContinuationPolicy.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Compatibility\OpeningChoicePolicy.cs" Link="Core\OpeningChoicePolicy.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Compatibility\ConsoleChoiceMenuPolicy.cs" Link="Core\ConsoleChoiceMenuPolicy.cs" />
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Compatibility\AspectFitLayout.cs" Link="Core\AspectFitLayout.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Compatibility\BadEndingChoicePolicy.cs" Link="Core\BadEndingChoicePolicy.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Compatibility\StoryChoiceLocalization.cs" Link="Core\StoryChoiceLocalization.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Compatibility\MobileOptionDisplayName.cs" Link="Core\MobileOptionDisplayName.cs" />

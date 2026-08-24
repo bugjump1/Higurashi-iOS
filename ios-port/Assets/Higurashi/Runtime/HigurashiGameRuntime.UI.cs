@@ -2918,22 +2918,28 @@ namespace Higurashi.IOS.Runtime
         private Rect GetContentRect()
         {
             var safe = GetGuiSafeArea();
-            if (_settings.presentationMode == MobilePresentationMode.Fill ||
-                _settings.presentationMode == MobilePresentationMode.Fit)
+            if (_settings.presentationMode == MobilePresentationMode.Fill)
             {
                 return safe;
             }
 
-            const float ratio = 4f / 3f;
-            var width = safe.width;
-            var height = width / ratio;
-            if (height > safe.height)
+            var ratio = _settings.presentationMode == MobilePresentationMode.OriginalFourByThree
+                ? 4f / 3f
+                : GetPresentationAspect();
+            var fitted = AspectFitLayout.Fit(
+                safe.x, safe.y, safe.width, safe.height, ratio);
+            return new Rect(fitted.X, fitted.Y, fitted.Width, fitted.Height);
+        }
+
+        private float GetPresentationAspect()
+        {
+            var texture = _host.BackgroundTexture ?? _host.PreviousBackgroundTexture;
+            if (texture != null && texture.height > 0)
             {
-                height = safe.height;
-                width = height * ratio;
+                return (float)texture.width / texture.height;
             }
-            return new Rect(safe.x + (safe.width - width) * 0.5f,
-                safe.y + (safe.height - height) * 0.5f, width, height);
+
+            return ParseAspect(_host.ScreenAspect);
         }
 
         private void EnsureStyles()
