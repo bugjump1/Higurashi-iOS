@@ -2224,14 +2224,21 @@ namespace Higurashi.IOS.Runtime.Buriko
         public void ReloadVisualAssets(BurikoMemory memory)
         {
             _backgroundTexture = LoadBackgroundTexture(_backgroundName, memory);
+            _previousBackgroundTexture = null;
+            _backgroundTransitionDuration = 0f;
             _fragmentTexture = string.IsNullOrWhiteSpace(_fragmentTextureName)
                 ? null
                 : LoadSpriteTexture(_fragmentTextureName, memory);
             _windowBackgroundTexture = string.IsNullOrWhiteSpace(_windowBackgroundName)
                 ? null
                 : LoadBackgroundTexture(_windowBackgroundName, memory);
+
+            // A style change is an immediate presentation replacement. Do not
+            // keep a previous-style transition texture or scene-layer snapshot.
+            _previousSceneLayers.Clear();
             foreach (var pair in _layers)
             {
+                pair.Value.CompleteTransition();
                 pair.Value.Texture = LoadSpriteTexture(pair.Value.TextureName, memory);
             }
         }
@@ -2892,20 +2899,15 @@ namespace Higurashi.IOS.Runtime.Buriko
             for (var i = 0; i < _artSets.Count; i++)
             {
                 var source = _artSets[i];
-                var spriteFolders = source.Folders;
-                var backgroundFolders = source.Folders;
                 var isOriginal = i == _artSets.Count - 1 && _artSets.Count >= 3;
                 var isRemake = i == 1 && _artSets.Count >= 3;
-                if (isRemake)
-                {
-                    // Console and Remake share the same background set.
-                    backgroundFolders = console.Folders;
-                }
-                else if (isOriginal)
-                {
-                    spriteFolders = FoldersWithFallback(source.Folders, "OGSprites", "CG");
-                    backgroundFolders = FoldersWithFallback(source.Folders, "OGBackgrounds", "CG");
-                }
+                var spriteFolders = VisualStyleFolderPolicy.SpriteFoldersFor(
+                    i, _artSets.Count, source.Folders);
+                var backgroundFolders = isOriginal
+                    ? VisualStyleFolderPolicy.BackgroundFoldersFor(
+                        1, _artSets.Count, source.Folders)
+                    : VisualStyleFolderPolicy.BackgroundFoldersFor(
+                        0, _artSets.Count, console.Folders);
 
                 _spriteSets.Add(new RuntimePathCascade(source.NameEnglish,
                     source.NameAsian, spriteFolders));
@@ -2915,32 +2917,6 @@ namespace Higurashi.IOS.Runtime.Buriko
                         source.NameAsian, backgroundFolders));
                 }
             }
-        }
-
-        private static string[] FoldersWithFallback(string[] folders, string preferred,
-            string fallback)
-        {
-            var result = new List<string>(2);
-            if (folders != null)
-            {
-                for (var i = 0; i < folders.Length; i++)
-                {
-                    if (string.Equals(folders[i], preferred, StringComparison.OrdinalIgnoreCase))
-                    {
-                        result.Add(folders[i]);
-                        break;
-                    }
-                }
-            }
-            if (result.Count == 0)
-            {
-                result.Add(fallback);
-            }
-            else if (!string.Equals(result[0], fallback, StringComparison.OrdinalIgnoreCase))
-            {
-                result.Add(fallback);
-            }
-            return result.ToArray();
         }
 
         private void UpdateLipSync()
