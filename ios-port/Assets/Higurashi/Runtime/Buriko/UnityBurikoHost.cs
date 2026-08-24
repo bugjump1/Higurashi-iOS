@@ -976,6 +976,17 @@ namespace Higurashi.IOS.Runtime.Buriko
         public void PrepareForChapterJump()
         {
             CommitPendingPresentation();
+            // A chapter jump leaves the title screen and starts a new script
+            // scene. Do not let the title background or its transition state
+            // remain visible until the first background command is executed.
+            _backgroundName = string.Empty;
+            _backgroundTexture = null;
+            _previousBackgroundTexture = null;
+            _backgroundTransitionMask = null;
+            _backgroundTransitionStartedAt = Time.unscaledTime;
+            _backgroundTransitionDuration = 0f;
+            _previousSceneLayers.Clear();
+            _layers.Clear();
             TitleVisible = false;
             ChapterPreviewVisible = false;
             _fragmentChapterVisible = false;
