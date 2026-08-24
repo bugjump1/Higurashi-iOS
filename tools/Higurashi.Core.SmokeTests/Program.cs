@@ -42,6 +42,7 @@ internal static class Program
             EpisodeEightFragmentContinuationRecoversOnlyUnexpectedFinalExit,
             EpisodeEightLegacyFragmentSaveRestoresMissingGlobals,
             OpeningChoiceLocalizationRecognizesEpisodeEight,
+            ConsoleChoiceMenuLocalizationAndClassification,
             BadEndingChoicesMatchOriginalFlows,
             StoryChoiceLocalizationCoversAllStoryBranches,
             StoryChoiceResultMirrorsOriginalEngineFlags,
@@ -480,6 +481,28 @@ internal static class Program
         Equal("Ｂ．什么都不做，在旁边看着",
             StoryChoiceLocalization.Localize("Ｂ．私は何もせず、成り行きを見守った。"));
         Equal("未识别选项", StoryChoiceLocalization.Localize("未识别选项"));
+    }
+
+    private static void ConsoleChoiceMenuLocalizationAndClassification()
+    {
+        Equal("不要不要，我只想要好结局", ConsoleChoiceMenuPolicy.Localize(
+            "Skip additional choices. Show only content from PC version"));
+        Equal("我就是想看到坏选项", ConsoleChoiceMenuPolicy.Localize(
+            "コンソール版に追加した選択を見せます"));
+        Equal("可以哦，但请标记下正确选项", ConsoleChoiceMenuPolicy.Localize(
+            "Prompt choices and highlight correct answers"));
+        True(ConsoleChoiceMenuPolicy.IsConsoleChoicePrompt(
+            "This arc includes choices that were added in the console version."));
+        True(ConsoleChoiceMenuPolicy.IsConsoleChoiceMenu("无关提示", new[]
+        {
+            "不要不要，我只想要好结局",
+            "我就是想看到坏选项",
+            "可以哦，但请标记下正确选项"
+        }));
+        Equal(false, ConsoleChoiceMenuPolicy.IsConsoleChoiceMenu("你要怎么做？", new[]
+        {
+            "打开红色箱子", "打开蓝色箱子", "向他求饶"
+        }));
     }
 
     private static void StoryChoiceResultMirrorsOriginalEngineFlags()

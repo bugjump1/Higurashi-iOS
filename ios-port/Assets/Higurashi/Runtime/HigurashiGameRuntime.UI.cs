@@ -2024,6 +2024,10 @@ namespace Higurashi.IOS.Runtime
 
         private void DrawChoices()
         {
+            if (TryDrawConsoleChoiceOverlay())
+            {
+                return;
+            }
             if (TryDrawScriptedChoiceOverlay())
             {
                 return;
@@ -2068,6 +2072,81 @@ namespace Higurashi.IOS.Runtime
                 }
                 y += choiceHeights[i] + 10f * scale;
             }
+        }
+
+        private bool TryDrawConsoleChoiceOverlay()
+        {
+            if (!_host.IsConsoleChoiceMenu)
+            {
+                return false;
+            }
+
+            PresentationLayer layer = null;
+            foreach (var pair in _host.Layers)
+            {
+                var candidate = pair.Value;
+                if (candidate.Texture == null || string.IsNullOrEmpty(candidate.TextureName) ||
+                    !candidate.TextureName.StartsWith("3choices", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                layer = candidate;
+                break;
+            }
+            if (layer == null)
+            {
+                return false;
+            }
+
+            var content = GetContentRect();
+            var layerRect = GetPresentationLayerRect(content, layer);
+            if (layerRect.width <= 0f || layerRect.height <= 0f)
+            {
+                return false;
+            }
+
+            var normalizedBands = new[]
+            {
+                new Rect(351f / 1920f, 320f / 1080f, 1201f / 1920f, 71f / 1080f),
+                new Rect(351f / 1920f, 427f / 1080f, 1201f / 1920f, 71f / 1080f),
+                new Rect(351f / 1920f, 534f / 1080f, 1201f / 1920f, 71f / 1080f)
+            };
+            var textScale = Mathf.Clamp(_settings != null ? _settings.textScale : 100, 80, 150) / 100f;
+            var labelStyle = new GUIStyle(_pcButtonStyle)
+            {
+                normal = { background = _transparent },
+                hover = { background = _transparent },
+                active = { background = _transparent },
+                focused = { background = _transparent },
+                wordWrap = true,
+                clipping = TextClipping.Clip,
+                fontSize = Mathf.RoundToInt(Mathf.Clamp(content.height * 0.030f * textScale, 18f, 48f)),
+                padding = new RectOffset(6, 6, 2, 2)
+            };
+            var hitPadding = Mathf.Max(14f, content.height / 480f * 16f);
+            for (var i = 0; i < normalizedBands.Length; i++)
+            {
+                var band = normalizedBands[i];
+                var visible = new Rect(
+                    layerRect.x + layerRect.width * band.x,
+                    layerRect.y + layerRect.height * band.y,
+                    layerRect.width * band.width,
+                    layerRect.height * band.height);
+                visible = ClipRect(visible, content);
+                if (visible.width <= 0f || visible.height <= 0f)
+                {
+                    continue;
+                }
+
+                var hit = ClipRect(new Rect(visible.x, visible.y - hitPadding,
+                    visible.width, visible.height + hitPadding * 2f), content);
+                if (GUI.Button(hit, GUIContent.none, GUIStyle.none))
+                {
+                    SelectChoice(i);
+                }
+                DrawShadowLabel(visible, _host.Choices[i], labelStyle);
+            }
+            return true;
         }
 
         private bool TryDrawScriptedChoiceOverlay()

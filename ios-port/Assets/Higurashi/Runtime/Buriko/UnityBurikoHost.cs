@@ -197,6 +197,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             }
         }
         public bool IsOpeningChoice => OpeningChoicePolicy.IsOpeningChoice(Dialogue, Choices);
+        public bool IsConsoleChoiceMenu => ConsoleChoiceMenuPolicy.IsConsoleChoiceMenu(Dialogue, Choices);
         public bool IsDialogueRevealComplete => VisibleDialogueLength >= Dialogue.Length;
         public string VisibleDialogue => Dialogue.Substring(0, VisibleDialogueLength);
         public float WindowOpacity
@@ -2278,10 +2279,16 @@ namespace Higurashi.IOS.Runtime.Buriko
                 Dialogue = text;
             }
             var openingPrompt = OpeningChoicePolicy.IsOpeningPrompt(Dialogue);
+            var consoleChoicePrompt = ConsoleChoiceMenuPolicy.IsConsoleChoicePrompt(Dialogue);
             if (openingPrompt)
             {
                 Speaker = string.Empty;
                 Dialogue = OpeningChoicePolicy.LocalizedPrompt;
+            }
+            else if (consoleChoicePrompt)
+            {
+                Speaker = string.Empty;
+                Dialogue = ConsoleChoiceMenuPolicy.LocalizedPrompt;
             }
             SetWindowVisibilityImmediate(true);
             if (!appendToInProgressReveal)
@@ -2294,7 +2301,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             DialogueSerial++;
             // OpeningQuestion immediately follows this prompt with Select. Keeping
             // Line_Normal blocked leaves a blank-looking screen until an extra tap.
-            var waitsForInput = (textMode == 0 || textMode == 2) && !openingPrompt;
+            var waitsForInput = (textMode == 0 || textMode == 2) &&
+                                !openingPrompt && !consoleChoicePrompt;
             if (waitsForInput && _chapterPreviewAccepted)
             {
                 GameplayUiVisible = true;
@@ -2334,8 +2342,9 @@ namespace Higurashi.IOS.Runtime.Buriko
 
             for (var i = 0; i < count; i++)
             {
-                Choices.Add(StoryChoiceLocalization.Localize(
-                    memory.Get(new BurikoReference(reference.Name, i)).AsString(memory)));
+                var choice = memory.Get(new BurikoReference(reference.Name, i)).AsString(memory);
+                Choices.Add(ConsoleChoiceMenuPolicy.Localize(
+                    StoryChoiceLocalization.Localize(choice)));
             }
 
             if (OpeningChoicePolicy.IsOpeningChoice(Dialogue, Choices))

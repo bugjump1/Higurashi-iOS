@@ -864,7 +864,7 @@ namespace Higurashi.IOS.Runtime
         private void CaptureStoryChoiceCheckpointIfNeeded()
         {
             if (_runtime == null || _host == null || !_host.ChoiceVisible ||
-                _host.IsOpeningChoice || !_host.GameplayUiVisible ||
+                _host.IsOpeningChoice || _host.IsConsoleChoiceMenu || !_host.GameplayUiVisible ||
                 !_host.SavingEnabled || !_host.InterfaceEnabled ||
                 _runtime.BlockReason != BurikoBlockReason.Choice)
             {
