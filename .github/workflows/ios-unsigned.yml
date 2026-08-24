@@ -111,9 +111,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ios-port/Library
-          key: unity-library-ios-${{ hashFiles('ios-port/ProjectSettings/ProjectVersion.txt', 'ios-port/Packages/manifest.json', 'ios-port/Assets/**') }}
-          restore-keys: |
-            unity-library-ios-
+          # UnityLinker/IL2CPP caches are version-sensitive. Do not restore a
+          # cache from another Unity version or from an unrelated project state.
+          key: unity-library-ios-v2-6000.0.65f1-${{ hashFiles('ios-port/ProjectSettings/ProjectVersion.txt', 'ios-port/Packages/manifest.json', 'ios-port/Assets/**') }}
 
       - name: Export iOS Xcode project
         uses: game-ci/unity-builder@v4
