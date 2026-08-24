@@ -2839,14 +2839,13 @@ namespace Higurashi.IOS.Runtime
         private Rect GetContentRect()
         {
             var safe = GetGuiSafeArea();
-            if (_settings.presentationMode == MobilePresentationMode.Fill)
+            if (_settings.presentationMode == MobilePresentationMode.Fill ||
+                _settings.presentationMode == MobilePresentationMode.Fit)
             {
                 return safe;
             }
 
-            var ratio = _settings.presentationMode == MobilePresentationMode.OriginalFourByThree
-                ? 4f / 3f
-                : ParseAspect(_host.ScreenAspect);
+            const float ratio = 4f / 3f;
             var width = safe.width;
             var height = width / ratio;
             if (height > safe.height)
