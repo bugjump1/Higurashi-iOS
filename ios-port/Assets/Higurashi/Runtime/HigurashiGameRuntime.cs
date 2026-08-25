@@ -663,6 +663,7 @@ namespace Higurashi.IOS.Runtime
         {
             for (var boundaryCount = 0; boundaryCount < 1000; boundaryCount++)
             {
+                var completedFragmentId = -1;
                 if (_runtime.BlockReason == BurikoBlockReason.None)
                 {
                     _runtime.RunUntilBlocked();
@@ -675,7 +676,7 @@ namespace Higurashi.IOS.Runtime
 
                 if (_activeFragmentId > 0 && _host.FragmentListVisible)
                 {
-                    var completedFragmentId = _activeFragmentId;
+                    completedFragmentId = _activeFragmentId;
                     _activeFragmentId = -1;
                     if (completedFragmentId == 51 &&
                         _runtime.Memory.GetLocalFlag("LFragment51NoticeShown") == 0)
@@ -695,7 +696,7 @@ namespace Higurashi.IOS.Runtime
 
                 if (EpisodeEightFragmentContinuationPolicy.HasReachedStoryContinuation(
                         HigurashiActiveChapter.Profile.EpisodeNumber,
-                        _activeFragmentId,
+                        completedFragmentId,
                         _runtime.Memory.GetLocalFlag("LFragmentLoop"),
                         _runtime.CurrentScriptName))
                 {
