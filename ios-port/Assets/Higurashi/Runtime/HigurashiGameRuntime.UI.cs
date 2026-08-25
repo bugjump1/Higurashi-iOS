@@ -44,6 +44,7 @@ namespace Higurashi.IOS.Runtime
         private Texture2D _creditsChapterTitle;
         private Material _maskedTransitionMaterial;
         private Material _negativeMaterial;
+        private Material _layerFilterMaterial;
         private Font _uiFont;
         private float _styledForHeight;
         private string _toast = string.Empty;
@@ -200,7 +201,8 @@ namespace Higurashi.IOS.Runtime
                     DrawPresentationTexture(content, previousLayer.Texture, x, y, z,
                         alpha * (1f - backgroundProgress),
                         previousLayer.IsCentered, screenScale, false,
-                        previousLayer.OverrideWidth, previousLayer.OverrideHeight);
+                        previousLayer.OverrideWidth, previousLayer.OverrideHeight,
+                        previousLayer.Filter);
                 }
             }
             if (_host.BackgroundTexture != null)
@@ -255,7 +257,8 @@ namespace Higurashi.IOS.Runtime
                             layer.PreviousX, layer.PreviousY, layer.PreviousZ,
                             layer.PreviousAlpha * (1f - layer.TransitionProgress),
                             layer.PreviousIsCentered, screenScale, false,
-                            layer.PreviousOverrideWidth, layer.PreviousOverrideHeight);
+                            layer.PreviousOverrideWidth, layer.PreviousOverrideHeight,
+                            layer.PreviousFilter);
                     }
                 }
                 layer.GetRenderState(out var layerX, out var layerY, out var layerZ, out var layerAlpha);
@@ -267,13 +270,14 @@ namespace Higurashi.IOS.Runtime
                     DrawMaskedPresentationTexture(content, layer.Texture, layer.MaskTexture,
                         layerX, layerY, layerZ, layer.MaskReverse ? layer.FromAlpha : layer.Alpha,
                         layer.IsCentered, screenScale, maskProgress, layer.MaskFuzziness,
-                        IsCinemaMatte(layer.TextureName), layer.OverrideWidth, layer.OverrideHeight);
+                        IsCinemaMatte(layer.TextureName), layer.OverrideWidth, layer.OverrideHeight,
+                        layer.Filter);
                 }
                 else
                 {
                     DrawPresentationTexture(content, layer.Texture, layerX, layerY, layerZ,
                         layerAlpha, layer.IsCentered, screenScale, IsCinemaMatte(layer.TextureName),
-                        layer.OverrideWidth, layer.OverrideHeight);
+                        layer.OverrideWidth, layer.OverrideHeight, layer.Filter);
                 }
             }
 
@@ -363,7 +367,8 @@ namespace Higurashi.IOS.Runtime
 
         private void DrawPresentationTexture(Rect content, Texture2D texture,
             float layerX, float layerY, float layerZ, float alpha, bool centered, float screenScale,
-            bool cropTransparentEdges = false, int overrideWidth = 0, int overrideHeight = 0)
+            bool cropTransparentEdges = false, int overrideWidth = 0, int overrideHeight = 0,
+            PresentationLayerFilter filter = null)
         {
             var canonicalHeight = overrideHeight > 0 ? overrideHeight : Mathf.Min(texture.height, 480f);
             var canonicalWidth = overrideWidth > 0
@@ -396,7 +401,11 @@ namespace Higurashi.IOS.Runtime
             {
                 var wasClipped = !ApproximatelyEqual(originalDestination, destination);
                 var negativeStrength = _host == null ? 0f : _host.NegativeFilmStrength;
-                if (negativeStrength > 0.0001f)
+                if (filter != null && !filter.IsIdentity)
+                {
+                    DrawTextureWithLayerFilter(destination, texture, source, alpha, filter);
+                }
+                else if (negativeStrength > 0.0001f)
                 {
                     DrawTextureWithNegative(destination, texture, source, alpha, negativeStrength);
                 }
@@ -415,7 +424,7 @@ namespace Higurashi.IOS.Runtime
         private void DrawMaskedPresentationTexture(Rect content, Texture2D texture, Texture2D mask,
             float layerX, float layerY, float layerZ, float alpha, bool centered,
             float screenScale, float progress, float fuzziness, bool cropTransparentEdges = false,
-            int overrideWidth = 0, int overrideHeight = 0)
+            int overrideWidth = 0, int overrideHeight = 0, PresentationLayerFilter filter = null)
         {
             var canonicalHeight = overrideHeight > 0 ? overrideHeight : Mathf.Min(texture.height, 480f);
             var canonicalWidth = overrideWidth > 0
@@ -516,6 +525,38 @@ namespace Higurashi.IOS.Runtime
             _negativeMaterial.SetFloat("_Strength", Mathf.Clamp01(negativeStrength));
             Graphics.DrawTexture(destination, texture, source, 0, 0, 0, 0,
                 new Color(1f, 1f, 1f, Mathf.Clamp01(alpha)), _negativeMaterial);
+        }
+
+        private void DrawTextureWithLayerFilter(Rect destination, Texture texture, Rect source,
+            float alpha, PresentationLayerFilter filter)
+        {
+            if (_layerFilterMaterial == null)
+            {
+                var shader = Resources.Load<Shader>("HigurashiLayerFilter");
+                if (shader != null)
+                {
+                    _layerFilterMaterial = new Material(shader);
+                }
+            }
+
+            if (_layerFilterMaterial == null || filter == null)
+            {
+                GUI.DrawTextureWithTexCoords(destination, texture, source, true);
+                return;
+            }
+
+            _layerFilterMaterial.SetFloat("_FilterRR", filter.Rr / 256f);
+            _layerFilterMaterial.SetFloat("_FilterRG", filter.Rg / 256f);
+            _layerFilterMaterial.SetFloat("_FilterRB", filter.Rb / 256f);
+            _layerFilterMaterial.SetFloat("_FilterGR", filter.Gr / 256f);
+            _layerFilterMaterial.SetFloat("_FilterGG", filter.Gg / 256f);
+            _layerFilterMaterial.SetFloat("_FilterGB", filter.Gb / 256f);
+            _layerFilterMaterial.SetFloat("_FilterBR", filter.Br / 256f);
+            _layerFilterMaterial.SetFloat("_FilterBG", filter.Bg / 256f);
+            _layerFilterMaterial.SetFloat("_FilterBB", filter.Bb / 256f);
+            _layerFilterMaterial.SetFloat("_FilterAlpha", filter.Alpha / 256f);
+            Graphics.DrawTexture(destination, texture, source, 0, 0, 0, 0,
+                new Color(1f, 1f, 1f, Mathf.Clamp01(alpha)), _layerFilterMaterial);
         }
 
         private void DrawMaskedTexture(Rect destination, Texture texture, Texture mask, Rect source,

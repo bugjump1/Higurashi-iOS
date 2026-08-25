@@ -13,6 +13,7 @@
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Playback\CheckpointTimeline.cs" Link="Core\CheckpointTimeline.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Playback\AutoAdvanceScheduler.cs" Link="Core\AutoAdvanceScheduler.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Playback\MessageSpeedPolicy.cs" Link="Core\MessageSpeedPolicy.cs" />
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Playback\LayerFilterPolicy.cs" Link="Core\LayerFilterPolicy.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Playback\SceneLayerBatchTracker.cs" Link="Core\SceneLayerBatchTracker.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Persistence\SaveStatePolicy.cs" Link="Core\SaveStatePolicy.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Data\SafePath.cs" Link="Core\SafePath.cs" />

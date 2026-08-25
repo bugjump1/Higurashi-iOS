@@ -29,6 +29,7 @@ internal static class Program
             AutoAdvanceDelayResetsForNewDialogue,
             AutoAdvanceWaitsForVoiceCompletion,
             MessageSpeedOverrideMatchesPcIntegerSemantics,
+            LayerFilterPolicyMatchesPcMatrices,
             SceneLayerBatchPreservesOnlyPreparedLayers,
             SavePolicyRejectsContentBrowsers,
             SavePolicyRejectsRuntimeControlScripts,
@@ -97,6 +98,23 @@ internal static class Program
         Equal(54f, MessageSpeedPolicy.CharactersPerSecond(50, -1));
         Equal(18f, MessageSpeedPolicy.CharactersPerSecond(50, 0));
         Equal(54f, MessageSpeedPolicy.CharactersPerSecond(0, 50));
+    }
+
+    private static void LayerFilterPolicyMatchesPcMatrices()
+    {
+        True(LayerFilterPolicy.TryResolve("night", out var night));
+        Equal(222, night.Rr);
+        Equal(222, night.Gg);
+        Equal(256, night.Bb);
+        True(LayerFilterPolicy.TryResolve("grayscale", out var grayscale));
+        Equal(55, grayscale.Rr);
+        Equal(185, grayscale.Rg);
+        Equal(18, grayscale.Rb);
+        True(LayerFilterPolicy.TryResolve("128,64,32", out var diagonal));
+        Equal(128, diagonal.Rr);
+        Equal(64, diagonal.Gg);
+        Equal(32, diagonal.Bb);
+        True(!LayerFilterPolicy.TryResolve("unsupported", out _));
     }
 
     private static void NegativeFilmOperationsRemainAvailableForAllEpisodes()

@@ -25,6 +25,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         private const int PersistentLayerAnchorStateMagic = 0x39414848; // HHA9
         private const int PersistentFilmStateMagic = 0x31464848; // HHF1
         private const int PersistentMessageSpeedStateMagic = 0x31534848; // HHS1
+        private const int PersistentLayerFilterStateMagic = 0x314C4848; // HHL1
         private const int PersistentTipReadingStateMagic = 0x31525448; // HTR1
         private readonly List<RuntimePathCascade> _artSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _spriteSets = new List<RuntimePathCascade>();
@@ -34,6 +35,8 @@ namespace Higurashi.IOS.Runtime.Buriko
         private readonly List<RuntimeAudioSet> _audioSets = new List<RuntimeAudioSet>();
         private readonly SortedDictionary<int, PresentationLayer> _layers =
             new SortedDictionary<int, PresentationLayer>();
+        private readonly Dictionary<int, PresentationLayerFilter> _layerFilters =
+            new Dictionary<int, PresentationLayerFilter>();
         private readonly List<PresentationLayer> _previousSceneLayers =
             new List<PresentationLayer>();
         private readonly SceneLayerBatchTracker _sceneLayerBatch =
@@ -453,7 +456,6 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 133:
                 case 134:
                 case 136:
-                case 137:
                 case 140:
                 case 141:
                 case 147:
@@ -466,6 +468,34 @@ namespace Higurashi.IOS.Runtime.Buriko
                     _messageSpeedOverride = MessageSpeedPolicy.ScriptOverride(
                         invocation.Arguments[0].AsBool(memory), Int(invocation, 1, memory));
                     return BurikoHostResponse.Continue;
+                case 137:
+                {
+                    var layerId = Int(invocation, 0, memory);
+                    var power = Mathf.Clamp(Int(invocation, 1, memory), 0, 256);
+                    var filterText = Text(invocation, 2, memory);
+                    if (!LayerFilterPolicy.TryResolve(filterText, out var definition))
+                    {
+                        Debug.LogWarning("Unknown layer filter: " + filterText);
+                        definition = new LayerFilterDefinition
+                        {
+                            Rr = 256, Gg = 256, Bb = 256
+                        };
+                    }
+                    var filter = PresentationLayerFilter.From(definition, power);
+                    if (filter.IsIdentity)
+                    {
+                        _layerFilters.Remove(layerId);
+                    }
+                    else
+                    {
+                        _layerFilters[layerId] = filter;
+                    }
+                    if (_layers.TryGetValue(layerId, out var layer))
+                    {
+                        layer.Filter = filter;
+                    }
+                    return BurikoHostResponse.Continue;
+                }
                 case 61:
                     CommitPendingPresentation();
                     return BurikoHostResponse.Continue;
@@ -1846,6 +1876,23 @@ namespace Higurashi.IOS.Runtime.Buriko
                 writer.Write(NegativeFilmStrength);
                 writer.Write(PersistentMessageSpeedStateMagic);
                 writer.Write(_messageSpeedOverride);
+                writer.Write(PersistentLayerFilterStateMagic);
+                writer.Write(_layerFilters.Count);
+                foreach (var pair in _layerFilters)
+                {
+                    var filter = pair.Value;
+                    writer.Write(pair.Key);
+                    writer.Write(filter.Rr);
+                    writer.Write(filter.Rg);
+                    writer.Write(filter.Rb);
+                    writer.Write(filter.Gr);
+                    writer.Write(filter.Gg);
+                    writer.Write(filter.Gb);
+                    writer.Write(filter.Br);
+                    writer.Write(filter.Bg);
+                    writer.Write(filter.Bb);
+                    writer.Write(filter.Alpha);
+                }
             }
         }
 
@@ -2147,6 +2194,40 @@ namespace Higurashi.IOS.Runtime.Buriko
                         input.Position = messageSpeedTailPosition;
                     }
                 }
+
+                if (input.CanSeek && input.Length - input.Position >= sizeof(int) * 2)
+                {
+                    var layerFilterTailPosition = input.Position;
+                    if (reader.ReadInt32() == PersistentLayerFilterStateMagic)
+                    {
+                        _layerFilters.Clear();
+                        var filterCount = ReadCount(reader, 10000, "layer filter");
+                        for (var i = 0; i < filterCount; i++)
+                        {
+                            var id = reader.ReadInt32();
+                            var filter = new PresentationLayerFilter
+                            {
+                                Rr = reader.ReadInt32(), Rg = reader.ReadInt32(),
+                                Rb = reader.ReadInt32(), Gr = reader.ReadInt32(),
+                                Gg = reader.ReadInt32(), Gb = reader.ReadInt32(),
+                                Br = reader.ReadInt32(), Bg = reader.ReadInt32(),
+                                Bb = reader.ReadInt32(), Alpha = reader.ReadInt32()
+                            };
+                            if (_layers.TryGetValue(id, out var layer))
+                            {
+                                layer.Filter = filter;
+                            }
+                            if (!filter.IsIdentity)
+                            {
+                                _layerFilters[id] = filter;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        input.Position = layerFilterTailPosition;
+                    }
+                }
             }
 
             CreditsVisible = false;
@@ -2299,11 +2380,16 @@ namespace Higurashi.IOS.Runtime.Buriko
             }
             CommitPendingPresentation();
             _layers.Clear();
+            _layerFilters.Clear();
             for (var i = 0; i < snapshot.Layers.Length; i++)
             {
                 var layer = snapshot.Layers[i].CloneWithoutTexture();
                 layer.Texture = LoadSpriteTexture(layer.TextureName, memory);
                 _layers[layer.Id] = layer;
+                if (layer.Filter != null && !layer.Filter.IsIdentity)
+                {
+                    _layerFilters[layer.Id] = layer.Filter.Clone();
+                }
             }
         }
 
@@ -2598,6 +2684,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             int overrideHeight = 0)
         {
             Texture2D previousTexture = null;
+            var previousFilter = PresentationLayerFilter.Identity();
             float previousX = x;
             float previousY = y;
             float previousZ = z;
@@ -2609,6 +2696,9 @@ namespace Higurashi.IOS.Runtime.Buriko
             if (duration > 0f && _layers.TryGetValue(id, out var previous))
             {
                 previousTexture = previous.Texture;
+                previousFilter = previous.Filter == null
+                    ? PresentationLayerFilter.Identity()
+                    : previous.Filter.Clone();
                 previous.GetRenderState(out previousX, out previousY, out previousZ, out previousAlpha);
                 previousIsBustshot = previous.IsBustshot;
                 previousIsCentered = previous.IsCentered;
@@ -2616,11 +2706,17 @@ namespace Higurashi.IOS.Runtime.Buriko
                 previousOverrideHeight = previous.OverrideHeight;
             }
 
+            var activeFilter = _layerFilters.TryGetValue(id, out var layerFilter)
+                ? layerFilter.Clone()
+                : PresentationLayerFilter.Identity();
+
             _layers[id] = new PresentationLayer
             {
                 Id = id,
                 TextureName = textureName,
                 Texture = LoadSpriteTexture(textureName, memory),
+                Filter = activeFilter,
+                PreviousFilter = previousFilter,
                 X = x,
                 Y = y,
                 Z = z,
@@ -3319,9 +3415,55 @@ namespace Higurashi.IOS.Runtime.Buriko
 
     }
 
+    public sealed class PresentationLayerFilter
+    {
+        public int Rr = 256;
+        public int Rg;
+        public int Rb;
+        public int Gr;
+        public int Gg = 256;
+        public int Gb;
+        public int Br;
+        public int Bg;
+        public int Bb = 256;
+        public int Alpha = 256;
+
+        public bool IsIdentity => Rr == 256 && Rg == 0 && Rb == 0 &&
+            Gr == 0 && Gg == 256 && Gb == 0 && Br == 0 && Bg == 0 &&
+            Bb == 256 && Alpha == 256;
+
+        public static PresentationLayerFilter Identity()
+        {
+            return new PresentationLayerFilter();
+        }
+
+        public static PresentationLayerFilter From(LayerFilterDefinition definition, int alpha)
+        {
+            return new PresentationLayerFilter
+            {
+                Rr = definition.Rr, Rg = definition.Rg, Rb = definition.Rb,
+                Gr = definition.Gr, Gg = definition.Gg, Gb = definition.Gb,
+                Br = definition.Br, Bg = definition.Bg, Bb = definition.Bb,
+                Alpha = Mathf.Clamp(alpha, 0, 256)
+            };
+        }
+
+        public PresentationLayerFilter Clone()
+        {
+            return new PresentationLayerFilter
+            {
+                Rr = Rr, Rg = Rg, Rb = Rb,
+                Gr = Gr, Gg = Gg, Gb = Gb,
+                Br = Br, Bg = Bg, Bb = Bb, Alpha = Alpha
+            };
+        }
+    }
+
     public sealed class PresentationLayer
     {
         public int Id;
+        public PresentationLayerFilter Filter = PresentationLayerFilter.Identity();
+        public PresentationLayerFilter PreviousFilter = PresentationLayerFilter.Identity();
         public string TextureName;
         public Texture2D Texture;
         public int X;
@@ -3455,6 +3597,9 @@ namespace Higurashi.IOS.Runtime.Buriko
             {
                 Id = Id,
                 TextureName = TextureName,
+                Filter = Filter == null ? PresentationLayerFilter.Identity() : Filter.Clone(),
+                PreviousFilter = PreviousFilter == null
+                    ? PresentationLayerFilter.Identity() : PreviousFilter.Clone(),
                 X = X,
                 Y = Y,
                 Z = Z,
