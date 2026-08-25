@@ -23,7 +23,10 @@ namespace Higurashi.IOS.Runtime.Buriko
         private const int PersistentTipsUiStateMagic = 0x37544848; // HHT7
         private const int PersistentLastVoiceStateMagic = 0x38564848; // HHV8
         private const int PersistentLayerAnchorStateMagic = 0x39414848; // HHA9
+        private const int PersistentLayerFilterStateMagic = 0x314C4848; // HHL1
         private const int PersistentFilmStateMagic = 0x31464848; // HHF1
+        private const int PersistentMessageSpeedStateMagic = 0x31534848; // HHS1
+        private const int PersistentFilmFaceStateMagic = 0x32464848; // HHF2
         private const int PersistentTipReadingStateMagic = 0x31525448; // HTR1
         private readonly List<RuntimePathCascade> _artSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _spriteSets = new List<RuntimePathCascade>();
@@ -32,6 +35,8 @@ namespace Higurashi.IOS.Runtime.Buriko
         private readonly List<RuntimePathCascade> _seSets = new List<RuntimePathCascade>();
         private readonly List<RuntimeAudioSet> _audioSets = new List<RuntimeAudioSet>();
         private readonly SortedDictionary<int, PresentationLayer> _layers =
+        private readonly Dictionary<int, PresentationFilter> _layerFilters =
+            new Dictionary<int, PresentationFilter>();
             new SortedDictionary<int, PresentationLayer>();
         private readonly List<PresentationLayer> _previousSceneLayers =
             new List<PresentationLayer>();
@@ -57,6 +62,19 @@ namespace Higurashi.IOS.Runtime.Buriko
         private float _shakeAttenuation;
         private float _shakeDuration;
         private int _shakeVector;
+        private float _windowShakeStartedAt;
+        private float _windowShakeSwingDuration;
+        private float _windowShakeIntensity;
+        private float _windowShakeAttenuation;
+        private float _windowShakeDuration;
+        private int _windowShakeVector;
+        private float _enlargeStartedAt;
+        private float _enlargeDuration;
+        private Vector2 _enlargeFromScale = Vector2.one;
+        private Vector2 _enlargeTargetScale = Vector2.one;
+        private Vector2 _enlargeFromTranslation;
+        private Vector2 _enlargeTargetTranslation;
+        private bool _filmAppliesToFace = true;
         private float _dialogueRevealStartedAt;
         private int _dialogueRevealStartIndex;
         private bool _dialogueRevealForced;
@@ -68,6 +86,14 @@ namespace Higurashi.IOS.Runtime.Buriko
         private float _filmTransitionDuration;
         private float _filmStrength;
         private float _filmTargetStrength;
+        private int _filmEffectType;
+        private int _filmEffectStyle;
+        private Color _filmEffectColor = Color.white;
+        private float _filmEffectStartedAt;
+        private float _filmEffectDuration;
+        private float _filmEffectStrength;
+        private float _filmEffectTargetStrength;
+        private int _messageSpeedOverride = -1;
         private Texture2D _fragmentTexture;
         private string _fragmentTextureName = string.Empty;
         private string _fragmentStyle = string.Empty;
@@ -162,6 +188,22 @@ namespace Higurashi.IOS.Runtime.Buriko
                 return Mathf.Lerp(_filmStrength, _filmTargetStrength, progress);
             }
         }
+        public int FilmEffectType => _filmEffectType;
+        public int FilmEffectStyle => _filmEffectStyle;
+        public Color FilmEffectColor => _filmEffectColor;
+        public float FilmEffectStrength
+        {
+            get
+            {
+                if (_filmEffectDuration <= 0f)
+                {
+                    return Mathf.Clamp01(_filmEffectTargetStrength);
+                }
+                var progress = Mathf.Clamp01((Time.unscaledTime - _filmEffectStartedAt) /
+                                             _filmEffectDuration);
+                return Mathf.Lerp(_filmEffectStrength, _filmEffectTargetStrength, progress);
+            }
+        }
         public Texture MovieTexture => _videoPlayer != null ? _videoPlayer.texture : null;
         public bool MovieVisible { get; private set; }
         public IReadOnlyDictionary<int, PresentationLayer> Layers => _layers;
@@ -185,35 +227,23 @@ namespace Higurashi.IOS.Runtime.Buriko
         {
             get
             {
-                if (_shakeDuration <= 0f)
-                {
-                    return Vector2.zero;
-                }
-                var elapsed = Time.unscaledTime - _shakeStartedAt;
-                if (elapsed < 0f || elapsed >= _shakeDuration)
-                {
-                    return Vector2.zero;
-                }
-                var swing = Mathf.Max(0.01f, _shakeSwingDuration);
-                var index = Mathf.FloorToInt(elapsed / swing);
-                var phase = Mathf.Clamp01((elapsed - index * swing) / swing);
-                var eased = -(Mathf.Cos(Mathf.PI * phase) - 1f) * 0.5f;
-                var fromSign = index == 0 ? 0f : ((index & 1) == 0 ? -1f : 1f);
-                var toSign = (index & 1) == 0 ? 1f : -1f;
-                var sign = Mathf.Lerp(fromSign, toSign, eased);
-                var intensity = _shakeIntensity * Mathf.Pow(1f - _shakeAttenuation,
-                    Mathf.Max(0, index));
-                switch (_shakeVector)
-                {
-                    case 0: return new Vector2(intensity * sign, 0f);
-                    case 1: return new Vector2(intensity * sign, -intensity * sign);
-                    case 2: return new Vector2(0f, intensity * sign);
-                    case 3: return new Vector2(-intensity * sign, intensity * sign);
-                    default:
-                        return new Vector2(Mathf.Sin(elapsed * 71f), Mathf.Cos(elapsed * 53f)) * intensity;
-                }
+                return ShakeOffset(Time.unscaledTime - _shakeStartedAt, _shakeDuration,
+                    _shakeSwingDuration, _shakeIntensity, _shakeAttenuation, _shakeVector);
             }
         }
+        public Vector2 WindowPresentationOffset => ShakeOffset(
+            Time.unscaledTime - _windowShakeStartedAt, _windowShakeDuration,
+            _windowShakeSwingDuration, _windowShakeIntensity, _windowShakeAttenuation,
+            _windowShakeVector);
+        public Vector2 PresentationScale => Vector2.Lerp(_enlargeFromScale,
+            _enlargeTargetScale, EnlargeProgress);
+        public Vector2 PresentationTranslation => Vector2.Lerp(_enlargeFromTranslation,
+            _enlargeTargetTranslation, EnlargeProgress);
+        private float EnlargeProgress => _enlargeDuration <= 0f
+            ? 1f
+            : Mathf.SmoothStep(0f, 1f,
+                Mathf.Clamp01((Time.unscaledTime - _enlargeStartedAt) / _enlargeDuration));
+        public bool FilmAppliesToFace => _filmAppliesToFace;
         public bool IsOpeningChoice => OpeningChoicePolicy.IsOpeningChoice(Dialogue, Choices);
         public bool IsConsoleChoiceMenu => ConsoleChoiceMenuPolicy.IsConsoleChoiceMenu(Dialogue, Choices);
         public bool IsDialogueRevealComplete => VisibleDialogueLength >= Dialogue.Length;
@@ -279,8 +309,13 @@ namespace Higurashi.IOS.Runtime.Buriko
                 {
                     return Dialogue.Length;
                 }
-                var speed = _settings == null ? 50 : Mathf.Clamp(_settings.textSpeed, 0, 100);
-                var charactersPerSecond = Mathf.Lerp(18f, 90f, speed / 100f);
+                var speed = _settings == null ? 50 : _settings.textSpeed;
+                var charactersPerSecond = MessageSpeedPolicy.CharactersPerSecond(
+                    speed, _messageSpeedOverride);
+                if (float.IsPositiveInfinity(charactersPerSecond))
+                {
+                    return Dialogue.Length;
+                }
                 var animated = Mathf.FloorToInt((Time.unscaledTime - _dialogueRevealStartedAt) * charactersPerSecond);
                 return Mathf.Clamp(_dialogueRevealStartIndex + animated, 0, Dialogue.Length);
             }
@@ -301,6 +336,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             _videoPlayer.isLooping = false;
             _videoPlayer.renderMode = VideoRenderMode.APIOnly;
             _videoPlayer.audioOutputMode = VideoAudioOutputMode.Direct;
+            _layerFilters.Clear();
             _videoPlayer.loopPointReached += OnMovieEnded;
             _videoPlayer.errorReceived += OnMovieError;
         }
@@ -410,14 +446,9 @@ namespace Higurashi.IOS.Runtime.Buriko
                     return BurikoHostResponse.Continue;
                 case 15:
                 case 19:
-                case 20:
                 case 22:
                 case 23:
                 case 36:
-                case 37:
-                case 38:
-                case 39:
-                case 40:
                 case 41:
                 case 42:
                 case 43:
@@ -425,12 +456,6 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 68:
                 case 70:
                 case 71:
-                case 72:
-                case 73:
-                case 74:
-                case 75:
-                case 76:
-                case 78:
                 case 81:
                 case 83:
                 case 84:
@@ -451,7 +476,6 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 133:
                 case 134:
                 case 136:
-                case 137:
                 case 140:
                 case 141:
                 case 147:
@@ -460,7 +484,65 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 155:
                     ReportApproximated(invocation);
                     return BurikoHostResponse.Continue;
+                case 20:
+                    _messageSpeedOverride = invocation.Arguments[0].AsBool(memory)
+                        ? Math.Max(0, Int(invocation, 1, memory))
+                        : -1;
+                    return BurikoHostResponse.Continue;
+                case 37:
+                {
+                    var speed = (256f - Int(invocation, 0, memory)) * 5f / 1000f;
+                    var loops = Int(invocation, 4, memory);
+                    StartScreenShake(Int(invocation, 3, memory), Int(invocation, 1, memory),
+                        Int(invocation, 2, memory), speed, ShakeDuration(speed, loops));
+                    return AnimationResponse(ShakeDuration(speed, loops),
+                        invocation.Arguments[5].AsBool(memory));
+                }
+                case 38:
+                    _shakeDuration = 0f;
+                    return BurikoHostResponse.Continue;
+                case 39:
+                {
+                    var speed = (256f - Int(invocation, 0, memory)) * 5f / 1000f;
+                    var loops = Int(invocation, 4, memory);
+                    StartWindowShake(Int(invocation, 3, memory), Int(invocation, 1, memory),
+                        Int(invocation, 2, memory), speed, loops,
+                        invocation.Arguments[5].AsBool(memory));
+                    return AnimationResponse(ShakeDuration(speed, loops),
+                        invocation.Arguments[5].AsBool(memory));
+                }
+                case 40:
+                    _windowShakeDuration = 0f;
+                    return BurikoHostResponse.Continue;
+                case 137:
+                {
+                    var layerId = Int(invocation, 0, memory);
+                    var power = Mathf.Clamp(Int(invocation, 1, memory), 0, 256);
+                    var filterText = Text(invocation, 2, memory);
+                    if (!LayerFilterPolicy.TryResolve(filterText, out var definition))
+                    {
+                        Debug.LogWarning("Unknown layer filter: " + filterText);
+                    }
+                    var filter = PresentationFilter.From(definition, power);
+                    if (filter.IsIdentity)
+                    {
+                        _layerFilters.Remove(layerId);
+                    }
+                    else
+                    {
+                        _layerFilters[layerId] = filter;
+                    }
+                    if (_layers.TryGetValue(layerId, out var layer))
+                    {
+                        layer.SetFilter(filter);
+                    }
+                    return BurikoHostResponse.Continue;
+                }
+                case 78:
+                    _filmAppliesToFace = invocation.Arguments[0].AsBool(memory);
+                    return BurikoHostResponse.Continue;
                 case 61:
+
                     CommitPendingPresentation();
                     return BurikoHostResponse.Continue;
                 case 16:
@@ -776,9 +858,39 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 69:
                     ReportApproximated(invocation);
                     return BurikoHostResponse.Continue;
+                case 72:
+                {
+                    var duration = Int(invocation, 5, memory) / 1000f;
+                    StartEnlargeScreen(Int(invocation, 0, memory), Int(invocation, 1, memory),
+                        Int(invocation, 2, memory), Int(invocation, 3, memory), duration);
+                    return AnimationResponse(duration, invocation.Arguments[6].AsBool(memory));
+                }
+                case 73:
+                {
+                    var duration = Int(invocation, 0, memory) / 1000f;
+                    if (Int(invocation, 0, memory) == 0)
+                    {
+                        StartEnlargeScreen(0, 0, 640, 480, 0f);
+                        return BurikoHostResponse.Continue;
+                    }
+
+                    StartEnlargeScreen(0, 0, 800, 600, duration);
+                    return AnimationResponse(duration, invocation.Arguments[1].AsBool(memory));
+                }
+                case 76:
+                {
+                    var duration = Int(invocation, 6, memory) / 1000f;
+                    var color = new Color(Int(invocation, 1, memory) / 255f,
+                        Int(invocation, 2, memory) / 255f,
+                        Int(invocation, 3, memory) / 255f);
+                    StartFilmEffect(Int(invocation, 0, memory), color,
+                        Int(invocation, 5, memory), Int(invocation, 4, memory), duration);
+                    return AnimationResponse(duration, invocation.Arguments[7].AsBool(memory));
+                }
                 case 77:
                 {
                     var duration = Int(invocation, 0, memory) / 1000f;
+                    FadeFilmEffect(duration);
                     StartFilmTransition(0f, duration);
                     return AnimationResponse(duration, invocation.Arguments[1].AsBool(memory));
                 }
@@ -1648,7 +1760,13 @@ namespace Higurashi.IOS.Runtime.Buriko
                 _fragmentTextureName,
                 _fragmentStyle,
                 _windowBackgroundName,
-                NegativeFilmStrength);
+                NegativeFilmStrength,
+                _messageSpeedOverride,
+                FilmEffectType,
+                FilmEffectStyle,
+                FilmEffectColor,
+                FilmEffectStrength,
+                FilmAppliesToFace);
         }
 
         public void ReplayRestoredCheckpointAnimations(
@@ -1702,6 +1820,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 current.FromAlpha = sameTexture ? old.Alpha : 0f;
                 current.TransitionStartedAt = now;
                 current.TransitionDuration = replayDuration;
+                current.PreviousFilter = old.Filter == null ? new PresentationFilter() : old.Filter.Clone();
                 if (!sameTexture)
                 {
                     current.PreviousTexture = LoadSpriteTexture(old.TextureName, memory);
@@ -1837,6 +1956,27 @@ namespace Higurashi.IOS.Runtime.Buriko
                 writer.Write(_tipsVisibleChapterOverride);
                 writer.Write(PersistentFilmStateMagic);
                 writer.Write(NegativeFilmStrength);
+                writer.Write(PersistentMessageSpeedStateMagic);
+                writer.Write(_messageSpeedOverride);
+                writer.Write(PersistentFilmFaceStateMagic);
+                writer.Write(_filmAppliesToFace);
+                writer.Write(PersistentLayerFilterStateMagic);
+                writer.Write(_layerFilters.Count);
+                foreach (var pair in _layerFilters)
+                {
+                    var filter = pair.Value;
+                    writer.Write(pair.Key);
+                    writer.Write(filter.Rr);
+                    writer.Write(filter.Rg);
+                    writer.Write(filter.Rb);
+                    writer.Write(filter.Gr);
+                    writer.Write(filter.Gg);
+                    writer.Write(filter.Gb);
+                    writer.Write(filter.Br);
+                    writer.Write(filter.Bg);
+                    writer.Write(filter.Bb);
+                    writer.Write(filter.Alpha);
+                }
             }
         }
 
@@ -1846,7 +1986,9 @@ namespace Higurashi.IOS.Runtime.Buriko
             var hasPersistedAppendState = false;
             var hasPersistedBgmState = false;
             var hasPersistedFilmState = false;
+            var hasPersistedMessageSpeedState = false;
             var persistedFilmStrength = 0f;
+            var persistedMessageSpeedOverride = -1;
             var persistedBgmState = Array.Empty<RuntimeBgmState>();
             _fragmentTextureName = string.Empty;
             _fragmentStyle = string.Empty;
@@ -1865,6 +2007,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             _tipsPage = 0;
             _selectedTipId = -1;
             _fragmentPage = 0;
+            _messageSpeedOverride = -1;
+            _filmAppliesToFace = true;
             _selectedFragmentId = -1;
             using (var reader = new BinaryReader(input, System.Text.Encoding.UTF8, true))
             {
@@ -2115,10 +2259,72 @@ namespace Higurashi.IOS.Runtime.Buriko
                     {
                         persistedFilmStrength = Mathf.Clamp01(reader.ReadSingle());
                         hasPersistedFilmState = true;
+
                     }
                     else
                     {
                         input.Position = filmTailPosition;
+                    }
+                }
+
+                if (input.CanSeek && input.Length - input.Position >= sizeof(int) * 2)
+                {
+                    var messageSpeedTailPosition = input.Position;
+                    if (reader.ReadInt32() == PersistentMessageSpeedStateMagic)
+                    {
+                        persistedMessageSpeedOverride = reader.ReadInt32();
+                        hasPersistedMessageSpeedState = true;
+                    }
+                    else
+                    {
+                        input.Position = messageSpeedTailPosition;
+                    }
+                }
+
+                if (input.CanSeek && input.Length - input.Position >= sizeof(int) + 1)
+                {
+                    var filmFaceTailPosition = input.Position;
+                    if (reader.ReadInt32() == PersistentFilmFaceStateMagic)
+                    {
+                        _filmAppliesToFace = reader.ReadBoolean();
+                    }
+                    else
+                    {
+                        input.Position = filmFaceTailPosition;
+                    }
+                }
+
+                if (input.CanSeek && input.Length - input.Position >= sizeof(int) * 2)
+                {
+                    var layerFilterTailPosition = input.Position;
+                    if (reader.ReadInt32() == PersistentLayerFilterStateMagic)
+                    {
+                        _layerFilters.Clear();
+                        var filterCount = ReadCount(reader, 10000, "layer filter");
+                        for (var i = 0; i < filterCount; i++)
+                        {
+                            var id = reader.ReadInt32();
+                            var filter = new PresentationFilter
+                            {
+                                Rr = reader.ReadInt32(), Rg = reader.ReadInt32(),
+                                Rb = reader.ReadInt32(), Gr = reader.ReadInt32(),
+                                Gg = reader.ReadInt32(), Gb = reader.ReadInt32(),
+                                Br = reader.ReadInt32(), Bg = reader.ReadInt32(),
+                                Bb = reader.ReadInt32(), Alpha = reader.ReadInt32()
+                            };
+                            if (_layers.TryGetValue(id, out var layer))
+                            {
+                                layer.SetFilter(filter);
+                            }
+                            if (!filter.IsIdentity)
+                            {
+                                _layerFilters[id] = filter;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        input.Position = layerFilterTailPosition;
                     }
                 }
             }
@@ -2159,6 +2365,9 @@ namespace Higurashi.IOS.Runtime.Buriko
                 hasPersistedFilmState ? persistedFilmStrength : 0f,
                 0f);
             _previousSceneLayers.Clear();
+            _messageSpeedOverride = hasPersistedMessageSpeedState
+                ? persistedMessageSpeedOverride
+                : -1;
             _dialogueRevealForced = true;
             if (!hasPersistedAppendState)
             {
@@ -2221,11 +2430,16 @@ namespace Higurashi.IOS.Runtime.Buriko
             _appendNext = snapshot.AppendNext;
             _lastVoiceChannel = snapshot.LastVoiceChannel;
             _lastVoiceCharacter = snapshot.LastVoiceCharacter;
+            _layerFilters.Clear();
             _lastVoiceFilename = snapshot.LastVoiceFilename;
             _lastVoiceVolume = snapshot.LastVoiceVolume;
             _currentVoiceCharacter = -1;
             SavingEnabled = snapshot.SavingEnabled;
             InterfaceEnabled = snapshot.InterfaceEnabled;
+                if (!layer.Filter.IsIdentity)
+                {
+                    _layerFilters[layer.Id] = layer.Filter.Clone();
+                }
             DialogueSerial = snapshot.DialogueSerial;
             FontSize = snapshot.FontSize;
             WindowX = snapshot.WindowX;
@@ -2241,6 +2455,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             _blockingAnimationUntil = 0f;
             StartFilmTransitionFrom(snapshot.NegativeFilmStrength,
                 snapshot.NegativeFilmStrength, 0f);
+            _messageSpeedOverride = snapshot.MessageSpeedOverride;
+            _filmAppliesToFace = snapshot.FilmAppliesToFace;
             _fragmentTextureName = snapshot.FragmentTextureName;
             _fragmentStyle = snapshot.FragmentStyle;
             _fragmentTexture = string.IsNullOrWhiteSpace(_fragmentTextureName)
@@ -2550,6 +2766,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             for (var id = first; id <= last; id++)
             {
                 _sceneLayerBatch.Discard(id);
+            PresentationFilter previousFilter = null;
             }
         }
 
@@ -2563,6 +2780,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             BurikoMemory memory,
             bool isBustshot,
             float alpha = 1f,
+                previousFilter = previous.Filter == null ? null : previous.Filter.Clone();
             float duration = 0f,
             int overrideWidth = 0,
             int overrideHeight = 0)
@@ -2570,6 +2788,9 @@ namespace Higurashi.IOS.Runtime.Buriko
             Texture2D previousTexture = null;
             float previousX = x;
             float previousY = y;
+            var activeFilter = _layerFilters.TryGetValue(id, out var layerFilter)
+                ? layerFilter.Clone()
+                : new PresentationFilter();
             float previousZ = z;
             float previousAlpha = 0f;
             var previousIsBustshot = isBustshot;
@@ -2590,6 +2811,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             {
                 Id = id,
                 TextureName = textureName,
+                Filter = activeFilter,
+                PreviousFilter = previousFilter ?? new PresentationFilter(),
                 Texture = LoadSpriteTexture(textureName, memory),
                 X = x,
                 Y = y,
@@ -3115,6 +3338,33 @@ namespace Higurashi.IOS.Runtime.Buriko
         }
 
         private void StartFilmTransition(float targetStrength, float duration)
+        private void StartFilmEffect(int type, Color color, int style, int targetPower,
+            float duration)
+        {
+            _filmEffectType = type;
+            _filmEffectStyle = style;
+            _filmEffectColor = color;
+            _filmEffectStrength = FilmEffectStrength;
+            _filmEffectTargetStrength = Mathf.Clamp01(targetPower / 256f);
+            _filmEffectStartedAt = Time.unscaledTime;
+            _filmEffectDuration = Mathf.Max(0f, duration);
+            if (_filmEffectDuration <= 0f)
+            {
+                _filmEffectStrength = _filmEffectTargetStrength;
+            }
+        }
+
+        private void FadeFilmEffect(float duration)
+        {
+            _filmEffectStrength = FilmEffectStrength;
+            _filmEffectTargetStrength = 0f;
+            _filmEffectStartedAt = Time.unscaledTime;
+            _filmEffectDuration = Mathf.Max(0f, duration);
+            if (_filmEffectDuration <= 0f)
+            {
+                _filmEffectStrength = 0f;
+            }
+        }
         {
             var currentStrength = NegativeFilmStrength;
             _filmStrength = currentStrength;
@@ -3253,6 +3503,81 @@ namespace Higurashi.IOS.Runtime.Buriko
             _shakeStartedAt = Time.unscaledTime;
         }
 
+        private void StartWindowShake(int vector, int level, int attenuation, float speed,
+            int loopCount, bool blocking)
+        {
+            var duration = ShakeDuration(speed, loopCount);
+            _windowShakeVector = vector;
+            _windowShakeIntensity = Mathf.Max(0f, level);
+            _windowShakeAttenuation = Mathf.Clamp01(attenuation / 100f);
+            _windowShakeSwingDuration = Mathf.Max(0.01f, speed);
+            _windowShakeDuration = duration;
+            _windowShakeStartedAt = Time.unscaledTime;
+            if (blocking && duration > 0f)
+            {
+                _blockingAnimationUntil = Mathf.Max(_blockingAnimationUntil,
+                    Time.unscaledTime + duration);
+            }
+        }
+
+        private static float ShakeDuration(float speed, int loopCount)
+        {
+            if (loopCount <= 0)
+            {
+                return 0f;
+            }
+
+            var swing = Mathf.Max(0.01f, speed);
+            return swing * loopCount + swing * 0.5f + loopCount * 0.01f;
+        }
+
+        private static Vector2 ShakeOffset(float elapsed, float duration, float swing,
+            float intensity, float attenuation, int vector)
+        {
+            if (duration <= 0f || elapsed < 0f || elapsed >= duration)
+            {
+                return Vector2.zero;
+            }
+
+            var phaseLength = Mathf.Max(0.01f, swing);
+            var index = Mathf.FloorToInt(elapsed / phaseLength);
+            var phase = Mathf.Clamp01((elapsed - index * phaseLength) / phaseLength);
+            var eased = -(Mathf.Cos(Mathf.PI * phase) - 1f) * 0.5f;
+            var fromSign = index == 0 ? 0f : ((index & 1) == 0 ? -1f : 1f);
+            var toSign = (index & 1) == 0 ? 1f : -1f;
+            var sign = Mathf.Lerp(fromSign, toSign, eased);
+            var currentIntensity = intensity * Mathf.Pow(1f - attenuation, Mathf.Max(0, index));
+            switch (vector)
+            {
+                case 0: return new Vector2(currentIntensity * sign, 0f);
+                case 1: return new Vector2(currentIntensity * sign, -currentIntensity * sign);
+                case 2: return new Vector2(0f, currentIntensity * sign);
+                case 3: return new Vector2(-currentIntensity * sign, currentIntensity * sign);
+                default:
+                    return new Vector2(Mathf.Sin(elapsed * 71f), Mathf.Cos(elapsed * 53f)) *
+                        currentIntensity;
+            }
+        }
+
+        private void StartEnlargeScreen(int x, int y, int width, int height, float duration)
+        {
+            var targetWidth = Mathf.Max(1f, width);
+            var targetHeight = Mathf.Max(1f, height);
+            _enlargeFromScale = PresentationScale;
+            _enlargeFromTranslation = PresentationTranslation;
+            _enlargeTargetScale = new Vector2(640f / targetWidth, 480f / targetHeight);
+            _enlargeTargetTranslation = new Vector2(
+                (320f - (x + targetWidth * 0.5f)) * _enlargeTargetScale.x,
+                (240f - (y + targetHeight * 0.5f)) * _enlargeTargetScale.y);
+            _enlargeStartedAt = Time.unscaledTime;
+            _enlargeDuration = Mathf.Max(0f, duration);
+            if (_enlargeDuration <= 0f)
+            {
+                _enlargeFromScale = _enlargeTargetScale;
+                _enlargeFromTranslation = _enlargeTargetTranslation;
+            }
+        }
+
         private void CompletePresentationAnimations()
         {
             _backgroundTransitionStartedAt = Time.unscaledTime - _backgroundTransitionDuration;
@@ -3260,6 +3585,12 @@ namespace Higurashi.IOS.Runtime.Buriko
             _backgroundTransitionMask = null;
             _previousSceneLayers.Clear();
             _shakeDuration = 0f;
+            _windowShakeDuration = 0f;
+            _enlargeDuration = 0f;
+            _enlargeFromScale = Vector2.one;
+            _enlargeTargetScale = Vector2.one;
+            _enlargeFromTranslation = Vector2.zero;
+            _enlargeTargetTranslation = Vector2.zero;
             _windowTransitionDuration = 0f;
             _windowTransitionFrom = _windowTransitionTo;
             WindowVisible = _windowTransitionTo > 0f;
@@ -3289,11 +3620,58 @@ namespace Higurashi.IOS.Runtime.Buriko
 
     }
 
+    public sealed class PresentationFilter
+    {
+        public int Rr = 256;
+        public int Rg;
+        public int Rb;
+        public int Gr;
+        public int Gg = 256;
+        public int Gb;
+        public int Br;
+        public int Bg;
+        public int Bb = 256;
+        public int Alpha = 256;
+
+        public bool IsIdentity => Rr == 256 && Rg == 0 && Rb == 0 &&
+            Gr == 0 && Gg == 256 && Gb == 0 && Br == 0 && Bg == 0 &&
+            Bb == 256 && Alpha == 256;
+
+        public static PresentationFilter From(LayerFilterDefinition definition, int alpha)
+        {
+            return new PresentationFilter
+            {
+                Rr = definition.Rr, Rg = definition.Rg, Rb = definition.Rb,
+                Gr = definition.Gr, Gg = definition.Gg, Gb = definition.Gb,
+                Br = definition.Br, Bg = definition.Bg, Bb = definition.Bb,
+                Alpha = Mathf.Clamp(alpha, 0, 256)
+            };
+        }
+
+        public PresentationFilter Clone()
+        {
+            return new PresentationFilter
+            {
+                Rr = Rr, Rg = Rg, Rb = Rb,
+                Gr = Gr, Gg = Gg, Gb = Gb,
+                Br = Br, Bg = Bg, Bb = Bb,
+                Alpha = Alpha
+            };
+        }
+    }
+
     public sealed class PresentationLayer
     {
         public int Id;
+        public PresentationFilter Filter = new PresentationFilter();
+        public PresentationFilter PreviousFilter = new PresentationFilter();
         public string TextureName;
         public Texture2D Texture;
+        public void SetFilter(PresentationFilter filter)
+        {
+            Filter = filter == null ? new PresentationFilter() : filter.Clone();
+        }
+
         public int X;
         public int Y;
         public int Z;
@@ -3424,6 +3802,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             return new PresentationLayer
             {
                 Id = Id,
+                Filter = Filter == null ? new PresentationFilter() : Filter.Clone(),
+                PreviousFilter = PreviousFilter == null ? new PresentationFilter() : PreviousFilter.Clone(),
                 TextureName = TextureName,
                 X = X,
                 Y = Y,
@@ -3527,7 +3907,13 @@ namespace Higurashi.IOS.Runtime.Buriko
             string fragmentTextureName,
             string fragmentStyle,
             string windowBackgroundName,
-            float negativeFilmStrength)
+            float negativeFilmStrength,
+            int messageSpeedOverride = -1,
+            int filmEffectType = -1,
+            int filmEffectStyle = 0,
+            Color filmEffectColor = default(Color),
+            float filmEffectStrength = 0f,
+            bool filmAppliesToFace = true)
         {
             BackgroundName = backgroundName;
             Layers = layers;
@@ -3555,12 +3941,18 @@ namespace Higurashi.IOS.Runtime.Buriko
             FontSize = fontSize;
             WindowX = windowX;
             WindowY = windowY;
+            FilmEffectType = filmEffectType;
+            FilmEffectStyle = filmEffectStyle;
+            FilmEffectColor = filmEffectColor;
+            FilmEffectStrength = Mathf.Clamp01(filmEffectStrength);
+            FilmAppliesToFace = filmAppliesToFace;
             WindowWidth = windowWidth;
             WindowHeight = windowHeight;
             ScreenAspect = screenAspect;
             FragmentTextureName = fragmentTextureName ?? string.Empty;
             FragmentStyle = fragmentStyle ?? string.Empty;
             WindowBackgroundName = windowBackgroundName ?? string.Empty;
+            MessageSpeedOverride = messageSpeedOverride;
             NegativeFilmStrength = Mathf.Clamp01(negativeFilmStrength);
         }
 
@@ -3587,6 +3979,11 @@ namespace Higurashi.IOS.Runtime.Buriko
         public int LastVoiceCharacter { get; }
         public string LastVoiceFilename { get; }
         public float LastVoiceVolume { get; }
+        public int FilmEffectType { get; }
+        public int FilmEffectStyle { get; }
+        public Color FilmEffectColor { get; }
+        public float FilmEffectStrength { get; }
+        public bool FilmAppliesToFace { get; }
         public int FontSize { get; }
         public int WindowX { get; }
         public int WindowY { get; }
@@ -3595,6 +3992,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         public string ScreenAspect { get; }
         public string FragmentTextureName { get; }
         public string FragmentStyle { get; }
+        public int MessageSpeedOverride { get; }
         public string WindowBackgroundName { get; }
         public float NegativeFilmStrength { get; }
     }

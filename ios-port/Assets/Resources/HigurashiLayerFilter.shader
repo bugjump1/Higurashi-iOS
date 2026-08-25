@@ -1,12 +1,8 @@
-Shader "Higurashi/MaskedTransition"
+Shader "Higurashi/LayerFilter"
 {
     Properties
     {
         _MainTex ("Texture", 2D) = "white" {}
-        _MaskTex ("Mask", 2D) = "black" {}
-        _Progress ("Progress", Range(0, 1)) = 0
-        _Fuzziness ("Fuzziness", Range(0.001, 1)) = 0.45
-        _NegativeStrength ("Negative strength", Range(0, 1)) = 0
         _FilterRR ("Filter RR", Float) = 1
         _FilterRG ("Filter RG", Float) = 0
         _FilterRB ("Filter RB", Float) = 0
@@ -17,6 +13,7 @@ Shader "Higurashi/MaskedTransition"
         _FilterBG ("Filter BG", Float) = 0
         _FilterBB ("Filter BB", Float) = 1
         _FilterAlpha ("Filter alpha", Range(0, 1)) = 1
+        _NegativeStrength ("Negative strength", Range(0, 1)) = 0
         _FilmType ("Film type", Float) = -1
         _FilmColor ("Film color", Color) = (1, 1, 1, 1)
         _FilmStrength ("Film strength", Range(0, 1)) = 0
@@ -38,33 +35,18 @@ Shader "Higurashi/MaskedTransition"
             #include "UnityCG.cginc"
 
             sampler2D _MainTex;
-            sampler2D _MaskTex;
             float4 _MainTex_ST;
-            float _Progress;
-            float _Fuzziness;
-            float _NegativeStrength;
-            float _FilterRR, _FilterRG, _FilterRB;
-            float _FilterGR, _FilterGG, _FilterGB;
-            float _FilterBR, _FilterBG, _FilterBB;
-
             float _FilmType;
             float4 _FilmColor;
             float _FilmStrength;
+            float _FilterRR, _FilterRG, _FilterRB;
+            float _FilterGR, _FilterGG, _FilterGB;
+            float _FilterBR, _FilterBG, _FilterBB;
             float _FilterAlpha;
+            float _NegativeStrength;
 
-            struct appdata
-            {
-                float4 vertex : POSITION;
-                float2 uv : TEXCOORD0;
-                fixed4 color : COLOR;
-            };
-
-            struct v2f
-            {
-                float4 vertex : SV_POSITION;
-                float2 uv : TEXCOORD0;
-                fixed4 color : COLOR;
-            };
+            struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; fixed4 color : COLOR; };
+            struct v2f { float4 vertex : SV_POSITION; float2 uv : TEXCOORD0; fixed4 color : COLOR; };
 
             v2f vert(appdata input)
             {
@@ -78,11 +60,12 @@ Shader "Higurashi/MaskedTransition"
             fixed4 frag(v2f input) : SV_Target
             {
                 fixed4 color = tex2D(_MainTex, input.uv) * input.color;
-                color.rgb = lerp(color.rgb, 1.0 - color.rgb, saturate(_NegativeStrength));
                 float3 rgb = color.rgb;
                 color.r = dot(rgb, float3(_FilterRR, _FilterRG, _FilterRB));
                 color.g = dot(rgb, float3(_FilterGR, _FilterGG, _FilterGB));
                 color.b = dot(rgb, float3(_FilterBR, _FilterBG, _FilterBB));
+                color.a *= saturate(_FilterAlpha);
+                color.rgb = lerp(color.rgb, 1.0 - color.rgb, saturate(_NegativeStrength));
                 if (_FilmStrength > 0.0001)
                 {
                     if (_FilmType < 1.5)
@@ -99,13 +82,4 @@ Shader "Higurashi/MaskedTransition"
                         color.rgb = lerp(color.rgb, 1.0 - color.rgb, saturate(_FilmStrength));
                     }
                 }
-                float maskValue = tex2D(_MaskTex, input.uv).r;
-                float reveal = saturate((_Progress - maskValue) / _Fuzziness + 1.0);
-                color.a *= saturate(_FilterAlpha);
-                color.a *= reveal;
                 return color;
-            }
-            ENDCG
-        }
-    }
-}

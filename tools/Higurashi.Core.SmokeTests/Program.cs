@@ -28,6 +28,8 @@ internal static class Program
             AutoAdvanceDelayStartsAfterReveal,
             AutoAdvanceDelayResetsForNewDialogue,
             AutoAdvanceWaitsForVoiceCompletion,
+            MessageSpeedOverrideDoesNotChangeRevealCompletionSemantics,
+            LayerFilterPolicyMatchesPcMatrices,
             SceneLayerBatchPreservesOnlyPreparedLayers,
             SavePolicyRejectsContentBrowsers,
             SavePolicyRejectsRuntimeControlScripts,
@@ -85,6 +87,33 @@ internal static class Program
         var input = new TouchGestureInterpreter();
         Equal(NovelInputAction.None, Frame(input, 0, false, P(1, 500, 300, PointerPhase.Began)));
         Equal(NovelInputAction.Advance, Frame(input, 0.1, false, P(1, 502, 301, PointerPhase.Ended)));
+
+    }
+    private static void MessageSpeedOverrideDoesNotChangeRevealCompletionSemantics()
+    {
+        Equal(18f, MessageSpeedPolicy.CharactersPerSecond(0, -1));
+        Equal(54f, MessageSpeedPolicy.CharactersPerSecond(50, -1));
+        Equal(64f, MessageSpeedPolicy.CharactersPerSecond(50, 128));
+        True(float.IsPositiveInfinity(MessageSpeedPolicy.CharactersPerSecond(50, 0)));
+    }
+
+    private static void LayerFilterPolicyMatchesPcMatrices()
+    {
+        True(LayerFilterPolicy.TryResolve("night", out var night));
+        Equal(222, night.Rr);
+        Equal(222, night.Gg);
+        Equal(256, night.Bb);
+        True(LayerFilterPolicy.TryResolve("grayscale", out var grayscale));
+        Equal(55, grayscale.Rr);
+        Equal(185, grayscale.Rg);
+        Equal(18, grayscale.Rb);
+        True(LayerFilterPolicy.TryResolve("128,64,32", out var diagonal));
+        Equal(128, diagonal.Rr);
+        Equal(64, diagonal.Gg);
+        Equal(32, diagonal.Bb);
+        True(LayerFilterPolicy.TryResolve("1,2,3,4,5,6,7,8,9", out var custom));
+        Equal(9, custom.Bb);
+        True(!LayerFilterPolicy.TryResolve("unsupported", out _));
     }
 
     private static void NegativeFilmOperationsRemainAvailableForAllEpisodes()
