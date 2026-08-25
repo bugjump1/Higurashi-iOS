@@ -468,7 +468,8 @@ namespace Higurashi.IOS.Runtime
             var source = new Rect(0f, edgeInset, 1f, 1f - edgeInset * 2f);
             if (ClipTextureToBounds(content, ref destination, ref source))
             {
-                DrawMaskedTexture(destination, texture, mask, source, progress, fuzziness, alpha);
+                DrawMaskedTexture(destination, texture, mask, source, progress, fuzziness, alpha,
+                    filter, applyFilm);
             }
         }
 
@@ -631,7 +632,8 @@ namespace Higurashi.IOS.Runtime
         }
 
         private void DrawMaskedTexture(Rect destination, Texture texture, Texture mask, Rect source,
-            float progress, float fuzziness, float alpha)
+            float progress, float fuzziness, float alpha,
+            PresentationLayerFilter filter = null, bool applyFilm = true)
         {
             if (_maskedTransitionMaterial == null)
             {
@@ -654,8 +656,27 @@ namespace Higurashi.IOS.Runtime
             _maskedTransitionMaterial.SetTexture("_MaskTex", mask);
             _maskedTransitionMaterial.SetFloat("_Progress", Mathf.Clamp01(progress));
             _maskedTransitionMaterial.SetFloat("_Fuzziness", Mathf.Max(0.001f, fuzziness));
-            _maskedTransitionMaterial.SetFloat("_NegativeStrength",
-                _host == null ? 0f : _host.NegativeFilmStrength);
+            var filmStrength = applyFilm && _host != null ? _host.FilmEffectStrength : 0f;
+            var filterEnabled = filmStrength <= 0.0001f && filter != null && !filter.IsIdentity;
+            var negativeStrength = filmStrength <= 0.0001f && !filterEnabled && _host != null
+                ? _host.NegativeFilmStrength
+                : 0f;
+            _maskedTransitionMaterial.SetFloat("_FilmType", _host == null ? 0f : _host.FilmEffectType);
+            _maskedTransitionMaterial.SetColor("_FilmColor",
+                _host == null ? Color.white : _host.FilmEffectColor);
+            _maskedTransitionMaterial.SetFloat("_FilmStrength", filmStrength);
+            _maskedTransitionMaterial.SetFloat("_FilterEnabled", filterEnabled ? 1f : 0f);
+            _maskedTransitionMaterial.SetFloat("_FilterRR", filterEnabled ? filter.Rr / 256f : 1f);
+            _maskedTransitionMaterial.SetFloat("_FilterRG", filterEnabled ? filter.Rg / 256f : 0f);
+            _maskedTransitionMaterial.SetFloat("_FilterRB", filterEnabled ? filter.Rb / 256f : 0f);
+            _maskedTransitionMaterial.SetFloat("_FilterGR", filterEnabled ? filter.Gr / 256f : 0f);
+            _maskedTransitionMaterial.SetFloat("_FilterGG", filterEnabled ? filter.Gg / 256f : 1f);
+            _maskedTransitionMaterial.SetFloat("_FilterGB", filterEnabled ? filter.Gb / 256f : 0f);
+            _maskedTransitionMaterial.SetFloat("_FilterBR", filterEnabled ? filter.Br / 256f : 0f);
+            _maskedTransitionMaterial.SetFloat("_FilterBG", filterEnabled ? filter.Bg / 256f : 0f);
+            _maskedTransitionMaterial.SetFloat("_FilterBB", filterEnabled ? filter.Bb / 256f : 1f);
+            _maskedTransitionMaterial.SetFloat("_FilterAlpha", filterEnabled ? filter.Alpha / 256f : 1f);
+            _maskedTransitionMaterial.SetFloat("_NegativeStrength", negativeStrength);
             Graphics.DrawTexture(destination, texture, source, 0, 0, 0, 0,
                 new Color(1f, 1f, 1f, Mathf.Clamp01(alpha)), _maskedTransitionMaterial);
         }

@@ -674,6 +674,11 @@ namespace Higurashi.IOS.Runtime
                     return;
                 }
 
+                if (TryContinueEpisodeEightStoryAfterFragment50())
+                {
+                    continue;
+                }
+
                 if (_activeFragmentId > 0 && _host.FragmentListVisible)
                 {
                     completedFragmentId = _activeFragmentId;
@@ -794,6 +799,33 @@ namespace Higurashi.IOS.Runtime
                 "Recovered fragment 50 continuation at flow.Game s_jump=" +
                 EpisodeEightFragmentContinuationPolicy.ResumeStoryJumpValue + " " +
                 RuntimeLocation());
+            return true;
+        }
+
+        private bool TryContinueEpisodeEightStoryAfterFragment50()
+        {
+            if (_runtime == null || _host == null ||
+                !EpisodeEightFragmentContinuationPolicy.ShouldContinueStoryAfterFragment50(
+                    HigurashiActiveChapter.Profile.EpisodeNumber,
+                    _activeFragmentId,
+                    _runtime.Memory.GetLocalFlag("LFragmentLoop"),
+                    _runtime.Memory.GetLocalFlag("FragmentRead51")))
+            {
+                return false;
+            }
+
+            _fastTraversal.Stop();
+            _autoMode = false;
+            _activeFragmentId = -1;
+            _runtime.Memory.SetLocalFlag("TipsMode", 0);
+            _runtime.Memory.SetLocalFlag("s_jump",
+                EpisodeEightFragmentContinuationPolicy.ResumeStoryJumpValue);
+            _host.PrepareStoryContinuation();
+            _runtime.JumpToScriptSectionFromUi("flow", "Game");
+            _suppressInputUntilFrame = Time.frameCount + 2;
+            HigurashiDiagnosticLog.Info("Fragment",
+                "Fragment 50 completed with FragmentRead51; continuing immediately at flow.Game s_jump=" +
+                EpisodeEightFragmentContinuationPolicy.ResumeStoryJumpValue + " " + RuntimeLocation());
             return true;
         }
 
@@ -1862,6 +1894,7 @@ namespace Higurashi.IOS.Runtime
                 _host.StopAllAudio();
                 _runtime.ReadPersistentState(stream);
                 RestoreLegacyEpisodeEightFragmentState();
+                RestoreActiveEpisodeEightFragment();
                 // Art/audio choices are app-wide preferences. An older save
                 // restores story flags, but must not override Settings.
                 _host.ApplySettings(_runtime.Memory);
@@ -1885,6 +1918,26 @@ namespace Higurashi.IOS.Runtime
             HigurashiDiagnosticLog.Warning("Load",
                 "Restored missing init globals for a legacy EP08 fragment save " +
                 RuntimeLocation());
+        }
+
+        private void RestoreActiveEpisodeEightFragment()
+        {
+            _activeFragmentId = -1;
+            if (_runtime == null || HigurashiActiveChapter.Profile.EpisodeNumber != 8 ||
+                _runtime.Memory.GetLocalFlag("FragmentRead51") == 0)
+            {
+                return;
+            }
+
+            if (string.Equals(_runtime.CurrentScriptName, "_kakera50",
+                    StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(_runtime.CurrentScriptName, "_kakera50_02",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                _activeFragmentId = 50;
+                HigurashiDiagnosticLog.Info("Load",
+                    "Restored active fragment 50 continuation " + RuntimeLocation());
+            }
         }
 
         private bool IsRecoverableStorySaveState()

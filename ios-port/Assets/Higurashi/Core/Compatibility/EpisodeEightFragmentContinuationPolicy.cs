@@ -7,6 +7,18 @@ namespace Higurashi.IOS.Compatibility
         // flow.Game resumes at _mats_009 after the fragment loop has returned.
         public const int ResumeStoryJumpValue = 9;
 
+        public static bool ShouldContinueStoryAfterFragment50(
+            int episodeNumber,
+            int activeFragmentId,
+            int fragmentLoop,
+            int fragment51Read)
+        {
+            return episodeNumber == 8 &&
+                   activeFragmentId == 50 &&
+                   fragmentLoop == 0 &&
+                   fragment51Read != 0;
+        }
+
         public static bool ShouldRecoverFromUnexpectedExit(
             int episodeNumber,
             int activeFragmentId,
@@ -15,10 +27,8 @@ namespace Higurashi.IOS.Compatibility
             bool titleVisible,
             bool runtimeCompleted)
         {
-            return episodeNumber == 8 &&
-                   activeFragmentId == 50 &&
-                   fragmentLoop == 0 &&
-                   fragment51Read != 0 &&
+            return ShouldContinueStoryAfterFragment50(
+                       episodeNumber, activeFragmentId, fragmentLoop, fragment51Read) &&
                    (titleVisible || runtimeCompleted);
         }
 

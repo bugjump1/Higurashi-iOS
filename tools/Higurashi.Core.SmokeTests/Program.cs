@@ -435,6 +435,14 @@ internal static class Program
     private static void EpisodeEightFragmentContinuationRecoversOnlyUnexpectedFinalExit()
     {
         Equal(9, EpisodeEightFragmentContinuationPolicy.ResumeStoryJumpValue);
+        Equal(true, EpisodeEightFragmentContinuationPolicy.ShouldContinueStoryAfterFragment50(
+            8, 50, 0, 1));
+        Equal(false, EpisodeEightFragmentContinuationPolicy.ShouldContinueStoryAfterFragment50(
+            8, 50, 1, 1));
+        Equal(false, EpisodeEightFragmentContinuationPolicy.ShouldContinueStoryAfterFragment50(
+            8, 50, 0, 0));
+        Equal(false, EpisodeEightFragmentContinuationPolicy.ShouldContinueStoryAfterFragment50(
+            8, 49, 0, 1));
         Equal(true, EpisodeEightFragmentContinuationPolicy.ShouldRecoverFromUnexpectedExit(
             8, 50, 0, 1, true, false));
         Equal(true, EpisodeEightFragmentContinuationPolicy.ShouldRecoverFromUnexpectedExit(
