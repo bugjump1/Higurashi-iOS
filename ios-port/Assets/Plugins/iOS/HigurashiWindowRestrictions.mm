@@ -4,13 +4,16 @@ static const CGSize HigurashiMinimumWindowSize = { 640.0, 400.0 };
 
 static void HigurashiApplyWindowRestrictions(UIScene *scene)
 {
-    if (@available(iOS 13.0, *) && [scene isKindOfClass:[UIWindowScene class]])
+    if (@available(iOS 13.0, *))
     {
-        UIWindowScene *windowScene = (UIWindowScene *)scene;
-        UISceneSizeRestrictions *restrictions = windowScene.sizeRestrictions;
-        if (restrictions != nil)
+        if ([scene isKindOfClass:[UIWindowScene class]])
         {
-            restrictions.minimumSize = HigurashiMinimumWindowSize;
+            UIWindowScene *windowScene = (UIWindowScene *)scene;
+            UISceneSizeRestrictions *restrictions = windowScene.sizeRestrictions;
+            if (restrictions != nil)
+            {
+                restrictions.minimumSize = HigurashiMinimumWindowSize;
+            }
         }
     }
 }
@@ -27,7 +30,7 @@ static void HigurashiApplyWindowRestrictions(UIScene *scene)
         NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
         [center addObserver:self
                    selector:@selector(higurashi_sceneConnected:)
-                       name:UISceneDidConnectNotification
+                       name:UISceneWillConnectNotification
                      object:nil];
         [center addObserver:self
                    selector:@selector(higurashi_sceneActivated:)
