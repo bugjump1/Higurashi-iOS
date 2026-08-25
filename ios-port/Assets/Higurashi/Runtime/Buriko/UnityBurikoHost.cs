@@ -24,6 +24,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         private const int PersistentLastVoiceStateMagic = 0x38564848; // HHV8
         private const int PersistentLayerAnchorStateMagic = 0x39414848; // HHA9
         private const int PersistentFilmStateMagic = 0x31464848; // HHF1
+        private const int PersistentMessageSpeedStateMagic = 0x31534848; // HHS1
         private const int PersistentTipReadingStateMagic = 0x31525448; // HTR1
         private readonly List<RuntimePathCascade> _artSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _spriteSets = new List<RuntimePathCascade>();
@@ -68,6 +69,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         private float _filmTransitionDuration;
         private float _filmStrength;
         private float _filmTargetStrength;
+        private int _messageSpeedOverride = -1;
         private Texture2D _fragmentTexture;
         private string _fragmentTextureName = string.Empty;
         private string _fragmentStyle = string.Empty;
@@ -279,8 +281,9 @@ namespace Higurashi.IOS.Runtime.Buriko
                 {
                     return Dialogue.Length;
                 }
-                var speed = _settings == null ? 50 : Mathf.Clamp(_settings.textSpeed, 0, 100);
-                var charactersPerSecond = Mathf.Lerp(18f, 90f, speed / 100f);
+                var speed = _settings == null ? 50 : _settings.textSpeed;
+                var charactersPerSecond = MessageSpeedPolicy.CharactersPerSecond(
+                    speed, _messageSpeedOverride);
                 var animated = Mathf.FloorToInt((Time.unscaledTime - _dialogueRevealStartedAt) * charactersPerSecond);
                 return Mathf.Clamp(_dialogueRevealStartIndex + animated, 0, Dialogue.Length);
             }
@@ -410,7 +413,6 @@ namespace Higurashi.IOS.Runtime.Buriko
                     return BurikoHostResponse.Continue;
                 case 15:
                 case 19:
-                case 20:
                 case 22:
                 case 23:
                 case 36:
@@ -459,6 +461,10 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 149:
                 case 155:
                     ReportApproximated(invocation);
+                    return BurikoHostResponse.Continue;
+                case 20:
+                    _messageSpeedOverride = MessageSpeedPolicy.ScriptOverride(
+                        invocation.Arguments[0].AsBool(memory), Int(invocation, 1, memory));
                     return BurikoHostResponse.Continue;
                 case 61:
                     CommitPendingPresentation();
@@ -1648,7 +1654,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                 _fragmentTextureName,
                 _fragmentStyle,
                 _windowBackgroundName,
-                NegativeFilmStrength);
+                NegativeFilmStrength,
+                _messageSpeedOverride);
         }
 
         public void ReplayRestoredCheckpointAnimations(
@@ -1837,6 +1844,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                 writer.Write(_tipsVisibleChapterOverride);
                 writer.Write(PersistentFilmStateMagic);
                 writer.Write(NegativeFilmStrength);
+                writer.Write(PersistentMessageSpeedStateMagic);
+                writer.Write(_messageSpeedOverride);
             }
         }
 
@@ -1846,7 +1855,9 @@ namespace Higurashi.IOS.Runtime.Buriko
             var hasPersistedAppendState = false;
             var hasPersistedBgmState = false;
             var hasPersistedFilmState = false;
+            var hasPersistedMessageSpeedState = false;
             var persistedFilmStrength = 0f;
+            var persistedMessageSpeedOverride = -1;
             var persistedBgmState = Array.Empty<RuntimeBgmState>();
             _fragmentTextureName = string.Empty;
             _fragmentStyle = string.Empty;
@@ -1866,6 +1877,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             _selectedTipId = -1;
             _fragmentPage = 0;
             _selectedFragmentId = -1;
+            _messageSpeedOverride = -1;
             using (var reader = new BinaryReader(input, System.Text.Encoding.UTF8, true))
             {
                 if (reader.ReadInt32() != PersistentStateMagic)
@@ -2121,6 +2133,20 @@ namespace Higurashi.IOS.Runtime.Buriko
                         input.Position = filmTailPosition;
                     }
                 }
+
+                if (input.CanSeek && input.Length - input.Position >= sizeof(int) * 2)
+                {
+                    var messageSpeedTailPosition = input.Position;
+                    if (reader.ReadInt32() == PersistentMessageSpeedStateMagic)
+                    {
+                        persistedMessageSpeedOverride = reader.ReadInt32();
+                        hasPersistedMessageSpeedState = true;
+                    }
+                    else
+                    {
+                        input.Position = messageSpeedTailPosition;
+                    }
+                }
             }
 
             CreditsVisible = false;
@@ -2158,6 +2184,9 @@ namespace Higurashi.IOS.Runtime.Buriko
                 hasPersistedFilmState ? persistedFilmStrength : 0f,
                 hasPersistedFilmState ? persistedFilmStrength : 0f,
                 0f);
+            _messageSpeedOverride = hasPersistedMessageSpeedState
+                ? persistedMessageSpeedOverride
+                : -1;
             _previousSceneLayers.Clear();
             _dialogueRevealForced = true;
             if (!hasPersistedAppendState)
@@ -2241,6 +2270,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             _blockingAnimationUntil = 0f;
             StartFilmTransitionFrom(snapshot.NegativeFilmStrength,
                 snapshot.NegativeFilmStrength, 0f);
+            _messageSpeedOverride = snapshot.MessageSpeedOverride;
             _fragmentTextureName = snapshot.FragmentTextureName;
             _fragmentStyle = snapshot.FragmentStyle;
             _fragmentTexture = string.IsNullOrWhiteSpace(_fragmentTextureName)
@@ -3527,7 +3557,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             string fragmentTextureName,
             string fragmentStyle,
             string windowBackgroundName,
-            float negativeFilmStrength)
+            float negativeFilmStrength,
+            int messageSpeedOverride = -1)
         {
             BackgroundName = backgroundName;
             Layers = layers;
@@ -3562,6 +3593,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             FragmentStyle = fragmentStyle ?? string.Empty;
             WindowBackgroundName = windowBackgroundName ?? string.Empty;
             NegativeFilmStrength = Mathf.Clamp01(negativeFilmStrength);
+            MessageSpeedOverride = messageSpeedOverride;
         }
 
         public string BackgroundName { get; }
@@ -3597,6 +3629,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         public string FragmentStyle { get; }
         public string WindowBackgroundName { get; }
         public float NegativeFilmStrength { get; }
+        public int MessageSpeedOverride { get; }
     }
 
     internal enum HigurashiFragmentViewState

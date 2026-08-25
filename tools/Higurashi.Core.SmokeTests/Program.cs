@@ -28,6 +28,7 @@ internal static class Program
             AutoAdvanceDelayStartsAfterReveal,
             AutoAdvanceDelayResetsForNewDialogue,
             AutoAdvanceWaitsForVoiceCompletion,
+            MessageSpeedOverrideMatchesPcIntegerSemantics,
             SceneLayerBatchPreservesOnlyPreparedLayers,
             SavePolicyRejectsContentBrowsers,
             SavePolicyRejectsRuntimeControlScripts,
@@ -85,6 +86,17 @@ internal static class Program
         var input = new TouchGestureInterpreter();
         Equal(NovelInputAction.None, Frame(input, 0, false, P(1, 500, 300, PointerPhase.Began)));
         Equal(NovelInputAction.Advance, Frame(input, 0.1, false, P(1, 502, 301, PointerPhase.Ended)));
+    }
+
+    private static void MessageSpeedOverrideMatchesPcIntegerSemantics()
+    {
+        Equal(-1, MessageSpeedPolicy.ScriptOverride(false, 128));
+        Equal(0, MessageSpeedPolicy.ScriptOverride(true, 16));
+        Equal(50, MessageSpeedPolicy.ScriptOverride(true, 128));
+        Equal(100, MessageSpeedPolicy.ScriptOverride(true, 255));
+        Equal(54f, MessageSpeedPolicy.CharactersPerSecond(50, -1));
+        Equal(18f, MessageSpeedPolicy.CharactersPerSecond(50, 0));
+        Equal(54f, MessageSpeedPolicy.CharactersPerSecond(0, 50));
     }
 
     private static void NegativeFilmOperationsRemainAvailableForAllEpisodes()
