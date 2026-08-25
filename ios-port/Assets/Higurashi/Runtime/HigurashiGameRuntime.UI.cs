@@ -1380,6 +1380,7 @@ namespace Higurashi.IOS.Runtime
         private void DrawMessageWindow()
         {
             var content = GetContentRect();
+            content.position += _host.WindowPresentationOffset * (content.height / 480f);
             var scale = UiScale;
             var windowFade = _host.WindowOpacity;
             var toolbarReserve = Mathf.Min(content.width * 0.18f, 250f * scale);
@@ -1434,6 +1435,7 @@ namespace Higurashi.IOS.Runtime
         private void DrawCinematicDialogue()
         {
             var content = GetContentRect();
+            content.position += _host.WindowPresentationOffset * (content.height / 480f);
             var scale = UiScale;
             var rect = new Rect(content.x + content.width * 0.10f,
                 content.y + content.height * 0.72f,

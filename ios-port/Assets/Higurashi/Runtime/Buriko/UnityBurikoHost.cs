@@ -63,6 +63,12 @@ namespace Higurashi.IOS.Runtime.Buriko
         private float _shakeAttenuation;
         private float _shakeDuration;
         private int _shakeVector;
+        private float _windowShakeStartedAt;
+        private float _windowShakeSwingDuration;
+        private float _windowShakeIntensity;
+        private float _windowShakeAttenuation;
+        private float _windowShakeDuration;
+        private int _windowShakeVector;
         private float _dialogueRevealStartedAt;
         private int _dialogueRevealStartIndex;
         private bool _dialogueRevealForced;
@@ -337,6 +343,15 @@ namespace Higurashi.IOS.Runtime.Buriko
             _videoPlayer.loopPointReached += OnMovieEnded;
             _videoPlayer.errorReceived += OnMovieError;
         }
+        public Vector2 WindowPresentationOffset
+        {
+            get
+            {
+                return ShakeOffset(Time.unscaledTime - _windowShakeStartedAt,
+                    _windowShakeDuration, _windowShakeSwingDuration,
+                    _windowShakeIntensity, _windowShakeAttenuation, _windowShakeVector);
+            }
+        }
 
         private void StartFilmEffect(int type, Color color, int style, int targetPower,
             float duration)
@@ -475,10 +490,6 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 22:
                 case 23:
                 case 36:
-                case 37:
-                case 38:
-                case 39:
-                case 40:
                 case 41:
                 case 42:
                 case 43:
@@ -521,6 +532,29 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 20:
                     _messageSpeedOverride = MessageSpeedPolicy.ScriptOverride(
                         invocation.Arguments[0].AsBool(memory), Int(invocation, 1, memory));
+                    return BurikoHostResponse.Continue;
+                case 37:
+                {
+                    var speed = (256f - Int(invocation, 0, memory)) * 5f / 1000f;
+                    var duration = ShakeDuration(speed, Int(invocation, 4, memory));
+                    StartScreenShake(Int(invocation, 3, memory), Int(invocation, 1, memory),
+                        Int(invocation, 2, memory), speed, duration);
+                    return AnimationResponse(duration, invocation.Arguments[5].AsBool(memory));
+                }
+                case 38:
+                    _shakeDuration = 0f;
+                    return BurikoHostResponse.Continue;
+                case 39:
+                {
+                    var speed = (256f - Int(invocation, 0, memory)) * 5f / 1000f;
+                    var loops = Int(invocation, 4, memory);
+                    var duration = ShakeDuration(speed, loops);
+                    StartWindowShake(Int(invocation, 3, memory), Int(invocation, 1, memory),
+                        Int(invocation, 2, memory), speed, loops);
+                    return AnimationResponse(duration, invocation.Arguments[5].AsBool(memory));
+                }
+                case 40:
+                    _windowShakeDuration = 0f;
                     return BurikoHostResponse.Continue;
                 case 137:
                 {
@@ -3515,6 +3549,56 @@ namespace Higurashi.IOS.Runtime.Buriko
             _shakeStartedAt = Time.unscaledTime;
         }
 
+        private void StartWindowShake(int vector, int level, int attenuation, float speed,
+            int loopCount)
+        {
+            _windowShakeVector = vector;
+            _windowShakeIntensity = Mathf.Max(0f, level);
+            _windowShakeAttenuation = Mathf.Clamp01(attenuation / 100f);
+            _windowShakeSwingDuration = Mathf.Max(0.01f, speed);
+            _windowShakeDuration = ShakeDuration(speed, loopCount);
+            _windowShakeStartedAt = Time.unscaledTime;
+        }
+
+        private static float ShakeDuration(float speed, int loopCount)
+        {
+            if (loopCount <= 0)
+            {
+                return 0f;
+            }
+
+            var swing = Mathf.Max(0.01f, speed);
+            return swing * loopCount + swing * 0.5f + loopCount * 0.01f;
+        }
+
+        private static Vector2 ShakeOffset(float elapsed, float duration, float swing,
+            float intensity, float attenuation, int vector)
+        {
+            if (duration <= 0f || elapsed < 0f || elapsed >= duration)
+            {
+                return Vector2.zero;
+            }
+
+            var phaseLength = Mathf.Max(0.01f, swing);
+            var index = Mathf.FloorToInt(elapsed / phaseLength);
+            var phase = Mathf.Clamp01((elapsed - index * phaseLength) / phaseLength);
+            var eased = -(Mathf.Cos(Mathf.PI * phase) - 1f) * 0.5f;
+            var fromSign = index == 0 ? 0f : ((index & 1) == 0 ? -1f : 1f);
+            var toSign = (index & 1) == 0 ? 1f : -1f;
+            var sign = Mathf.Lerp(fromSign, toSign, eased);
+            var currentIntensity = intensity * Mathf.Pow(1f - attenuation, Mathf.Max(0, index));
+            switch (vector)
+            {
+                case 0: return new Vector2(currentIntensity * sign, 0f);
+                case 1: return new Vector2(currentIntensity * sign, -currentIntensity * sign);
+                case 2: return new Vector2(0f, currentIntensity * sign);
+                case 3: return new Vector2(-currentIntensity * sign, currentIntensity * sign);
+                default:
+                    return new Vector2(Mathf.Sin(elapsed * 71f), Mathf.Cos(elapsed * 53f)) *
+                        currentIntensity;
+            }
+        }
+
         private void CompletePresentationAnimations()
         {
             _backgroundTransitionStartedAt = Time.unscaledTime - _backgroundTransitionDuration;
@@ -3522,6 +3606,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             _backgroundTransitionMask = null;
             _previousSceneLayers.Clear();
             _shakeDuration = 0f;
+            _windowShakeDuration = 0f;
             _windowTransitionDuration = 0f;
             _windowTransitionFrom = _windowTransitionTo;
             WindowVisible = _windowTransitionTo > 0f;
