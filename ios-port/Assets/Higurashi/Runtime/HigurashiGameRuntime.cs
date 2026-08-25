@@ -204,11 +204,11 @@ namespace Higurashi.IOS.Runtime
             var desired = Screen.orientation == ScreenOrientation.LandscapeRight
                 ? ScreenOrientation.LandscapeRight
                 : ScreenOrientation.LandscapeLeft;
-            if (Input.deviceOrientation == DeviceOrientation.LandscapeLeft)
+            if (UnityEngine.Input.deviceOrientation == UnityEngine.DeviceOrientation.LandscapeLeft)
             {
                 desired = ScreenOrientation.LandscapeLeft;
             }
-            else if (Input.deviceOrientation == DeviceOrientation.LandscapeRight)
+            else if (UnityEngine.Input.deviceOrientation == UnityEngine.DeviceOrientation.LandscapeRight)
             {
                 desired = ScreenOrientation.LandscapeRight;
             }
