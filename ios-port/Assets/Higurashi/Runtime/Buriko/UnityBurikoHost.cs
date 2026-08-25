@@ -26,6 +26,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         private const int PersistentFilmStateMagic = 0x31464848; // HHF1
         private const int PersistentMessageSpeedStateMagic = 0x31534848; // HHS1
         private const int PersistentLayerFilterStateMagic = 0x314C4848; // HHL1
+        private const int PersistentFilmEffectStateMagic = 0x31454848; // HHE1
         private const int PersistentTipReadingStateMagic = 0x31525448; // HTR1
         private readonly List<RuntimePathCascade> _artSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _spriteSets = new List<RuntimePathCascade>();
@@ -73,6 +74,13 @@ namespace Higurashi.IOS.Runtime.Buriko
         private float _filmStrength;
         private float _filmTargetStrength;
         private int _messageSpeedOverride = -1;
+        private int _filmEffectType = -1;
+        private int _filmEffectStyle;
+        private Color _filmEffectColor = Color.white;
+        private float _filmEffectStartedAt;
+        private float _filmEffectDuration;
+        private float _filmEffectStrength;
+        private float _filmEffectTargetStrength;
         private Texture2D _fragmentTexture;
         private string _fragmentTextureName = string.Empty;
         private string _fragmentStyle = string.Empty;
@@ -165,6 +173,22 @@ namespace Higurashi.IOS.Runtime.Buriko
                 var progress = Mathf.Clamp01((Time.unscaledTime - _filmTransitionStartedAt) /
                                              _filmTransitionDuration);
                 return Mathf.Lerp(_filmStrength, _filmTargetStrength, progress);
+            }
+        }
+        public int FilmEffectType => _filmEffectType;
+        public int FilmEffectStyle => _filmEffectStyle;
+        public Color FilmEffectColor => _filmEffectColor;
+        public float FilmEffectStrength
+        {
+            get
+            {
+                if (_filmEffectDuration <= 0f)
+                {
+                    return Mathf.Clamp01(_filmEffectTargetStrength);
+                }
+                var progress = Mathf.Clamp01((Time.unscaledTime - _filmEffectStartedAt) /
+                                             _filmEffectDuration);
+                return Mathf.Lerp(_filmEffectStrength, _filmEffectTargetStrength, progress);
             }
         }
         public Texture MovieTexture => _videoPlayer != null ? _videoPlayer.texture : null;
@@ -311,6 +335,35 @@ namespace Higurashi.IOS.Runtime.Buriko
             _videoPlayer.errorReceived += OnMovieError;
         }
 
+        private void StartFilmEffect(int type, Color color, int style, int targetPower,
+            float duration)
+        {
+            _filmEffectType = type;
+            _filmEffectStyle = style;
+            _filmEffectColor = color;
+            _filmEffectStrength = FilmEffectStrength;
+            _filmEffectTargetStrength = Mathf.Clamp01(targetPower / 256f);
+            _filmEffectStartedAt = Time.unscaledTime;
+            _filmEffectDuration = Mathf.Max(0f, duration);
+            if (_filmEffectDuration <= 0f)
+            {
+                _filmEffectStrength = _filmEffectTargetStrength;
+            }
+        }
+
+        private void FadeFilmEffect(float duration)
+        {
+            _filmEffectStrength = FilmEffectStrength;
+            _filmEffectTargetStrength = 0f;
+            _filmEffectStartedAt = Time.unscaledTime;
+            _filmEffectDuration = Mathf.Max(0f, duration);
+            if (_filmEffectDuration <= 0f)
+            {
+                _filmEffectStrength = 0f;
+                _filmEffectType = -1;
+            }
+        }
+
         private void Update()
         {
             UpdateWindowTransition();
@@ -434,7 +487,6 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 73:
                 case 74:
                 case 75:
-                case 76:
                 case 78:
                 case 81:
                 case 83:
@@ -812,9 +864,20 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 69:
                     ReportApproximated(invocation);
                     return BurikoHostResponse.Continue;
+                case 76:
+                {
+                    var duration = Int(invocation, 6, memory) / 1000f;
+                    var color = new Color(Int(invocation, 1, memory) / 255f,
+                        Int(invocation, 2, memory) / 255f,
+                        Int(invocation, 3, memory) / 255f);
+                    StartFilmEffect(Int(invocation, 0, memory), color,
+                        Int(invocation, 5, memory), Int(invocation, 4, memory), duration);
+                    return AnimationResponse(duration, invocation.Arguments[7].AsBool(memory));
+                }
                 case 77:
                 {
                     var duration = Int(invocation, 0, memory) / 1000f;
+                    FadeFilmEffect(duration);
                     StartFilmTransition(0f, duration);
                     return AnimationResponse(duration, invocation.Arguments[1].AsBool(memory));
                 }
@@ -1685,7 +1748,11 @@ namespace Higurashi.IOS.Runtime.Buriko
                 _fragmentStyle,
                 _windowBackgroundName,
                 NegativeFilmStrength,
-                _messageSpeedOverride);
+                _messageSpeedOverride,
+                FilmEffectType,
+                FilmEffectStyle,
+                FilmEffectColor,
+                FilmEffectStrength);
         }
 
         public void ReplayRestoredCheckpointAnimations(
@@ -1893,6 +1960,14 @@ namespace Higurashi.IOS.Runtime.Buriko
                     writer.Write(filter.Bb);
                     writer.Write(filter.Alpha);
                 }
+                writer.Write(PersistentFilmEffectStateMagic);
+                writer.Write(_filmEffectType);
+                writer.Write(_filmEffectStyle);
+                writer.Write(_filmEffectColor.r);
+                writer.Write(_filmEffectColor.g);
+                writer.Write(_filmEffectColor.b);
+                writer.Write(_filmEffectColor.a);
+                writer.Write(FilmEffectStrength);
             }
         }
 
@@ -1905,6 +1980,11 @@ namespace Higurashi.IOS.Runtime.Buriko
             var hasPersistedMessageSpeedState = false;
             var persistedFilmStrength = 0f;
             var persistedMessageSpeedOverride = -1;
+            var hasPersistedFilmEffectState = false;
+            var persistedFilmEffectType = -1;
+            var persistedFilmEffectStyle = 0;
+            var persistedFilmEffectColor = Color.white;
+            var persistedFilmEffectStrength = 0f;
             var persistedBgmState = Array.Empty<RuntimeBgmState>();
             _fragmentTextureName = string.Empty;
             _fragmentStyle = string.Empty;
@@ -2228,6 +2308,24 @@ namespace Higurashi.IOS.Runtime.Buriko
                         input.Position = layerFilterTailPosition;
                     }
                 }
+
+                if (input.CanSeek && input.Length - input.Position >= sizeof(int) * 3 + sizeof(float) * 5)
+                {
+                    var filmEffectTailPosition = input.Position;
+                    if (reader.ReadInt32() == PersistentFilmEffectStateMagic)
+                    {
+                        persistedFilmEffectType = reader.ReadInt32();
+                        persistedFilmEffectStyle = reader.ReadInt32();
+                        persistedFilmEffectColor = new Color(reader.ReadSingle(), reader.ReadSingle(),
+                            reader.ReadSingle(), reader.ReadSingle());
+                        persistedFilmEffectStrength = Mathf.Clamp01(reader.ReadSingle());
+                        hasPersistedFilmEffectState = true;
+                    }
+                    else
+                    {
+                        input.Position = filmEffectTailPosition;
+                    }
+                }
             }
 
             CreditsVisible = false;
@@ -2268,6 +2366,12 @@ namespace Higurashi.IOS.Runtime.Buriko
             _messageSpeedOverride = hasPersistedMessageSpeedState
                 ? persistedMessageSpeedOverride
                 : -1;
+            _filmEffectType = hasPersistedFilmEffectState ? persistedFilmEffectType : -1;
+            _filmEffectStyle = hasPersistedFilmEffectState ? persistedFilmEffectStyle : 0;
+            _filmEffectColor = hasPersistedFilmEffectState ? persistedFilmEffectColor : Color.white;
+            _filmEffectStrength = hasPersistedFilmEffectState ? persistedFilmEffectStrength : 0f;
+            _filmEffectTargetStrength = _filmEffectStrength;
+            _filmEffectDuration = 0f;
             _previousSceneLayers.Clear();
             _dialogueRevealForced = true;
             if (!hasPersistedAppendState)
@@ -2352,6 +2456,12 @@ namespace Higurashi.IOS.Runtime.Buriko
             StartFilmTransitionFrom(snapshot.NegativeFilmStrength,
                 snapshot.NegativeFilmStrength, 0f);
             _messageSpeedOverride = snapshot.MessageSpeedOverride;
+            _filmEffectType = snapshot.FilmEffectType;
+            _filmEffectStyle = snapshot.FilmEffectStyle;
+            _filmEffectColor = snapshot.FilmEffectColor;
+            _filmEffectStrength = snapshot.FilmEffectStrength;
+            _filmEffectTargetStrength = snapshot.FilmEffectStrength;
+            _filmEffectDuration = 0f;
             _fragmentTextureName = snapshot.FragmentTextureName;
             _fragmentStyle = snapshot.FragmentStyle;
             _fragmentTexture = string.IsNullOrWhiteSpace(_fragmentTextureName)
@@ -3703,7 +3813,11 @@ namespace Higurashi.IOS.Runtime.Buriko
             string fragmentStyle,
             string windowBackgroundName,
             float negativeFilmStrength,
-            int messageSpeedOverride = -1)
+            int messageSpeedOverride = -1,
+            int filmEffectType = -1,
+            int filmEffectStyle = 0,
+            Color filmEffectColor = default(Color),
+            float filmEffectStrength = 0f)
         {
             BackgroundName = backgroundName;
             Layers = layers;
@@ -3739,6 +3853,10 @@ namespace Higurashi.IOS.Runtime.Buriko
             WindowBackgroundName = windowBackgroundName ?? string.Empty;
             NegativeFilmStrength = Mathf.Clamp01(negativeFilmStrength);
             MessageSpeedOverride = messageSpeedOverride;
+            FilmEffectType = filmEffectType;
+            FilmEffectStyle = filmEffectStyle;
+            FilmEffectColor = filmEffectColor;
+            FilmEffectStrength = Mathf.Clamp01(filmEffectStrength);
         }
 
         public string BackgroundName { get; }
@@ -3775,6 +3893,10 @@ namespace Higurashi.IOS.Runtime.Buriko
         public string WindowBackgroundName { get; }
         public float NegativeFilmStrength { get; }
         public int MessageSpeedOverride { get; }
+        public int FilmEffectType { get; }
+        public int FilmEffectStyle { get; }
+        public Color FilmEffectColor { get; }
+        public float FilmEffectStrength { get; }
     }
 
     internal enum HigurashiFragmentViewState

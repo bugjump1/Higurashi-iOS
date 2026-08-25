@@ -44,6 +44,7 @@ namespace Higurashi.IOS.Runtime
         private Texture2D _creditsChapterTitle;
         private Material _maskedTransitionMaterial;
         private Material _negativeMaterial;
+        private Material _filmMaterial;
         private Material _layerFilterMaterial;
         private Font _uiFont;
         private float _styledForHeight;
@@ -331,6 +332,12 @@ namespace Higurashi.IOS.Runtime
         {
             GetBackgroundGeometry(content, texture, out var destination, out var source);
             var negativeStrength = _host == null ? 0f : _host.NegativeFilmStrength;
+            var filmStrength = _host == null ? 0f : _host.FilmEffectStrength;
+            if (filmStrength > 0.0001f)
+            {
+                DrawTextureWithFilm(destination, texture, source, alpha, filmStrength);
+                return;
+            }
             if (negativeStrength > 0.0001f)
             {
                 DrawTextureWithNegative(destination, texture, source, alpha, negativeStrength);
@@ -401,7 +408,12 @@ namespace Higurashi.IOS.Runtime
             {
                 var wasClipped = !ApproximatelyEqual(originalDestination, destination);
                 var negativeStrength = _host == null ? 0f : _host.NegativeFilmStrength;
-                if (filter != null && !filter.IsIdentity)
+                var filmStrength = _host == null ? 0f : _host.FilmEffectStrength;
+                if (filmStrength > 0.0001f)
+                {
+                    DrawTextureWithFilm(destination, texture, source, alpha, filmStrength);
+                }
+                else if (filter != null && !filter.IsIdentity)
                 {
                     DrawTextureWithLayerFilter(destination, texture, source, alpha, filter);
                 }
@@ -557,6 +569,31 @@ namespace Higurashi.IOS.Runtime
             _layerFilterMaterial.SetFloat("_FilterAlpha", filter.Alpha / 256f);
             Graphics.DrawTexture(destination, texture, source, 0, 0, 0, 0,
                 new Color(1f, 1f, 1f, Mathf.Clamp01(alpha)), _layerFilterMaterial);
+        }
+
+        private void DrawTextureWithFilm(Rect destination, Texture texture, Rect source,
+            float alpha, float strength)
+        {
+            if (_filmMaterial == null)
+            {
+                var shader = Resources.Load<Shader>("HigurashiFilm");
+                if (shader != null)
+                {
+                    _filmMaterial = new Material(shader);
+                }
+            }
+
+            if (_filmMaterial == null)
+            {
+                GUI.DrawTextureWithTexCoords(destination, texture, source, true);
+                return;
+            }
+
+            _filmMaterial.SetFloat("_FilmType", _host.FilmEffectType);
+            _filmMaterial.SetColor("_FilmColor", _host.FilmEffectColor);
+            _filmMaterial.SetFloat("_FilmStrength", strength);
+            Graphics.DrawTexture(destination, texture, source, 0, 0, 0, 0,
+                new Color(1f, 1f, 1f, Mathf.Clamp01(alpha)), _filmMaterial);
         }
 
         private void DrawMaskedTexture(Rect destination, Texture texture, Texture mask, Rect source,
