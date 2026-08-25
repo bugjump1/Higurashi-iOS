@@ -168,6 +168,7 @@ namespace Higurashi.IOS.Runtime
             Application.targetFrameRate = 60;
             Screen.sleepTimeout = SleepTimeout.NeverSleep;
             ApplyLandscapeOrientation();
+            EnsureEffectMaterials();
             HigurashiDiagnosticLog.Initialize(Application.persistentDataPath);
             _settings = LoadSettings();
             _touchInput = gameObject.AddComponent<TouchInputBehaviour>();

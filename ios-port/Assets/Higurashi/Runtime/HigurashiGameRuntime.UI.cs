@@ -581,6 +581,30 @@ namespace Higurashi.IOS.Runtime
                 new Color(1f, 1f, 1f, Mathf.Clamp01(alpha)), _layerFilterMaterial);
         }
 
+        private void EnsureEffectMaterials()
+        {
+            if (_maskedTransitionMaterial == null)
+            {
+                var shader = Resources.Load<Shader>("HigurashiMaskedTransition");
+                if (shader != null) _maskedTransitionMaterial = new Material(shader);
+            }
+            if (_negativeMaterial == null)
+            {
+                var shader = Resources.Load<Shader>("HigurashiNegative");
+                if (shader != null) _negativeMaterial = new Material(shader);
+            }
+            if (_filmMaterial == null)
+            {
+                var shader = Resources.Load<Shader>("HigurashiFilm");
+                if (shader != null) _filmMaterial = new Material(shader);
+            }
+            if (_layerFilterMaterial == null)
+            {
+                var shader = Resources.Load<Shader>("HigurashiLayerFilter");
+                if (shader != null) _layerFilterMaterial = new Material(shader);
+            }
+        }
+
         private void DrawTextureWithFilm(Rect destination, Texture texture, Rect source,
             float alpha, float strength)
         {
