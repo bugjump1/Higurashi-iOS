@@ -69,6 +69,12 @@ namespace Higurashi.IOS.Runtime.Buriko
         private float _windowShakeAttenuation;
         private float _windowShakeDuration;
         private int _windowShakeVector;
+        private float _enlargeStartedAt;
+        private float _enlargeDuration;
+        private Vector2 _enlargeFromScale = Vector2.one;
+        private Vector2 _enlargeTargetScale = Vector2.one;
+        private Vector2 _enlargeFromTranslation;
+        private Vector2 _enlargeTargetTranslation;
         private float _dialogueRevealStartedAt;
         private int _dialogueRevealStartIndex;
         private bool _dialogueRevealForced;
@@ -352,6 +358,14 @@ namespace Higurashi.IOS.Runtime.Buriko
                     _windowShakeIntensity, _windowShakeAttenuation, _windowShakeVector);
             }
         }
+        public Vector2 PresentationScale => Vector2.Lerp(_enlargeFromScale,
+            _enlargeTargetScale, EnlargeProgress);
+        public Vector2 PresentationTranslation => Vector2.Lerp(_enlargeFromTranslation,
+            _enlargeTargetTranslation, EnlargeProgress);
+        private float EnlargeProgress => _enlargeDuration <= 0f
+            ? 1f
+            : Mathf.SmoothStep(0f, 1f,
+                Mathf.Clamp01((Time.unscaledTime - _enlargeStartedAt) / _enlargeDuration));
 
         private void StartFilmEffect(int type, Color color, int style, int targetPower,
             float duration)
@@ -497,8 +511,6 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 68:
                 case 70:
                 case 71:
-                case 72:
-                case 73:
                 case 74:
                 case 75:
                 case 81:
@@ -900,6 +912,26 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 69:
                     ReportApproximated(invocation);
                     return BurikoHostResponse.Continue;
+                case 72:
+                {
+                    var duration = Int(invocation, 5, memory) / 1000f;
+                    StartEnlargeScreen(Int(invocation, 0, memory), Int(invocation, 1, memory),
+                        Int(invocation, 2, memory), Int(invocation, 3, memory), duration);
+                    return AnimationResponse(duration, invocation.Arguments[6].AsBool(memory));
+                }
+                case 73:
+                {
+                    var milliseconds = Int(invocation, 0, memory);
+                    if (milliseconds == 0)
+                    {
+                        ResetEnlargeScreen(0f);
+                        return BurikoHostResponse.Continue;
+                    }
+
+                    var duration = milliseconds / 1000f;
+                    ResetEnlargeScreen(duration);
+                    return AnimationResponse(duration, invocation.Arguments[1].AsBool(memory));
+                }
                 case 76:
                 {
                     var duration = Int(invocation, 6, memory) / 1000f;
@@ -3560,6 +3592,30 @@ namespace Higurashi.IOS.Runtime.Buriko
             _windowShakeStartedAt = Time.unscaledTime;
         }
 
+        private void StartEnlargeScreen(int x, int y, int width, int height, float duration)
+        {
+            var targetWidth = Mathf.Max(1f, width);
+            var targetHeight = Mathf.Max(1f, height);
+            _enlargeFromScale = PresentationScale;
+            _enlargeFromTranslation = PresentationTranslation;
+            _enlargeTargetScale = new Vector2(640f / targetWidth, 480f / targetHeight);
+            _enlargeTargetTranslation = new Vector2(
+                (320f - (x + targetWidth * 0.5f)) * _enlargeTargetScale.x,
+                (240f - (y + targetHeight * 0.5f)) * _enlargeTargetScale.y);
+            _enlargeStartedAt = Time.unscaledTime;
+            _enlargeDuration = Mathf.Max(0f, duration);
+            if (_enlargeDuration <= 0f)
+            {
+                _enlargeFromScale = _enlargeTargetScale;
+                _enlargeFromTranslation = _enlargeTargetTranslation;
+            }
+        }
+
+        private void ResetEnlargeScreen(float duration)
+        {
+            StartEnlargeScreen(0, 0, 640, 480, duration);
+        }
+
         private static float ShakeDuration(float speed, int loopCount)
         {
             if (loopCount <= 0)
@@ -3607,6 +3663,11 @@ namespace Higurashi.IOS.Runtime.Buriko
             _previousSceneLayers.Clear();
             _shakeDuration = 0f;
             _windowShakeDuration = 0f;
+            _enlargeDuration = 0f;
+            _enlargeFromScale = Vector2.one;
+            _enlargeTargetScale = Vector2.one;
+            _enlargeFromTranslation = Vector2.zero;
+            _enlargeTargetTranslation = Vector2.zero;
             _windowTransitionDuration = 0f;
             _windowTransitionFrom = _windowTransitionTo;
             WindowVisible = _windowTransitionTo > 0f;

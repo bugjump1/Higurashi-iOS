@@ -181,6 +181,14 @@ namespace Higurashi.IOS.Runtime
             var content = GetContentRect();
             var presentationOffset = _host.PresentationOffset * (content.height / 480f);
             content.position += presentationOffset;
+            var baseContent = content;
+            var scale = _host.PresentationScale;
+            var translation = _host.PresentationTranslation * (baseContent.height / 480f);
+            content = new Rect(
+                baseContent.center.x - baseContent.width * scale.x * 0.5f + translation.x,
+                baseContent.center.y - baseContent.height * scale.y * 0.5f + translation.y,
+                baseContent.width * scale.x,
+                baseContent.height * scale.y);
             var screenScale = content.height / 480f;
             var backgroundProgress = _host.BackgroundTransitionProgress;
             if (_host.PreviousBackgroundTexture != null && backgroundProgress < 1f)
