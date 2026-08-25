@@ -197,7 +197,25 @@ namespace Higurashi.IOS.Runtime
             Screen.autorotateToPortraitUpsideDown = false;
             Screen.autorotateToLandscapeLeft = true;
             Screen.autorotateToLandscapeRight = true;
-            Screen.orientation = ScreenOrientation.AutoRotation;
+            // AutoRotation can still hand control back to newer iPadOS versions.
+            // Select only a physical landscape side ourselves. Portrait sensor
+            // states are ignored, while turning the device by 180 degrees still
+            // switches cleanly between the two landscape orientations.
+            var desired = Screen.orientation == ScreenOrientation.LandscapeRight
+                ? ScreenOrientation.LandscapeRight
+                : ScreenOrientation.LandscapeLeft;
+            if (Input.deviceOrientation == DeviceOrientation.LandscapeLeft)
+            {
+                desired = ScreenOrientation.LandscapeLeft;
+            }
+            else if (Input.deviceOrientation == DeviceOrientation.LandscapeRight)
+            {
+                desired = ScreenOrientation.LandscapeRight;
+            }
+            if (Screen.orientation != desired)
+            {
+                Screen.orientation = desired;
+            }
         }
         private void OnDestroy()
         {
@@ -215,6 +233,7 @@ namespace Higurashi.IOS.Runtime
 
         private void Update()
         {
+            ApplyLandscapeOrientation();
             if (_runtime == null && !_initializationAttempted &&
                 DataPackImportService.IsInstalled(Application.persistentDataPath))
             {

@@ -4,6 +4,7 @@ using Higurashi.IOS.Compatibility;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
+using UnityEditor.iOS.Xcode;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -46,6 +47,7 @@ namespace Higurashi.IOS.Editor
                     ", errors=" + report.summary.totalErrors);
             }
 
+            EnforceLandscapeOnlyInInfoPlist(outputPath);
             Debug.Log("iOS Xcode project exported to " + outputPath);
         }
 
@@ -131,6 +133,31 @@ namespace Higurashi.IOS.Editor
             }
 
             return true;
+        }
+
+        private static void EnforceLandscapeOnlyInInfoPlist(string outputPath)
+        {
+            var plistPath = Path.Combine(outputPath, "Info.plist");
+            if (!File.Exists(plistPath))
+            {
+                throw new FileNotFoundException(
+                    "The exported iOS Info.plist is missing; landscape orientation cannot be enforced.",
+                    plistPath);
+            }
+
+            var plist = new PlistDocument();
+            plist.ReadFromString(File.ReadAllText(plistPath));
+            SetLandscapeOrientations(plist.root, "UISupportedInterfaceOrientations");
+            SetLandscapeOrientations(plist.root, "UISupportedInterfaceOrientations~ipad");
+            plist.root.SetBoolean("UIRequiresFullScreen", true);
+            File.WriteAllText(plistPath, plist.WriteToString());
+        }
+
+        private static void SetLandscapeOrientations(PlistElementDict root, string key)
+        {
+            var orientations = root.CreateArray(key);
+            orientations.AddString("UIInterfaceOrientationLandscapeLeft");
+            orientations.AddString("UIInterfaceOrientationLandscapeRight");
         }
 
         private static void ConfigureAppIcon()
