@@ -27,6 +27,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         private const int PersistentMessageSpeedStateMagic = 0x31534848; // HHS1
         private const int PersistentLayerFilterStateMagic = 0x314C4848; // HHL1
         private const int PersistentFilmEffectStateMagic = 0x31454848; // HHE1
+        private const int PersistentFilmFaceStateMagic = 0x32464848; // HHF2
         private const int PersistentTipReadingStateMagic = 0x31525448; // HTR1
         private readonly List<RuntimePathCascade> _artSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _spriteSets = new List<RuntimePathCascade>();
@@ -81,6 +82,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         private float _filmEffectDuration;
         private float _filmEffectStrength;
         private float _filmEffectTargetStrength;
+        private bool _filmAppliesToFace = true;
         private Texture2D _fragmentTexture;
         private string _fragmentTextureName = string.Empty;
         private string _fragmentStyle = string.Empty;
@@ -191,6 +193,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 return Mathf.Lerp(_filmEffectStrength, _filmEffectTargetStrength, progress);
             }
         }
+        public bool FilmAppliesToFace => _filmAppliesToFace;
         public Texture MovieTexture => _videoPlayer != null ? _videoPlayer.texture : null;
         public bool MovieVisible { get; private set; }
         public IReadOnlyDictionary<int, PresentationLayer> Layers => _layers;
@@ -487,7 +490,6 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 73:
                 case 74:
                 case 75:
-                case 78:
                 case 81:
                 case 83:
                 case 84:
@@ -881,6 +883,9 @@ namespace Higurashi.IOS.Runtime.Buriko
                     StartFilmTransition(0f, duration);
                     return AnimationResponse(duration, invocation.Arguments[1].AsBool(memory));
                 }
+                case 78:
+                    _filmAppliesToFace = invocation.Arguments[0].AsBool(memory);
+                    return BurikoHostResponse.Continue;
                 case 79:
                     FadeLayerRange(1, 19, Int(invocation, 0, memory) / 1000f);
                     DiscardPreparedLayerRange(1, 19);
@@ -1752,7 +1757,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                 FilmEffectType,
                 FilmEffectStyle,
                 FilmEffectColor,
-                FilmEffectStrength);
+                FilmEffectStrength,
+                FilmAppliesToFace);
         }
 
         public void ReplayRestoredCheckpointAnimations(
@@ -1968,6 +1974,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                 writer.Write(_filmEffectColor.b);
                 writer.Write(_filmEffectColor.a);
                 writer.Write(FilmEffectStrength);
+                writer.Write(PersistentFilmFaceStateMagic);
+                writer.Write(_filmAppliesToFace);
             }
         }
 
@@ -1985,6 +1993,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             var persistedFilmEffectStyle = 0;
             var persistedFilmEffectColor = Color.white;
             var persistedFilmEffectStrength = 0f;
+            var hasPersistedFilmFaceState = false;
+            var persistedFilmAppliesToFace = true;
             var persistedBgmState = Array.Empty<RuntimeBgmState>();
             _fragmentTextureName = string.Empty;
             _fragmentStyle = string.Empty;
@@ -2326,6 +2336,20 @@ namespace Higurashi.IOS.Runtime.Buriko
                         input.Position = filmEffectTailPosition;
                     }
                 }
+
+                if (input.CanSeek && input.Length - input.Position >= sizeof(int) + 1)
+                {
+                    var filmFaceTailPosition = input.Position;
+                    if (reader.ReadInt32() == PersistentFilmFaceStateMagic)
+                    {
+                        persistedFilmAppliesToFace = reader.ReadBoolean();
+                        hasPersistedFilmFaceState = true;
+                    }
+                    else
+                    {
+                        input.Position = filmFaceTailPosition;
+                    }
+                }
             }
 
             CreditsVisible = false;
@@ -2372,6 +2396,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             _filmEffectStrength = hasPersistedFilmEffectState ? persistedFilmEffectStrength : 0f;
             _filmEffectTargetStrength = _filmEffectStrength;
             _filmEffectDuration = 0f;
+            _filmAppliesToFace = hasPersistedFilmFaceState ? persistedFilmAppliesToFace : true;
             _previousSceneLayers.Clear();
             _dialogueRevealForced = true;
             if (!hasPersistedAppendState)
@@ -2462,6 +2487,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             _filmEffectStrength = snapshot.FilmEffectStrength;
             _filmEffectTargetStrength = snapshot.FilmEffectStrength;
             _filmEffectDuration = 0f;
+            _filmAppliesToFace = snapshot.FilmAppliesToFace;
             _fragmentTextureName = snapshot.FragmentTextureName;
             _fragmentStyle = snapshot.FragmentStyle;
             _fragmentTexture = string.IsNullOrWhiteSpace(_fragmentTextureName)
@@ -3817,7 +3843,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             int filmEffectType = -1,
             int filmEffectStyle = 0,
             Color filmEffectColor = default(Color),
-            float filmEffectStrength = 0f)
+            float filmEffectStrength = 0f,
+            bool filmAppliesToFace = true)
         {
             BackgroundName = backgroundName;
             Layers = layers;
@@ -3857,6 +3884,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             FilmEffectStyle = filmEffectStyle;
             FilmEffectColor = filmEffectColor;
             FilmEffectStrength = Mathf.Clamp01(filmEffectStrength);
+            FilmAppliesToFace = filmAppliesToFace;
         }
 
         public string BackgroundName { get; }
@@ -3897,6 +3925,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         public int FilmEffectStyle { get; }
         public Color FilmEffectColor { get; }
         public float FilmEffectStrength { get; }
+        public bool FilmAppliesToFace { get; }
     }
 
     internal enum HigurashiFragmentViewState

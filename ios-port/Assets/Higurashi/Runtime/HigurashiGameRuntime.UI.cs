@@ -203,7 +203,7 @@ namespace Higurashi.IOS.Runtime
                         alpha * (1f - backgroundProgress),
                         previousLayer.IsCentered, screenScale, false,
                         previousLayer.OverrideWidth, previousLayer.OverrideHeight,
-                        previousLayer.Filter);
+                        previousLayer.Filter, previousLayer.Id != 1000 || _host.FilmAppliesToFace);
                 }
             }
             if (_host.BackgroundTexture != null)
@@ -259,7 +259,7 @@ namespace Higurashi.IOS.Runtime
                             layer.PreviousAlpha * (1f - layer.TransitionProgress),
                             layer.PreviousIsCentered, screenScale, false,
                             layer.PreviousOverrideWidth, layer.PreviousOverrideHeight,
-                            layer.PreviousFilter);
+                            layer.PreviousFilter, layer.Id != 1000 || _host.FilmAppliesToFace);
                     }
                 }
                 layer.GetRenderState(out var layerX, out var layerY, out var layerZ, out var layerAlpha);
@@ -272,13 +272,14 @@ namespace Higurashi.IOS.Runtime
                         layerX, layerY, layerZ, layer.MaskReverse ? layer.FromAlpha : layer.Alpha,
                         layer.IsCentered, screenScale, maskProgress, layer.MaskFuzziness,
                         IsCinemaMatte(layer.TextureName), layer.OverrideWidth, layer.OverrideHeight,
-                        layer.Filter);
+                        layer.Filter, layer.Id != 1000 || _host.FilmAppliesToFace);
                 }
                 else
                 {
                     DrawPresentationTexture(content, layer.Texture, layerX, layerY, layerZ,
                         layerAlpha, layer.IsCentered, screenScale, IsCinemaMatte(layer.TextureName),
-                        layer.OverrideWidth, layer.OverrideHeight, layer.Filter);
+                        layer.OverrideWidth, layer.OverrideHeight, layer.Filter,
+                        layer.Id != 1000 || _host.FilmAppliesToFace);
                 }
             }
 
@@ -375,7 +376,7 @@ namespace Higurashi.IOS.Runtime
         private void DrawPresentationTexture(Rect content, Texture2D texture,
             float layerX, float layerY, float layerZ, float alpha, bool centered, float screenScale,
             bool cropTransparentEdges = false, int overrideWidth = 0, int overrideHeight = 0,
-            PresentationLayerFilter filter = null)
+            PresentationLayerFilter filter = null, bool applyFilm = true)
         {
             var canonicalHeight = overrideHeight > 0 ? overrideHeight : Mathf.Min(texture.height, 480f);
             var canonicalWidth = overrideWidth > 0
@@ -408,7 +409,7 @@ namespace Higurashi.IOS.Runtime
             {
                 var wasClipped = !ApproximatelyEqual(originalDestination, destination);
                 var negativeStrength = _host == null ? 0f : _host.NegativeFilmStrength;
-                var filmStrength = _host == null ? 0f : _host.FilmEffectStrength;
+                var filmStrength = applyFilm && _host != null ? _host.FilmEffectStrength : 0f;
                 if (filmStrength > 0.0001f)
                 {
                     DrawTextureWithFilm(destination, texture, source, alpha, filmStrength);
@@ -436,7 +437,8 @@ namespace Higurashi.IOS.Runtime
         private void DrawMaskedPresentationTexture(Rect content, Texture2D texture, Texture2D mask,
             float layerX, float layerY, float layerZ, float alpha, bool centered,
             float screenScale, float progress, float fuzziness, bool cropTransparentEdges = false,
-            int overrideWidth = 0, int overrideHeight = 0, PresentationLayerFilter filter = null)
+            int overrideWidth = 0, int overrideHeight = 0, PresentationLayerFilter filter = null,
+            bool applyFilm = true)
         {
             var canonicalHeight = overrideHeight > 0 ? overrideHeight : Mathf.Min(texture.height, 480f);
             var canonicalWidth = overrideWidth > 0
