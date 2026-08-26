@@ -1899,6 +1899,7 @@ namespace Higurashi.IOS.Runtime
                 // restores story flags, but must not override Settings.
                 _host.ApplySettings(_runtime.Memory);
                 _host.ReadPersistentState(stream, _runtime.Memory);
+                _host.ApplySettings(_runtime.Memory);
                 ReadTimelineState(stream);
             }
             HigurashiDiagnosticLog.Info("LoadIO",

@@ -2101,6 +2101,17 @@ namespace Higurashi.IOS.Runtime
                 _host.ApplySettings(_runtime.Memory);
             }
             y += buttonHeight + 9f * scale;
+            if (SupportsChapterChoiceMode())
+            {
+                if (FittedPcButton(new Rect(x, y, width, buttonHeight),
+                        "分支选项：" + ChoiceModeName(_settings.choiceMode), 13))
+                {
+                    _settings.choiceMode = NextChoiceMode(_settings.choiceMode);
+                    _host.ApplySettings(_runtime.Memory);
+                    SaveSettings();
+                }
+                y += buttonHeight + 9f * scale;
+            }
             if (FittedPcButton(new Rect(x, y, width, buttonHeight),
                     "画面适配：" + PresentationModeName(_settings.presentationMode), 13))
             {
@@ -3351,6 +3362,27 @@ namespace Higurashi.IOS.Runtime
                 case MobilePresentationMode.OriginalFourByThree: return "原始 4:3";
                 case MobilePresentationMode.Fill: return "铺满（裁切）";
                 default: return "完整显示";
+            }
+        }
+
+        private static MobileChoiceMode NextChoiceMode(MobileChoiceMode mode)
+        {
+            return (MobileChoiceMode)(((int)mode + 1) % 3);
+        }
+
+        private static bool SupportsChapterChoiceMode()
+        {
+            var episode = HigurashiActiveChapter.Profile.EpisodeNumber;
+            return episode >= 4 && episode <= 6;
+        }
+
+        private static string ChoiceModeName(MobileChoiceMode mode)
+        {
+            switch (mode)
+            {
+                case MobileChoiceMode.AdditionalChoices: return "有分支选项";
+                case MobileChoiceMode.AdditionalChoicesWithAnswer: return "有分支选项（标记正确答案）";
+                default: return "无分支选项";
             }
         }
 

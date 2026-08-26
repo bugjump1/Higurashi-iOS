@@ -10,6 +10,13 @@ namespace Higurashi.IOS.Compatibility
         Fill
     }
 
+    public enum MobileChoiceMode
+    {
+        NoAdditionalChoices = 0,
+        AdditionalChoices = 1,
+        AdditionalChoicesWithAnswer = 2
+    }
+
     [Serializable]
     public sealed class HigurashiUserSettings
     {
@@ -29,6 +36,7 @@ namespace Higurashi.IOS.Compatibility
         public bool autoSave = true;
         public bool skipUnread;
         public MobilePresentationMode presentationMode = MobilePresentationMode.Fit;
+        public MobileChoiceMode choiceMode = MobileChoiceMode.NoAdditionalChoices;
     }
 
     public static class VisualStylePolicy

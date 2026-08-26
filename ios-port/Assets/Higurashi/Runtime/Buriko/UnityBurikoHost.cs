@@ -447,6 +447,13 @@ namespace Higurashi.IOS.Runtime.Buriko
             memory.SetGlobalFlag("GArtStyle", spriteIndex);
             memory.SetGlobalFlag("GLipSync", _settings.lipSync ? 1 : 0);
             memory.SetGlobalFlag("GCensor", _settings.censorshipLevel);
+            if (HigurashiActiveChapter.Profile.EpisodeNumber >= 4 &&
+                HigurashiActiveChapter.Profile.EpisodeNumber <= 6)
+            {
+                var choiceMode = Mathf.Clamp((int)_settings.choiceMode, 0, 2);
+                _settings.choiceMode = (MobileChoiceMode)choiceMode;
+                memory.SetGlobalFlag("GChoiceMode", choiceMode);
+            }
 
             if (_audioSets.Count > 0)
             {
