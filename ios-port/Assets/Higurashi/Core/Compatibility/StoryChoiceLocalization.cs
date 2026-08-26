@@ -33,6 +33,17 @@ namespace Higurashi.IOS.Compatibility
                 case "I did nothing and watched the events unfold.":
                 case "Ｂ．私は何もせず、成り行きを見守った。":
                     return "Ｂ．什么都不做，在旁边看着";
+                case "大丈夫だ":
+                    return "没事的（留在教室）";
+                case "…そうだな":
+                case "...そうだな":
+                    return "……是啊（去办公室）";
+                case "沙都子、まだかっ？！ もう時間がないぞ！！":
+                case "沙都子、まだかっ？！もう時間がないぞ！！":
+                    return "沙都子，还没想到吗？！已经没有时间了！！";
+                case "沙都子、どうだっ？！ お前ならわかるはずだ！！":
+                case "沙都子、どうだっ？！お前ならわかるはずだ！！":
+                    return "沙都子，怎么样？！你能做到的！！";
                 default:
                     return value ?? string.Empty;
             }

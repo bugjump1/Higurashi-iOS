@@ -558,6 +558,12 @@ internal static class Program
             StoryChoiceLocalization.Localize("Ａ．圭一に人形を誰に渡すべきか助言した。"));
         Equal("Ｂ．什么都不做，在旁边看着",
             StoryChoiceLocalization.Localize("Ｂ．私は何もせず、成り行きを見守った。"));
+        Equal("没事的（留在教室）", StoryChoiceLocalization.Localize("大丈夫だ"));
+        Equal("……是啊（去办公室）", StoryChoiceLocalization.Localize("…そうだな"));
+        Equal("沙都子，还没想到吗？！已经没有时间了！！",
+            StoryChoiceLocalization.Localize("沙都子、まだかっ？！ もう時間がないぞ！！"));
+        Equal("沙都子，怎么样？！你能做到的！！",
+            StoryChoiceLocalization.Localize("沙都子、どうだっ？！ お前ならわかるはずだ！！"));
         Equal("未识别选项", StoryChoiceLocalization.Localize("未识别选项"));
     }
 
