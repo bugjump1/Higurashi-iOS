@@ -138,6 +138,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         public bool WindowVisible { get; private set; } = true;
         public bool TitleVisible { get; private set; }
         public bool CreditsVisible { get; private set; }
+        public bool EndrollVisible { get; private set; }
         public int CreditsPage { get; private set; }
         public bool ChapterPreviewVisible { get; private set; }
         public bool FragmentChapterVisible => _fragmentChapterVisible;
@@ -159,6 +160,28 @@ namespace Higurashi.IOS.Runtime.Buriko
         public bool HistoryVisible { get; set; }
         public bool ChoiceVisible => Choices.Count > 0;
         public List<string> Choices { get; } = new List<string>();
+
+        public void SetEndrollMode(bool active)
+        {
+            if (EndrollVisible == active)
+            {
+                return;
+            }
+
+            EndrollVisible = active;
+            if (active)
+            {
+                CreditsVisible = false;
+                TitleVisible = false;
+                ChapterPreviewVisible = false;
+                GameplayUiVisible = false;
+                SavingEnabled = false;
+                InterfaceEnabled = false;
+                HistoryVisible = false;
+                Choices.Clear();
+                SetWindowVisibilityImmediate(false);
+            }
+        }
         public int DialogueSerial { get; private set; }
         public Texture2D BackgroundTexture => _backgroundTexture;
         public Texture2D PreviousBackgroundTexture => _previousBackgroundTexture;
@@ -1035,6 +1058,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                         return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
                     }
                     TitleVisible = true;
+                    EndrollVisible = false;
                     ChapterPreviewVisible = false;
                     _fragmentChapterVisible = false;
                     _fragmentListVisible = false;

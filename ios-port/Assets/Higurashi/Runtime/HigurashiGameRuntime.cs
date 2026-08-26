@@ -269,6 +269,7 @@ namespace Higurashi.IOS.Runtime
             }
             UpdateHistoryTouchScroll();
             _fastTraversal.Tick(Time.unscaledDeltaTime, this);
+            UpdateEndrollMode();
             if (_showHelpWhenGameplayStarts && _host != null && _host.GameplayUiVisible &&
                 _host.SavingEnabled && _host.InterfaceEnabled &&
                 _runtime != null && _runtime.BlockReason == BurikoBlockReason.WaitForInput &&
@@ -476,6 +477,29 @@ namespace Higurashi.IOS.Runtime
             }
         }
 
+        private void UpdateEndrollMode()
+        {
+            if (_runtime == null || _host == null)
+            {
+                return;
+            }
+
+            var script = _runtime.CurrentScriptName ?? string.Empty;
+            var isEndroll = script.IndexOf("endroll_staff", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (isEndroll && !_host.EndrollVisible &&
+                HigurashiActiveChapter.Profile.EpisodeNumber == 6)
+            {
+                // A generated save may enter the normal staff roll directly,
+                // bypassing flow's final flag writes. The real EP06 ending
+                // reaches this script only after the normal route, so mirror
+                // those writes here without treating bad-end scripts as clear.
+                _runtime.Memory.SetGlobalFlag("GFlag_GameClear", 1);
+                _runtime.Memory.SetGlobalFlag("GHighestChapter", 12);
+                _runtime.Memory.SetGlobalFlag("GTotalTips", 38);
+            }
+            _host.SetEndrollMode(isEndroll);
+        }
+
         private void UpdateEpisodeEightCreditsAutoAdvance()
         {
             if (_runtime == null || _host == null || !_host.CreditsVisible ||
@@ -667,6 +691,7 @@ namespace Higurashi.IOS.Runtime
                 if (_runtime.BlockReason == BurikoBlockReason.None)
                 {
                     _runtime.RunUntilBlocked();
+                    UpdateEndrollMode();
                 }
 
                 if (TryRestoreTipsLibraryBeforeFlowTransition())

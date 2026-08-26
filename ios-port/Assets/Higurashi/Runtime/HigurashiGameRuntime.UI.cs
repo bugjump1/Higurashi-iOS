@@ -249,6 +249,11 @@ namespace Higurashi.IOS.Runtime
                     DrawFullFrameBlackLayer(content, layer);
                     continue;
                 }
+                if (_host.EndrollVisible && IsEndrollTexture(layer.TextureName))
+                {
+                    DrawEndrollTexture(content, layer);
+                    continue;
+                }
                 if (layer.PreviousTexture != null && layer.TransitionProgress < 1f)
                 {
                     if (IsFullFrameBlack(layer.PreviousTexture.name))
@@ -3363,6 +3368,29 @@ namespace Higurashi.IOS.Runtime
                 case MobilePresentationMode.Fill: return "铺满（裁切）";
                 default: return "完整显示";
             }
+        }
+
+        private static bool IsEndrollTexture(string textureName)
+        {
+            var name = Path.GetFileNameWithoutExtension(textureName ?? string.Empty);
+            return name.StartsWith("tumi_staff", StringComparison.OrdinalIgnoreCase) ||
+                   name.StartsWith("meak_staff", StringComparison.OrdinalIgnoreCase) ||
+                   name.StartsWith("staff_mina", StringComparison.OrdinalIgnoreCase) ||
+                   name.StartsWith("staff_maturi", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void DrawEndrollTexture(Rect content, PresentationLayer layer)
+        {
+            layer.GetRenderState(out var x, out var y, out var z, out var alpha);
+            // End-roll bitmaps are exported at 3x resolution. Script positions
+            // remain in the original 640x480 canvas and scale from the current
+            // safe-area content, so all iPhone/iPad sizes use the same framing.
+            var logicalWidth = Mathf.Max(1f, layer.Texture.width / 3f);
+            var logicalHeight = Mathf.Max(1f, layer.Texture.height / 3f);
+            DrawPresentationTexture(content, layer.Texture, x, y, z, alpha,
+                layer.IsCentered, content.height / 480f, false,
+                Mathf.RoundToInt(logicalWidth), Mathf.RoundToInt(logicalHeight),
+                layer.Filter, false);
         }
 
         private static MobileChoiceMode NextChoiceMode(MobileChoiceMode mode)
