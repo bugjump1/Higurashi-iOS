@@ -3278,35 +3278,66 @@ namespace Higurashi.IOS.Runtime.Buriko
         {
             var index = _settings == null ? 0 : _settings.spriteStyleIndex;
             var texture = LoadTextureFromSet(textureName, memory, _spriteSets, index, "CG");
-            if (texture == null && IsSharedPresentationAsset(textureName))
-            {
-                texture = _assets.LoadTexture(textureName, new[] { "CG" },
-                    preferAsianVariant: false);
-            }
             return texture;
         }
 
         private Texture2D LoadBackgroundTexture(string textureName, BurikoMemory memory)
         {
             var index = _settings == null ? 0 : _settings.backgroundStyleIndex;
-            var texture = LoadTextureFromSet(textureName, memory, _backgroundSets, index, "CG");
-            // Original-background packs do not necessarily duplicate shared
-            // menu/title assets. Keep the selected background style first, then
-            // use the common CG asset only when the selected style lacks it.
-            return texture ?? _assets.LoadTexture(textureName, new[] { "CG" },
+            var folders = PcBackgroundFolders(index);
+            return LoadTextureFromSet(textureName, memory, folders, "CG");
+        }
+
+        private Texture2D LoadTextureFromSet(string textureName, BurikoMemory memory,
+            IReadOnlyList<string> folders, string fallback)
+        {
+            if (string.IsNullOrWhiteSpace(textureName) || _assets == null)
+            {
+                return null;
+            }
+            return _assets.LoadTexture(textureName,
+                folders == null || folders.Count == 0 ? new[] { fallback } : folders,
                 preferAsianVariant: false);
         }
 
-        private static bool IsSharedPresentationAsset(string textureName)
+        private IReadOnlyList<string> PcBackgroundFolders(int backgroundStyleIndex)
         {
-            var name = Path.GetFileNameWithoutExtension(textureName ?? string.Empty);
-            return string.Equals(name, "logo", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(name, "titlelogo", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(name, "sgtitle900200", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(name, "07th-mod", StringComparison.OrdinalIgnoreCase) ||
-                   name.StartsWith("staff_", StringComparison.OrdinalIgnoreCase) ||
-                   name.StartsWith("tumi_staff", StringComparison.OrdinalIgnoreCase) ||
-                   name.StartsWith("meak_staff", StringComparison.OrdinalIgnoreCase);
+            var result = new List<string>();
+            var artIndex = _settings == null ? 0 : _settings.spriteStyleIndex;
+            if (backgroundStyleIndex == 1)
+            {
+                AddUniqueFolder(result, "OGBackgrounds");
+            }
+
+            if (_artSets.Count > 0)
+            {
+                var artset = _artSets[ClampIndex(artIndex, _artSets.Count)];
+                for (var i = 0; i < artset.Folders.Length; i++)
+                {
+                    if (backgroundStyleIndex == 0 &&
+                        string.Equals(artset.Folders[i], "OGBackgrounds",
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+                    AddUniqueFolder(result, artset.Folders[i]);
+                }
+            }
+
+            if (result.Count == 0)
+            {
+                result.Add("CG");
+            }
+            return result;
+        }
+
+        private static void AddUniqueFolder(List<string> folders, string folder)
+        {
+            if (!string.IsNullOrWhiteSpace(folder) &&
+                !folders.Contains(folder, StringComparer.OrdinalIgnoreCase))
+            {
+                folders.Add(folder);
+            }
         }
 
         private Texture2D LoadTextureFromSet(string textureName, BurikoMemory memory,
