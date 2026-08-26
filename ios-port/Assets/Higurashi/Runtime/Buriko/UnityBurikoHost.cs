@@ -3276,14 +3276,37 @@ namespace Higurashi.IOS.Runtime.Buriko
 
         private Texture2D LoadSpriteTexture(string textureName, BurikoMemory memory)
         {
-            return LoadTextureFromSet(textureName, memory, _spriteSets,
-                _settings == null ? 0 : _settings.spriteStyleIndex, "CG");
+            var index = _settings == null ? 0 : _settings.spriteStyleIndex;
+            var texture = LoadTextureFromSet(textureName, memory, _spriteSets, index, "CG");
+            if (texture == null && IsSharedPresentationAsset(textureName))
+            {
+                texture = _assets.LoadTexture(textureName, new[] { "CG" },
+                    preferAsianVariant: false);
+            }
+            return texture;
         }
 
         private Texture2D LoadBackgroundTexture(string textureName, BurikoMemory memory)
         {
-            return LoadTextureFromSet(textureName, memory, _backgroundSets,
-                _settings == null ? 0 : _settings.backgroundStyleIndex, "CG");
+            var index = _settings == null ? 0 : _settings.backgroundStyleIndex;
+            var texture = LoadTextureFromSet(textureName, memory, _backgroundSets, index, "CG");
+            // Original-background packs do not necessarily duplicate shared
+            // menu/title assets. Keep the selected background style first, then
+            // use the common CG asset only when the selected style lacks it.
+            return texture ?? _assets.LoadTexture(textureName, new[] { "CG" },
+                preferAsianVariant: false);
+        }
+
+        private static bool IsSharedPresentationAsset(string textureName)
+        {
+            var name = Path.GetFileNameWithoutExtension(textureName ?? string.Empty);
+            return string.Equals(name, "logo", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(name, "titlelogo", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(name, "sgtitle900200", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(name, "07th-mod", StringComparison.OrdinalIgnoreCase) ||
+                   name.StartsWith("staff_", StringComparison.OrdinalIgnoreCase) ||
+                   name.StartsWith("tumi_staff", StringComparison.OrdinalIgnoreCase) ||
+                   name.StartsWith("meak_staff", StringComparison.OrdinalIgnoreCase);
         }
 
         private Texture2D LoadTextureFromSet(string textureName, BurikoMemory memory,
