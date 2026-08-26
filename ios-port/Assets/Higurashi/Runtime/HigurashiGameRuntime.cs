@@ -995,7 +995,8 @@ namespace Higurashi.IOS.Runtime
             }
 
             if (!_badEndingPlaybackActive || _storyChoiceCheckpoint == null ||
-                !_host.TitleVisible)
+                (!_host.TitleVisible &&
+                 _runtime.BlockReason != BurikoBlockReason.Completed))
             {
                 return;
             }
@@ -1579,6 +1580,12 @@ namespace Higurashi.IOS.Runtime
             }
 
             _badEndingChoiceSelected = badEndingChoice;
+            if (badEndingChoice)
+            {
+                HigurashiDiagnosticLog.Info("Choice",
+                    "Bad-ending choice selected; waiting for bad-end return " +
+                    RuntimeLocation());
+            }
             _runtime.ResumeInput();
             _suppressInputUntilFrame = Time.frameCount + 2;
             DriveRuntime(false);

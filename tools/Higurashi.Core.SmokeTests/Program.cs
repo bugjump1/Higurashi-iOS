@@ -599,6 +599,7 @@ internal static class Program
     private static void BadEndingChoicesMatchOriginalFlows()
     {
         True(BadEndingChoicePolicy.IsBadEndingChoice(4, "hima_003_03", 1));
+        True(BadEndingChoicePolicy.IsBadEndingChoice(4, "CompiledScripts/hima_003_03.txt", 1));
         Equal(false, BadEndingChoicePolicy.IsBadEndingChoice(4, "hima_003_03", 0));
         True(BadEndingChoicePolicy.IsBadEndingChoice(5, "_meak_024", 0));
         Equal(false, BadEndingChoicePolicy.IsBadEndingChoice(5, "_meak_024", 1));
