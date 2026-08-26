@@ -36,7 +36,7 @@ namespace Higurashi.IOS.Compatibility
         public bool autoSave = true;
         public bool skipUnread;
         public MobilePresentationMode presentationMode = MobilePresentationMode.Fit;
-        public MobileChoiceMode choiceMode = MobileChoiceMode.NoAdditionalChoices;
+        public MobileChoiceMode choiceMode = MobileChoiceMode.AdditionalChoicesWithAnswer;
     }
 
     public static class VisualStylePolicy

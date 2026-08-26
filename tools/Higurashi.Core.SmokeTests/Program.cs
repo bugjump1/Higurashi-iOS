@@ -536,6 +536,7 @@ internal static class Program
         Equal(VisualStylePolicy.CustomPreset, VisualStylePolicy.PresetFor(2, 0));
 
         var settings = new HigurashiUserSettings();
+        Equal(MobileChoiceMode.AdditionalChoicesWithAnswer, settings.choiceMode);
         VisualStylePolicy.ApplyPreset(settings, VisualStylePolicy.OriginalPreset);
         Equal(2, settings.spriteStyleIndex);
         Equal(1, settings.backgroundStyleIndex);

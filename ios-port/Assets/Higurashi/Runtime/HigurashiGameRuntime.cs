@@ -1650,6 +1650,10 @@ namespace Higurashi.IOS.Runtime
                     {
                         loaded.autoSave = true;
                     }
+                    if (json.IndexOf("\"choiceMode\"", StringComparison.Ordinal) < 0)
+                    {
+                        loaded.choiceMode = MobileChoiceMode.AdditionalChoicesWithAnswer;
+                    }
                     if (json.IndexOf("\"spriteStyleIndex\"", StringComparison.Ordinal) < 0)
                     {
                         // Migrate the former combined art/background choice into
