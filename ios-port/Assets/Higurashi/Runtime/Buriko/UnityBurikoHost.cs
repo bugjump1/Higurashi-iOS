@@ -3333,11 +3333,18 @@ namespace Higurashi.IOS.Runtime.Buriko
 
         private static void AddUniqueFolder(List<string> folders, string folder)
         {
-            if (!string.IsNullOrWhiteSpace(folder) &&
-                !folders.Contains(folder, StringComparer.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(folder))
             {
-                folders.Add(folder);
+                return;
             }
+            for (var i = 0; i < folders.Count; i++)
+            {
+                if (string.Equals(folders[i], folder, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+            folders.Add(folder);
         }
 
         private Texture2D LoadTextureFromSet(string textureName, BurikoMemory memory,
