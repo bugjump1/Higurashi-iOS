@@ -367,9 +367,12 @@ namespace Higurashi.IOS.Runtime.Buriko
             _videoPlayer = gameObject.AddComponent<VideoPlayer>();
             _videoPlayer.playOnAwake = false;
             _videoPlayer.isLooping = false;
+            _videoPlayer.source = VideoSource.Url;
+            _videoPlayer.waitForFirstFrame = true;
             _videoPlayer.renderMode = VideoRenderMode.APIOnly;
             _videoPlayer.audioOutputMode = VideoAudioOutputMode.Direct;
             _videoPlayer.loopPointReached += OnMovieEnded;
+            _videoPlayer.prepareCompleted += OnMoviePrepared;
             _videoPlayer.errorReceived += OnMovieError;
         }
         public Vector2 WindowPresentationOffset
@@ -2797,10 +2800,25 @@ namespace Higurashi.IOS.Runtime.Buriko
                 return BurikoHostResponse.Continue;
             }
 
-            MovieVisible = true;
+            _videoPlayer.Stop();
+            _videoPlayer.source = VideoSource.Url;
             _videoPlayer.url = new Uri(path).AbsoluteUri;
-            _videoPlayer.Play();
+            MovieVisible = true;
+            // iOS may not have decoded the first frame when Play is called.
+            // Prepare first and start only from prepareCompleted, otherwise
+            // the script advances while the APIOnly texture stays empty.
+            _videoPlayer.Prepare();
             return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
+        }
+
+        private void OnMoviePrepared(VideoPlayer player)
+        {
+            if (!MovieVisible || player != _videoPlayer)
+            {
+                return;
+            }
+
+            player.Play();
         }
 
         private void OnMovieEnded(VideoPlayer player)
@@ -2810,7 +2828,7 @@ namespace Higurashi.IOS.Runtime.Buriko
 
         private void OnMovieError(VideoPlayer player, string message)
         {
-            Debug.LogWarning("Movie playback failed: " + message);
+            Debug.LogWarning("Movie playback failed url=" + player.url + ": " + message);
             FinishMovie();
         }
 
@@ -2821,6 +2839,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 return;
             }
 
+            _videoPlayer.Stop();
             MovieVisible = false;
             MovieFinished?.Invoke();
         }
