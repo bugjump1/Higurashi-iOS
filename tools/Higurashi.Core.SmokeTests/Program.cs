@@ -541,6 +541,17 @@ internal static class Program
         Equal(2, settings.spriteStyleIndex);
         Equal(1, settings.backgroundStyleIndex);
         Equal(2, settings.artSetIndex);
+        var remakeFolders = VisualStyleFolderPolicy.SpriteFoldersFor(1, 3,
+            new[] { "CGAlt", "CG" });
+        Equal(2, remakeFolders.Length);
+        Equal("CGAlt", remakeFolders[0]);
+        Equal("CG", remakeFolders[1]);
+        var originalFolders = VisualStyleFolderPolicy.SpriteFoldersFor(2, 3,
+            new[] { "OGBackgrounds", "OGSprites", "CG" });
+        Equal(3, originalFolders.Length);
+        Equal("OGBackgrounds", originalFolders[0]);
+        Equal("OGSprites", originalFolders[1]);
+        Equal("CG", originalFolders[2]);
     }
 
     private static void StoryChoiceLocalizationCoversAllStoryBranches()

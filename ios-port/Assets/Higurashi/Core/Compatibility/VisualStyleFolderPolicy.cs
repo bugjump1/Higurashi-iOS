@@ -15,9 +15,9 @@ namespace Higurashi.IOS.Compatibility
                 switch (styleIndex)
                 {
                     case 1:
-                        return new[] { "CGAlt" };
+                        return new[] { "CGAlt", "CG" };
                     case 2:
-                        return new[] { "OGSprites" };
+                        return new[] { "OGBackgrounds", "OGSprites", "CG" };
                     default:
                         return new[] { "CG" };
                 }

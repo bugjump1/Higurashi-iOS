@@ -29,6 +29,7 @@
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Compatibility\StoryChoiceLocalization.cs" Link="Core\StoryChoiceLocalization.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Compatibility\MobileOptionDisplayName.cs" Link="Core\MobileOptionDisplayName.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Compatibility\ModOptionCatalog.cs" Link="Core\ModOptionCatalog.cs" />
+    <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Compatibility\VisualStyleFolderPolicy.cs" Link="Core\VisualStyleFolderPolicy.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Buriko\CompiledScriptContainer.cs" Link="Core\CompiledScriptContainer.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Buriko\BurikoOperationCatalog.Generated.cs" Link="Core\BurikoOperationCatalog.Generated.cs" />
     <Compile Include="..\..\ios-port\Assets\Higurashi\Core\Buriko\BurikoValue.cs" Link="Core\BurikoValue.cs" />
