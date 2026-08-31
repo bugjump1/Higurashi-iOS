@@ -5,6 +5,7 @@ using System.IO;
 using Higurashi.IOS.Buriko;
 using Higurashi.IOS.Compatibility;
 using Higurashi.IOS.Data;
+using Higurashi.IOS.Runtime.Diagnostics;
 using Higurashi.IOS.Playback;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -373,6 +374,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             _videoPlayer.audioOutputMode = VideoAudioOutputMode.Direct;
             _videoPlayer.loopPointReached += OnMovieEnded;
             _videoPlayer.prepareCompleted += OnMoviePrepared;
+            _videoPlayer.started += OnMovieStarted;
             _videoPlayer.errorReceived += OnMovieError;
         }
         public Vector2 WindowPresentationOffset
@@ -2791,24 +2793,39 @@ namespace Higurashi.IOS.Runtime.Buriko
                 return BurikoHostResponse.Continue;
             }
 
-            var path = SafePath.ResolveUnderRoot(
-                _streamingAssetsRoot,
-                "movies/" + safeName.ToLowerInvariant() + ".mp4");
-            if (!File.Exists(path))
+            var path = ResolveMoviePath(safeName);
+            if (string.IsNullOrEmpty(path))
             {
-                Debug.LogWarning("Movie asset was not found: " + path);
+                Debug.LogWarning("Movie asset was not found: movies/" + safeName.ToLowerInvariant() + ".mp4");
+                HigurashiDiagnosticLog.Warning("Movie", "Missing movie " + safeName);
                 return BurikoHostResponse.Continue;
             }
 
             _videoPlayer.Stop();
             _videoPlayer.source = VideoSource.Url;
-            _videoPlayer.url = new Uri(path).AbsoluteUri;
+            _videoPlayer.url = path;
             MovieVisible = true;
+            HigurashiDiagnosticLog.Info("Movie", "Prepare " + safeName + " path=" + path);
             // iOS may not have decoded the first frame when Play is called.
             // Prepare first and start only from prepareCompleted, otherwise
             // the script advances while the APIOnly texture stays empty.
             _videoPlayer.Prepare();
             return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
+        }
+
+        private string ResolveMoviePath(string safeName)
+        {
+            var fileName = safeName.ToLowerInvariant() + ".mp4";
+            var candidates = new[] { "movies/" + fileName, "movie/" + fileName };
+            for (var i = 0; i < candidates.Length; i++)
+            {
+                var path = SafePath.ResolveUnderRoot(_streamingAssetsRoot, candidates[i]);
+                if (File.Exists(path))
+                {
+                    return path;
+                }
+            }
+            return string.Empty;
         }
 
         private void OnMoviePrepared(VideoPlayer player)
@@ -2818,7 +2835,15 @@ namespace Higurashi.IOS.Runtime.Buriko
                 return;
             }
 
+            HigurashiDiagnosticLog.Info("Movie", "Prepared url=" + player.url +
+                " size=" + player.width + "x" + player.height +
+                " frames=" + player.frameCount);
             player.Play();
+        }
+
+        private void OnMovieStarted(VideoPlayer player)
+        {
+            HigurashiDiagnosticLog.Info("Movie", "Started url=" + player.url);
         }
 
         private void OnMovieEnded(VideoPlayer player)
@@ -2829,6 +2854,8 @@ namespace Higurashi.IOS.Runtime.Buriko
         private void OnMovieError(VideoPlayer player, string message)
         {
             Debug.LogWarning("Movie playback failed url=" + player.url + ": " + message);
+            HigurashiDiagnosticLog.Warning("Movie", "Playback failed url=" + player.url +
+                " message=" + message);
             FinishMovie();
         }
 
