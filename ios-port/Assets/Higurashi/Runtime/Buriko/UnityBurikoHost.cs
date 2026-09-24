@@ -473,6 +473,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             _settings.backgroundStyleIndex = backgroundIndex;
             _settings.artSetIndex = spriteIndex;
             memory.SetGlobalFlag("GArtStyle", spriteIndex);
+            // 同步 GBackgroundSet，使脚本/存档视角与实际加载一致（与 PC 行为对齐）。
+            memory.SetGlobalFlag("GBackgroundSet", backgroundIndex);
             memory.SetGlobalFlag("GLipSync", _settings.lipSync ? 1 : 0);
             memory.SetGlobalFlag("GCensor", _settings.censorshipLevel);
             if (HigurashiActiveChapter.Profile.EpisodeNumber >= 4 &&
@@ -3322,15 +3324,16 @@ namespace Higurashi.IOS.Runtime.Buriko
 
         private Texture2D LoadSpriteTexture(string textureName, BurikoMemory memory)
         {
-            var index = _settings == null ? 0 : _settings.spriteStyleIndex;
-            var texture = LoadTextureFromSet(textureName, memory, _spriteSets, index, "CG");
-            return texture;
+            // PC 对齐：立绘/图层与背景共用同一条级联（AssetManager.PathToAssetWithName）。
+            var backgroundIndex = _settings == null ? 0 : _settings.backgroundStyleIndex;
+            var folders = PcLookupFolders(backgroundIndex);
+            return LoadTextureFromSet(textureName, memory, folders, "CG");
         }
 
         private Texture2D LoadBackgroundTexture(string textureName, BurikoMemory memory)
         {
             var index = _settings == null ? 0 : _settings.backgroundStyleIndex;
-            var folders = PcBackgroundFolders(index);
+            var folders = PcLookupFolders(index);
             return LoadTextureFromSet(textureName, memory, folders, "CG");
         }
 
@@ -3343,69 +3346,47 @@ namespace Higurashi.IOS.Runtime.Buriko
             }
             return _assets.LoadTexture(textureName,
                 folders == null || folders.Count == 0 ? new[] { fallback } : folders,
-                preferAsianVariant: false);
+                preferAsianVariant: false,
+                allowLipSyncVariantFallback: AllowLipSyncVariantFallback());
         }
 
-        private IReadOnlyList<string> PcBackgroundFolders(int backgroundStyleIndex)
+        private bool AllowLipSyncVariantFallback()
         {
-            var result = new List<string>();
-            var artIndex = _settings == null ? 0 : _settings.spriteStyleIndex;
-            if (backgroundStyleIndex == 1)
-            {
-                AddUniqueFolder(result, "OGBackgrounds");
-            }
+            // PC AssetManager.CheckStreamingAssetsPathExists：Console(0) 风格禁用口型变体回退，
+            // 让缺失立绘更显眼。与 PC 行为一致。
+            return _settings == null || _settings.spriteStyleIndex != 0;
+        }
 
+        private IReadOnlyList<string> PcLookupFolders(int backgroundStyleIndex)
+        {
+            var spriteStyle = _settings == null ? 0 : _settings.spriteStyleIndex;
+            IReadOnlyList<string> declared = null;
+            var ogDeclared = false;
             if (_artSets.Count > 0)
             {
-                var artset = _artSets[ClampIndex(artIndex, _artSets.Count)];
-                for (var i = 0; i < artset.Folders.Length; i++)
+                var artset = _artSets[ClampIndex(spriteStyle, _artSets.Count)];
+                declared = artset.Folders;
+                ogDeclared = ArtsetsDeclareOgBackgrounds();
+            }
+
+            return VisualStyleFolderPolicy.UnifiedLookupFolders(
+                spriteStyle, backgroundStyleIndex, _artSets.Count, declared, ogDeclared);
+        }
+
+        private bool ArtsetsDeclareOgBackgrounds()
+        {
+            foreach (var set in _artSets)
+            {
+                foreach (var folder in set.Folders)
                 {
-                    if (backgroundStyleIndex == 0 &&
-                        string.Equals(artset.Folders[i], "OGBackgrounds",
+                    if (string.Equals(folder, "OGBackgrounds",
                             StringComparison.OrdinalIgnoreCase))
                     {
-                        continue;
+                        return true;
                     }
-                    AddUniqueFolder(result, artset.Folders[i]);
                 }
             }
-
-            if (result.Count == 0)
-            {
-                result.Add("CG");
-            }
-            return result;
-        }
-
-        private static void AddUniqueFolder(List<string> folders, string folder)
-        {
-            if (string.IsNullOrWhiteSpace(folder))
-            {
-                return;
-            }
-            for (var i = 0; i < folders.Count; i++)
-            {
-                if (string.Equals(folders[i], folder, StringComparison.OrdinalIgnoreCase))
-                {
-                    return;
-                }
-            }
-            folders.Add(folder);
-        }
-
-        private Texture2D LoadTextureFromSet(string textureName, BurikoMemory memory,
-            List<RuntimePathCascade> sets, int index, string fallback)
-        {
-            if (string.IsNullOrWhiteSpace(textureName) || _assets == null)
-            {
-                return null;
-            }
-
-            var selected = ClampIndex(index, sets.Count);
-            var folders = sets.Count == 0 ? new[] { fallback } : sets[selected].Folders;
-            // GLanguage 0 is the installed Chinese script set.  The un-suffixed
-            // textures are localized; the optional _j files are Japanese.
-            return _assets.LoadTexture(textureName, folders, preferAsianVariant: false);
+            return false;
         }
 
         private void RebuildVisualStyleCatalog()
@@ -3417,27 +3398,33 @@ namespace Higurashi.IOS.Runtime.Buriko
                 return;
             }
 
-            var console = _artSets[0];
+            // 目录仅供设置界面显示与数量；实际加载统一走 PcLookupFolders，
+            // 避免界面显示与运行时查找两张皮。
+            var ogDeclared = ArtsetsDeclareOgBackgrounds();
+            var backgroundIndex = _settings == null ? 0 : _settings.backgroundStyleIndex;
+
             for (var i = 0; i < _artSets.Count; i++)
             {
                 var source = _artSets[i];
-                var isOriginal = i == _artSets.Count - 1 && _artSets.Count >= 3;
-                var isRemake = i == 1 && _artSets.Count >= 3;
-                var spriteFolders = VisualStyleFolderPolicy.SpriteFoldersFor(
-                    i, _artSets.Count, source.Folders);
-                var backgroundFolders = isOriginal
-                    ? VisualStyleFolderPolicy.BackgroundFoldersFor(
-                        1, _artSets.Count, source.Folders)
-                    : VisualStyleFolderPolicy.BackgroundFoldersFor(
-                        0, _artSets.Count, console.Folders);
-
+                var spriteFolders = VisualStyleFolderPolicy.UnifiedLookupFolders(
+                    i, backgroundIndex, _artSets.Count, source.Folders, ogDeclared);
                 _spriteSets.Add(new RuntimePathCascade(source.NameEnglish,
                     source.NameAsian, spriteFolders));
-                if (i == 0 || isOriginal)
-                {
-                    _backgroundSets.Add(new RuntimePathCascade(source.NameEnglish,
-                        source.NameAsian, backgroundFolders));
-                }
+            }
+
+            // 背景目录条目：主机(0) 与原版(last)；条目数决定 backgroundStyleIndex 取值范围。
+            var console = _artSets[0];
+            _backgroundSets.Add(new RuntimePathCascade(console.NameEnglish,
+                console.NameAsian,
+                VisualStyleFolderPolicy.UnifiedLookupFolders(
+                    0, 0, _artSets.Count, console.Folders, ogDeclared)));
+            if (_artSets.Count >= 3)
+            {
+                var last = _artSets[_artSets.Count - 1];
+                _backgroundSets.Add(new RuntimePathCascade(last.NameEnglish,
+                    last.NameAsian,
+                    VisualStyleFolderPolicy.UnifiedLookupFolders(
+                        _artSets.Count - 1, 1, _artSets.Count, last.Folders, ogDeclared)));
             }
         }
 
@@ -4666,27 +4653,52 @@ namespace Higurashi.IOS.Runtime.Buriko
         public UnityAssetLoader(string installedGameDataRoot)
         {
             _resolver = new AssetCascadeResolver(installedGameDataRoot);
+            WarnIfMappingFoldersPresent(installedGameDataRoot);
+        }
+
+        // PC 级联支持 <目录>Mapping/mapping.json 的语音驱动图片映射；当前安装均无此目录。
+        // 检测到时提示，避免未来数据包变化后静默错图。
+        private static void WarnIfMappingFoldersPresent(string installedGameDataRoot)
+        {
+            try
+            {
+                var streamingAssets = Path.Combine(installedGameDataRoot, "StreamingAssets");
+                var candidates = new[] { "CG", "CGAlt", "OGBackgrounds", "OGSprites" };
+                foreach (var folder in candidates)
+                {
+                    if (Directory.Exists(Path.Combine(streamingAssets, folder + "Mapping")))
+                    {
+                        Debug.LogWarning("Detected " + folder
+                            + "Mapping folder in game data; image mapping (mapping.json) is not supported by this runtime.");
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // 诊断失败不应影响启动。
+            }
         }
 
         public Texture2D LoadTexture(
             string textureName,
             IReadOnlyList<string> folders,
-            bool preferAsianVariant)
+            bool preferAsianVariant,
+            bool allowLipSyncVariantFallback)
         {
             var normalized = textureName.Replace('\\', '/').TrimStart('/').ToLowerInvariant();
             var extension = Path.GetExtension(normalized);
             string path;
             if (!string.IsNullOrEmpty(extension))
             {
-                if (!_resolver.TryResolve(normalized, folders, out path, true))
+                if (!_resolver.TryResolve(normalized, folders, out path, allowLipSyncVariantFallback))
                 {
                     return null;
                 }
             }
-            else if (preferAsianVariant && _resolver.TryResolve(normalized + "_j.png", folders, out path, true))
+            else if (preferAsianVariant && _resolver.TryResolve(normalized + "_j.png", folders, out path, allowLipSyncVariantFallback))
             {
             }
-            else if (!_resolver.TryResolve(normalized + ".png", folders, out path, true))
+            else if (!_resolver.TryResolve(normalized + ".png", folders, out path, allowLipSyncVariantFallback))
             {
                 return null;
             }

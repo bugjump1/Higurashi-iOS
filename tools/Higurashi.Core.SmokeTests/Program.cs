@@ -50,6 +50,8 @@ internal static class Program
             StoryChoiceResultMirrorsOriginalEngineFlags,
             MobileOptionNamesAreLocalized,
             VisualStylePresetsStayConsistent,
+            PcUnifiedCascadeMatchesPcFormula,
+            TitleAssetsResolveInEveryStyleCombo,
             BurikoTextContinuationFollowsPreviousMode,
             Episode02OperationCatalogNormalizesShiftedModCodes,
             Episode03OperationCatalogNormalizesShiftedModCodes,
@@ -552,6 +554,125 @@ internal static class Program
         Equal("OGBackgrounds", originalFolders[0]);
         Equal("OGSprites", originalFolders[1]);
         Equal("CG", originalFolders[2]);
+    }
+
+    // PC AssetManager.PathToAssetWithName 的统一级联：六章注册相同三套 artset。
+    // 验证 6 种立绘×背景组合下的目录序列与 PC 公式逐条一致。
+    private static void PcUnifiedCascadeMatchesPcFormula()
+    {
+        var artsets = new[]
+        {
+            new[] { "CG" },
+            new[] { "CGAlt", "CG" },
+            new[] { "OGBackgrounds", "OGSprites", "CG" },
+        };
+        const bool ogDeclared = true;
+
+        void Check(int sprite, int bg, params string[] expected)
+        {
+            var folders = VisualStyleFolderPolicy.UnifiedLookupFolders(
+                sprite, bg, 3, artsets[sprite], ogDeclared);
+            Equal(expected.Length, folders.Length);
+            for (var i = 0; i < expected.Length; i++)
+            {
+                Equal(expected[i], folders[i]);
+            }
+        }
+
+        Check(0, 0, "CG");
+        Check(0, 1, "OGBackgrounds", "CG");
+        Check(1, 0, "CGAlt", "CG");
+        Check(1, 1, "OGBackgrounds", "CGAlt", "CG");
+        Check(2, 0, "OGSprites", "CG");
+        Check(2, 1, "OGBackgrounds", "OGSprites", "CG");
+
+        // 任意 artset 未声明 OGBackgrounds 时（PC MaybeOriginalBackgroundCascadePath==null），
+        // 即使 GBackgroundSet==1 也不前置。
+        var noOg = VisualStyleFolderPolicy.UnifiedLookupFolders(
+            2, 1, 3, new[] { "OGSprites", "CG" }, false);
+        Equal(2, noOg.Length);
+        Equal("OGSprites", noOg[0]);
+        Equal("CG", noOg[1]);
+    }
+
+    // 标题页素材（logo / haikei 树影图 / centerblind 滤镜蒙版 / white / scenario/title）
+    // 在 6 种组合下全部命中，杜绝历史"切背景后标题页丢图"复发。
+    private static void TitleAssetsResolveInEveryStyleCombo()
+    {
+        var root = Path.Combine(Path.GetTempPath(),
+            "higurashi-title-cascade-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            // 模拟 8 章实证的磁盘布局：标题页素材存在于 CG 与 OGBackgrounds，CGAlt 无。
+            string[][] layout =
+            {
+                new[] { "CG", "logo.png" },
+                new[] { "CG", "haikei.png" },
+                new[] { "CG", "centerblind.png" },
+                new[] { "CG", "white.png" },
+                new[] { "CG", "scenario", "title.png" },
+                new[] { "OGBackgrounds", "logo.png" },
+                new[] { "OGBackgrounds", "haikei.png" },
+                new[] { "OGBackgrounds", "centerblind.png" },
+                new[] { "OGBackgrounds", "white.png" },
+                new[] { "OGSprites", "sprite", "rena0.png" },
+            };
+            foreach (var parts in layout)
+            {
+                var fullPath = Path.Combine(root, "StreamingAssets");
+                foreach (var part in parts)
+                {
+                    fullPath = Path.Combine(fullPath, part);
+                }
+                Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+                File.WriteAllText(fullPath, "fixture");
+            }
+
+            var artsets = new[]
+            {
+                new[] { "CG" },
+                new[] { "CGAlt", "CG" },
+                new[] { "OGBackgrounds", "OGSprites", "CG" },
+            };
+            var resolver = new AssetCascadeResolver(root);
+            var titleNames = new[] { "logo", "haikei", "centerblind", "white", "scenario/title" };
+
+            for (var sprite = 0; sprite <= 2; sprite++)
+            {
+                for (var bg = 0; bg <= 1; bg++)
+                {
+                    var folders = VisualStyleFolderPolicy.UnifiedLookupFolders(
+                        sprite, bg, 3, artsets[sprite], true);
+                    foreach (var name in titleNames)
+                    {
+                        True(resolver.TryResolve(name + ".png", folders, out var resolved, false));
+                        True(resolved != null);
+                    }
+                }
+            }
+
+            // 原版背景：标题页素材从 OGBackgrounds 命中（PC 原生行为）。
+            var bgFolders = VisualStyleFolderPolicy.UnifiedLookupFolders(1, 1, 3, artsets[1], true);
+            True(resolver.TryResolve("logo.png", bgFolders, out var fromOg, false));
+            True(fromOg.Replace('\\', '/').Contains("/OGBackgrounds/logo.png"));
+
+            // 主机背景：从 CG 命中。
+            var consoleFolders = VisualStyleFolderPolicy.UnifiedLookupFolders(1, 0, 3, artsets[1], true);
+            True(resolver.TryResolve("haikei.png", consoleFolders, out var fromCg, false));
+            True(fromCg.Replace('\\', '/').Contains("/CG/haikei.png"));
+
+            // 原版立绘 + 主机背景：sprite 走 OGSprites（OGBackgrounds 被跳过）。
+            var origConsole = VisualStyleFolderPolicy.UnifiedLookupFolders(2, 0, 3, artsets[2], true);
+            True(resolver.TryResolve("sprite/rena0.png", origConsole, out var fromOgs, false));
+            True(fromOgs.Replace('\\', '/').Contains("/OGSprites/sprite/rena0.png"));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, true);
+            }
+        }
     }
 
     private static void StoryChoiceLocalizationCoversAllStoryBranches()
