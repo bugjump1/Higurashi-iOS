@@ -1485,7 +1485,7 @@ namespace Higurashi.IOS.Runtime
             DrawDialogueLabel(
                 new Rect(left, top, dialogueWidth, rect.yMax - top - 14f * scale),
                 _host.VisibleDialogue + (_host.IsDialogueRevealComplete ? "　▼" : string.Empty),
-                _dialogueStyle);
+                _dialogueStyle, true);
             _dialogueStyle.normal.textColor = previousDialogueColor;
             GUI.color = previousGuiColor;
         }
@@ -1505,7 +1505,7 @@ namespace Higurashi.IOS.Runtime
                 previousGuiColor.b, previousGuiColor.a * windowFade);
             var previousDialogueColor = _dialogueStyle.normal.textColor;
             _dialogueStyle.normal.textColor = _host.DialogueColor;
-            DrawDialogueLabel(rect, text, _dialogueStyle);
+            DrawDialogueLabel(rect, text, _dialogueStyle, true);
             _dialogueStyle.normal.textColor = previousDialogueColor;
             GUI.color = previousGuiColor;
         }
@@ -3175,7 +3175,7 @@ namespace Higurashi.IOS.Runtime
             _dialogueStyle = MakeStyle(FontPixels(0.032f, 29, 54) * textScale,
                 TextAnchor.UpperLeft, FontStyle.Normal, Color.white);
             _dialogueStyle.wordWrap = true;
-            _dialogueStyle.richText = false;
+            _dialogueStyle.richText = true;
             _historyStyle = new GUIStyle(_dialogueStyle)
             {
                 richText = true

@@ -284,8 +284,8 @@ namespace Higurashi.IOS.Runtime.Buriko
         }
         public bool IsOpeningChoice => OpeningChoicePolicy.IsOpeningChoice(Dialogue, Choices);
         public bool IsConsoleChoiceMenu => ConsoleChoiceMenuPolicy.IsConsoleChoiceMenu(Dialogue, Choices);
-        public bool IsDialogueRevealComplete => VisibleDialogueLength >= Dialogue.Length;
-        public string VisibleDialogue => Dialogue.Substring(0, VisibleDialogueLength);
+        public bool IsDialogueRevealComplete => VisibleDialogueLength >= RichTextReveal.CountVisible(Dialogue);
+        public string VisibleDialogue => RichTextReveal.VisibleSubstring(Dialogue, VisibleDialogueLength);
         public float WindowOpacity
         {
             get
@@ -345,13 +345,14 @@ namespace Higurashi.IOS.Runtime.Buriko
             {
                 if (_dialogueRevealForced || string.IsNullOrEmpty(Dialogue))
                 {
-                    return Dialogue.Length;
+                    return RichTextReveal.CountVisible(Dialogue);
                 }
                 var speed = _settings == null ? 50 : _settings.textSpeed;
                 var charactersPerSecond = MessageSpeedPolicy.CharactersPerSecond(
                     speed, _messageSpeedOverride);
                 var animated = Mathf.FloorToInt((Time.unscaledTime - _dialogueRevealStartedAt) * charactersPerSecond);
-                return Mathf.Clamp(_dialogueRevealStartIndex + animated, 0, Dialogue.Length);
+                return Mathf.Clamp(_dialogueRevealStartIndex + animated, 0,
+                    RichTextReveal.CountVisible(Dialogue));
             }
         }
 
@@ -2682,8 +2683,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             // Continue("为什么那么冷淡呢。") -> Normal("…呢？").
             var append = _appendNext;
             var appendToInProgressReveal = append && !_dialogueRevealForced &&
-                                           VisibleDialogueLength < Dialogue.Length;
-            var revealStart = append ? Dialogue.Length : 0;
+                                           VisibleDialogueLength < RichTextReveal.CountVisible(Dialogue);
+            var revealStart = append ? RichTextReveal.CountVisible(Dialogue) : 0;
             if (append)
             {
                 if (!string.IsNullOrEmpty(name))

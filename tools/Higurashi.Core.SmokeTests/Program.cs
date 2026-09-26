@@ -52,6 +52,9 @@ internal static class Program
             VisualStylePresetsStayConsistent,
             PcUnifiedCascadeMatchesPcFormula,
             TitleAssetsResolveInEveryStyleCombo,
+            RichTextRevealCountsSkipTags,
+            RichTextRevealNeverSplitsTag,
+            RichTextRevealHandlesLineContinueAppend,
             BurikoTextContinuationFollowsPreviousMode,
             Episode02OperationCatalogNormalizesShiftedModCodes,
             Episode03OperationCatalogNormalizesShiftedModCodes,
@@ -941,6 +944,80 @@ internal static class Program
             episode08.ExpectedDataPackSha256);
     }
 
+    // PC 07th-Mod 对话正文内联 <size=N>/<color=#hex>/<i>/<b> 等富文本标签；
+    // 逐字显示必须只计可见字符、不切半标签（对齐 TMP maxVisibleCharacters）。
+    private static void RichTextRevealCountsSkipTags()
+    {
+        Equal(0, RichTextReveal.CountVisible(""));
+        Equal(0, RichTextReveal.CountVisible(null));
+        Equal(5, RichTextReveal.CountVisible("abcde"));
+        // 标签内字符不计
+        Equal(2, RichTextReveal.CountVisible("a<size=-2>b</size>"));
+        // 行首标签
+        Equal(3, RichTextReveal.CountVisible("<size=-2>abc"));
+        // 连续标签
+        Equal(2, RichTextReveal.CountVisible("<size=-2><color=#fff>ab</color></size>"));
+        // 未闭合标签（异常容错：标签内字符不计，其余正常）
+        Equal(2, RichTextReveal.CountVisible("ab<size=-2"));
+        // 孤立 < 后无 > 也当 tag 起始（容错；现实对话数据标签均合法闭合，不会出现）
+        Equal(1, RichTextReveal.CountVisible("a<b"));
+    }
+
+    private static void RichTextRevealNeverSplitsTag()
+    {
+        var text = "<size=-2>本已狭窄的小路内</size>";
+        // 全量
+        Equal(text, RichTextReveal.VisibleSubstring(text, 100));
+        // 0
+        Equal("", RichTextReveal.VisibleSubstring(text, 0));
+        // 1 个可见字符 = 标签 + 第一个字
+        var one = RichTextReveal.VisibleSubstring(text, 1);
+        True(one == "<size=-2>本", one);
+        // 绝不出现半截 <size（没有配对 >）
+        for (var n = 0; n <= 20; n++)
+        {
+            var sub = RichTextReveal.VisibleSubstring(text, n);
+            // 截断点不在标签中间：每段里出现的 < 都要有对应的 >
+            True(!sub.Contains("<size") || sub.Contains(">"), "split tag at n=" + n);
+            // 不含 </size 的半截
+            True(!sub.Contains("</size") || sub.Contains("</size>"), "split close tag at n=" + n);
+        }
+        // 标签在行中
+        var mid = "ab<size=-2>cd</size>ef";
+        Equal("ab<size=-2>c", RichTextReveal.VisibleSubstring(mid, 3));
+        Equal("ab<size=-2>cd", RichTextReveal.VisibleSubstring(mid, 4));
+        Equal("ab<size=-2>cd</size>e", RichTextReveal.VisibleSubstring(mid, 5));
+        // 标签在末尾
+        var tail = "abc</size>";
+        Equal("abc</size>", RichTextReveal.VisibleSubstring(tail, 3));
+        Equal("ab", RichTextReveal.VisibleSubstring(tail, 2));
+        // IsRevealComplete
+        True(RichTextReveal.IsRevealComplete(text, 100));
+        True(!RichTextReveal.IsRevealComplete(text, 5));
+    }
+
+    // Line_Continue 追加：先输出 <size=-2>，再追加正文，组合后计数与截断仍正确。
+    private static void RichTextRevealHandlesLineContinueAppend()
+    {
+        // 模拟 OutputLine("<size=-2>", Line_Continue) + OutputLine("正文", Line_Normal)
+        var first = "<size=-2>";
+        var second = "本已狭窄的小路内";
+        var combined = first + second;
+        // combined 的可见字符数 = second 的长度
+        Equal(second.Length, RichTextReveal.CountVisible(combined));
+        // 逐字揭示：第 1 个可见字符应包含前置标签 + 第一个字
+        var reveal1 = RichTextReveal.VisibleSubstring(combined, 1);
+        True(reveal1 == "<size=-2>" + second[..1], reveal1);
+        // 全量 = 合并全文
+        Equal(combined, RichTextReveal.VisibleSubstring(combined, second.Length));
+        // 任意切片不切半标签
+        for (var n = 0; n <= second.Length + 2; n++)
+        {
+            var sub = RichTextReveal.VisibleSubstring(combined, n);
+            True(!sub.Contains("<size") || sub.Contains(">"), "split at n=" + n);
+        }
+    }
+
     private static void BurikoTextContinuationFollowsPreviousMode()
     {
         var appendNext = false;
@@ -1558,11 +1635,27 @@ internal static class Program
         }
     }
 
+    private static void Equal<T>(T expected, T actual, string message)
+    {
+        if (!EqualityComparer<T>.Default.Equals(expected, actual))
+        {
+            throw new InvalidOperationException($"Expected {expected}, got {actual}. {message}");
+        }
+    }
+
     private static void True(bool condition)
     {
         if (!condition)
         {
             throw new InvalidOperationException("Assertion failed.");
+        }
+    }
+
+    private static void True(bool condition, string message)
+    {
+        if (!condition)
+        {
+            throw new InvalidOperationException("Assertion failed. " + message);
         }
     }
 
