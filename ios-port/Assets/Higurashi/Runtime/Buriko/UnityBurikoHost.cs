@@ -697,11 +697,24 @@ namespace Higurashi.IOS.Runtime.Buriko
                     StopFragment(Int(invocation, 0, memory) / 1000f);
                     return BurikoHostResponse.Continue;
                 case 159:
+                    // PC OperationDrawSpriteFixedSize 经由被 MODSkipImage 守卫的
+                    // DrawSprite（ep08 反编译 :404/:406），故同样守卫。
+                    if (ShouldSkipConsoleCg(Text(invocation, 1, memory), memory))
+                    {
+                        return BurikoHostResponse.Continue;
+                    }
+
                     DrawFixedSizeSprite(invocation, memory, false);
                     _sceneLayerBatch.Prepare(Int(invocation, 0, memory));
                     return AnimationResponse(Int(invocation, 16, memory) / 1000f,
                         invocation.Arguments[17].AsBool(memory));
                 case 160:
+                    // 同上：PC 经由被守卫的 DrawSpriteWithFiltering（:367/:369）。
+                    if (ShouldSkipConsoleCg(Text(invocation, 1, memory), memory))
+                    {
+                        return BurikoHostResponse.Continue;
+                    }
+
                     DrawFixedSizeSprite(invocation, memory, true);
                     _sceneLayerBatch.Prepare(Int(invocation, 0, memory));
                     return AnimationResponse(Int(invocation, 13, memory) / 1000f,
@@ -2520,16 +2533,16 @@ namespace Higurashi.IOS.Runtime.Buriko
             }
             HistoryVisible = false;
             MovieVisible = false;
-            _backgroundTexture = LoadBackgroundTexture(_backgroundName, memory);
+            _backgroundTexture = LoadBackgroundTextureGuarded(_backgroundName, memory);
             _previousBackgroundTexture = null;
             _backgroundTransitionMask = null;
             _backgroundTransitionDuration = 0f;
             _fragmentTexture = string.IsNullOrWhiteSpace(_fragmentTextureName)
                 ? null
-                : LoadSpriteTexture(_fragmentTextureName, memory);
+                : LoadSpriteTextureGuarded(_fragmentTextureName, memory);
             _windowBackgroundTexture = string.IsNullOrWhiteSpace(_windowBackgroundName)
                 ? null
-                : LoadBackgroundTexture(_windowBackgroundName, memory);
+                : LoadBackgroundTextureGuarded(_windowBackgroundName, memory);
             _fragmentStartedAt = Time.unscaledTime;
             _fragmentTransitionDuration = 0f;
             _fragmentTransitionFrom = _fragmentTexture != null ? 1f : 0f;
@@ -2625,7 +2638,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             WindowHeight = snapshot.WindowHeight;
             ScreenAspect = snapshot.ScreenAspect;
             _backgroundName = snapshot.BackgroundName;
-            _backgroundTexture = LoadBackgroundTexture(_backgroundName, memory);
+            _backgroundTexture = LoadBackgroundTextureGuarded(_backgroundName, memory);
             _previousBackgroundTexture = null;
             _backgroundTransitionMask = null;
             _backgroundTransitionDuration = 0f;
@@ -2644,11 +2657,11 @@ namespace Higurashi.IOS.Runtime.Buriko
             _fragmentStyle = snapshot.FragmentStyle;
             _fragmentTexture = string.IsNullOrWhiteSpace(_fragmentTextureName)
                 ? null
-                : LoadSpriteTexture(_fragmentTextureName, memory);
+                : LoadSpriteTextureGuarded(_fragmentTextureName, memory);
             _windowBackgroundName = snapshot.WindowBackgroundName;
             _windowBackgroundTexture = string.IsNullOrWhiteSpace(_windowBackgroundName)
                 ? null
-                : LoadBackgroundTexture(_windowBackgroundName, memory);
+                : LoadBackgroundTextureGuarded(_windowBackgroundName, memory);
             _fragmentStartedAt = Time.unscaledTime;
             _fragmentTransitionDuration = 0f;
             _fragmentTransitionFrom = _fragmentTexture != null ? 1f : 0f;
@@ -2672,7 +2685,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             for (var i = 0; i < snapshot.Layers.Length; i++)
             {
                 var layer = snapshot.Layers[i].CloneWithoutTexture();
-                layer.Texture = LoadSpriteTexture(layer.TextureName, memory);
+                layer.Texture = LoadSpriteTextureGuarded(layer.TextureName, memory);
                 _layers[layer.Id] = layer;
                 if (layer.Filter != null && !layer.Filter.IsIdentity)
                 {
@@ -2683,15 +2696,15 @@ namespace Higurashi.IOS.Runtime.Buriko
 
         public void ReloadVisualAssets(BurikoMemory memory)
         {
-            _backgroundTexture = LoadBackgroundTexture(_backgroundName, memory);
+            _backgroundTexture = LoadBackgroundTextureGuarded(_backgroundName, memory);
             _previousBackgroundTexture = null;
             _backgroundTransitionDuration = 0f;
             _fragmentTexture = string.IsNullOrWhiteSpace(_fragmentTextureName)
                 ? null
-                : LoadSpriteTexture(_fragmentTextureName, memory);
+                : LoadSpriteTextureGuarded(_fragmentTextureName, memory);
             _windowBackgroundTexture = string.IsNullOrWhiteSpace(_windowBackgroundName)
                 ? null
-                : LoadBackgroundTexture(_windowBackgroundName, memory);
+                : LoadBackgroundTextureGuarded(_windowBackgroundName, memory);
 
             // A style change is an immediate presentation replacement. Do not
             // keep a previous-style transition texture or scene-layer snapshot.
@@ -2699,7 +2712,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             foreach (var pair in _layers)
             {
                 pair.Value.CompleteTransition();
-                pair.Value.Texture = LoadSpriteTexture(pair.Value.TextureName, memory);
+                pair.Value.Texture = LoadSpriteTextureGuarded(pair.Value.TextureName, memory);
             }
         }
 
@@ -3481,6 +3494,31 @@ namespace Higurashi.IOS.Runtime.Buriko
             HigurashiDiagnosticLog.Info("GHideCG",
                 "Skip console CG " + textureName + " folder=" + resolvedFolder);
             return true;
+        }
+
+        // 恢复/重载路径与正常绘制共用 GHideCG 守卫（审核 P1）：命中时返回 null。
+        // 旧存档/旧快照/设置切换前已显示的主机版事件 CG 由此在原版模式下隐藏；
+        // 这些路径没有"上一张背景"可回退，命中后表现为无背景（黑屏），直到脚本
+        // 下一次换背景——这是审核确认的显式兼容策略。新构建的存档/快照中
+        // _backgroundName 只会是未被跳过的名字，不会命中。
+        private Texture2D LoadBackgroundTextureGuarded(string textureName, BurikoMemory memory)
+        {
+            if (ShouldSkipConsoleCg(textureName, memory))
+            {
+                return null;
+            }
+
+            return LoadBackgroundTexture(textureName, memory);
+        }
+
+        private Texture2D LoadSpriteTextureGuarded(string textureName, BurikoMemory memory)
+        {
+            if (ShouldSkipConsoleCg(textureName, memory))
+            {
+                return null;
+            }
+
+            return LoadSpriteTexture(textureName, memory);
         }
 
         private void RebuildVisualStyleCatalog()

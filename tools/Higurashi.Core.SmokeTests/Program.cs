@@ -549,6 +549,12 @@ internal static class Program
         Equal(false, HideConsoleCgPolicy.ShouldSkip("CG", "scene/008", 2));
         Equal(false, HideConsoleCgPolicy.ShouldSkip("CG", string.Empty, 1));
         Equal(false, HideConsoleCgPolicy.ShouldSkip(null, "scene/008", 1));
+        // 边界：与 PC 字面 StartsWith("scene/") 一致——反斜杠、大小写变体不命中。
+        Equal(false, HideConsoleCgPolicy.ShouldSkip("CG", "scene\\008", 1));
+        Equal(false, HideConsoleCgPolicy.ShouldSkip("CG", "SCENE/008", 1));
+        Equal(false, HideConsoleCgPolicy.ShouldSkip("cg", "scene/008", 1));
+        // 子目录场景名（实存：EP1/EP6 scene/flashback/102）仍然命中。
+        True(HideConsoleCgPolicy.ShouldSkip("CG", "scene/flashback/102", 1));
 
         // The folder fed to the policy must come from the same cascade
         // resolution the loader uses, including its first-hit folder order.
