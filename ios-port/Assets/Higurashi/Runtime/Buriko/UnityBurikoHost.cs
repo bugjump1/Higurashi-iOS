@@ -29,6 +29,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         private const int PersistentLayerFilterStateMagic = 0x314C4848; // HHL1
         private const int PersistentFilmEffectStateMagic = 0x31454848; // HHE1
         private const int PersistentFilmFaceStateMagic = 0x32464848; // HHF2
+        private const int PersistentGHideCgStateMagic = 0x33474848; // HHG3
         private const int PersistentTipReadingStateMagic = 0x31525448; // HTR1
         private readonly List<RuntimePathCascade> _artSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _spriteSets = new List<RuntimePathCascade>();
@@ -53,6 +54,9 @@ namespace Higurashi.IOS.Runtime.Buriko
         private string _streamingAssetsRoot;
         private string _backgroundName;
         private Texture2D _backgroundTexture;
+        // 最近一张"任何 GHideCG 取值下都不会被隐藏"的背景名（PC"沿用上一张背景"
+        // 语义的落点）：恢复/切风格命中守卫时优先回到它，而不是黑屏。
+        private string _lastSafeBackgroundName;
         private Texture2D _previousBackgroundTexture;
         private Texture2D _backgroundTransitionMask;
         private float _backgroundTransitionStartedAt;
@@ -902,7 +906,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                         return BurikoHostResponse.Continue;
                     }
 
-                    DrawAnimatedLayer(invocation, memory, true, 0, 1, 2, 3, 4, 5, 6, 7, 8, 13, 14);
+                    DrawAnimatedLayer(invocation, memory, true, 0, 1, 2, 3, 4, 5, 6, 7, 8, 13, 14,
+                        guardConsoleCg: true);
                     _sceneLayerBatch.Prepare(Int(invocation, 0, memory));
                     return AnimationResponse(Int(invocation, 14, memory) / 1000f,
                         invocation.Arguments[15].AsBool(memory));
@@ -928,7 +933,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                     return AnimationResponse(Int(invocation, 3, memory) / 1000f,
                         invocation.Arguments[4].AsBool(memory));
                 case 58:
-                    DrawAnimatedLayer(invocation, memory, true, 0, 1, 4, 5, 10, 6, 7, 8, 9, 12, 13);
+                    DrawAnimatedLayer(invocation, memory, true, 0, 1, 4, 5, 10, 6, 7, 8, 9, 12, 13,
+                        guardConsoleCg: false);
                     SetLayerMask(Int(invocation, 0, memory), Text(invocation, 2, memory),
                         0, false, memory);
                     _sceneLayerBatch.Prepare(Int(invocation, 0, memory));
@@ -964,7 +970,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                         memory,
                         false,
                         1f - Int(invocation, 12, memory) / 256f,
-                        Int(invocation, 14, memory) / 1000f);
+                        Int(invocation, 14, memory) / 1000f,
+                        guardConsoleCg: true);
                     _sceneLayerBatch.Prepare(Int(invocation, 0, memory));
                     return AnimationResponse(Int(invocation, 14, memory) / 1000f,
                         invocation.Arguments[15].AsBool(memory));
@@ -984,7 +991,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                         memory,
                         false,
                         1f,
-                        Int(invocation, 11, memory) / 1000f);
+                        Int(invocation, 11, memory) / 1000f,
+                        guardConsoleCg: true);
                     SetLayerMask(Int(invocation, 0, memory), Text(invocation, 2, memory),
                         Int(invocation, 3, memory), false, memory);
                     _sceneLayerBatch.Prepare(Int(invocation, 0, memory));
@@ -1923,7 +1931,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                 FilmEffectStyle,
                 FilmEffectColor,
                 FilmEffectStrength,
-                FilmAppliesToFace);
+                FilmAppliesToFace,
+                _lastSafeBackgroundName);
         }
 
         public void ReplayRestoredCheckpointAnimations(
@@ -1944,7 +1953,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             var backgroundChanged = !string.Equals(previous.BackgroundName, _backgroundName,
                 StringComparison.OrdinalIgnoreCase);
             _previousBackgroundTexture = backgroundChanged
-                ? LoadBackgroundTexture(previous.BackgroundName, memory)
+                ? LoadRestoredBackgroundTexture(previous.BackgroundName, memory,
+                    previous.LastSafeBackgroundName)
                 : null;
             _backgroundTransitionMask = null;
             _backgroundTransitionStartedAt = now;
@@ -1979,7 +1989,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 current.TransitionDuration = replayDuration;
                 if (!sameTexture)
                 {
-                    current.PreviousTexture = LoadSpriteTexture(old.TextureName, memory);
+                    current.PreviousTexture = LoadLayerTextureRestored(old, memory);
                     current.PreviousX = old.X;
                     current.PreviousY = old.Y;
                     current.PreviousZ = old.Z;
@@ -1994,7 +2004,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             foreach (var pair in previousLayers)
             {
                 var old = pair.Value.CloneWithoutTexture();
-                old.Texture = LoadSpriteTexture(old.TextureName, memory);
+                old.Texture = LoadLayerTextureRestored(old, memory);
                 if (old.Texture != null)
                 {
                     _previousSceneLayers.Add(old);
@@ -2141,6 +2151,26 @@ namespace Higurashi.IOS.Runtime.Buriko
                 writer.Write(FilmEffectStrength);
                 writer.Write(PersistentFilmFaceStateMagic);
                 writer.Write(_filmAppliesToFace);
+                // Optional tail: last safe background fallback + per-layer
+                // GHideCG guard provenance. Old saves end before this block.
+                writer.Write(PersistentGHideCgStateMagic);
+                writer.Write(_lastSafeBackgroundName ?? string.Empty);
+                var guardedLayerCount = 0;
+                foreach (var pair in _layers)
+                {
+                    if (pair.Value.GuardConsoleCg)
+                    {
+                        guardedLayerCount++;
+                    }
+                }
+                writer.Write(guardedLayerCount);
+                foreach (var pair in _layers)
+                {
+                    if (pair.Value.GuardConsoleCg)
+                    {
+                        writer.Write(pair.Key);
+                    }
+                }
             }
         }
 
@@ -2161,6 +2191,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             var hasPersistedFilmFaceState = false;
             var persistedFilmAppliesToFace = true;
             var persistedBgmState = Array.Empty<RuntimeBgmState>();
+            _lastSafeBackgroundName = string.Empty;
             _fragmentTextureName = string.Empty;
             _fragmentStyle = string.Empty;
             _windowBackgroundName = string.Empty;
@@ -2226,7 +2257,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                     layer.FromZ = layer.Z;
                     layer.FromAlpha = layer.Alpha;
                     layer.IsCentered = layer.IsBustshot || (layer.X == 0 && layer.Y == 0);
-                    layer.Texture = LoadSpriteTexture(layer.TextureName, memory);
+                    // 纹理延后到可选尾部块读取之后再加载：图层是否受 GHideCG 守卫
+                    // 的来源旗标在尾部块中（旧档无尾部块 → 默认不受守卫）。
                     _layers[layer.Id] = layer;
                 }
 
@@ -2515,6 +2547,30 @@ namespace Higurashi.IOS.Runtime.Buriko
                         input.Position = filmFaceTailPosition;
                     }
                 }
+
+                if (input.CanSeek && input.Length - input.Position >= sizeof(int) * 2)
+                {
+                    var ghideCgTailPosition = input.Position;
+                    if (reader.ReadInt32() == PersistentGHideCgStateMagic)
+                    {
+                        // 尾部：安全背景回退名 + 受守卫图层 id 列表（旧档缺省时
+                        // 回退名为空、图层一律不受守卫）。
+                        _lastSafeBackgroundName = reader.ReadString();
+                        var guardedCount = ReadCount(reader, 10000, "guarded layer");
+                        for (var i = 0; i < guardedCount; i++)
+                        {
+                            var guardedId = reader.ReadInt32();
+                            if (_layers.TryGetValue(guardedId, out var guardedLayer))
+                            {
+                                guardedLayer.GuardConsoleCg = true;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        input.Position = ghideCgTailPosition;
+                    }
+                }
             }
 
             CreditsVisible = false;
@@ -2533,16 +2589,22 @@ namespace Higurashi.IOS.Runtime.Buriko
             }
             HistoryVisible = false;
             MovieVisible = false;
-            _backgroundTexture = LoadBackgroundTextureGuarded(_backgroundName, memory);
+            // 图层纹理延后至此加载：守卫来源旗标已在尾部块中读出。
+            foreach (var pair in _layers)
+            {
+                pair.Value.Texture = LoadLayerTextureRestored(pair.Value, memory);
+            }
+            _backgroundTexture = LoadRestoredBackgroundTexture(_backgroundName, memory);
             _previousBackgroundTexture = null;
             _backgroundTransitionMask = null;
             _backgroundTransitionDuration = 0f;
+            // 碎片图与窗口皮肤不是场景绘制入口的资源，不受 GHideCG 守卫。
             _fragmentTexture = string.IsNullOrWhiteSpace(_fragmentTextureName)
                 ? null
-                : LoadSpriteTextureGuarded(_fragmentTextureName, memory);
+                : LoadSpriteTexture(_fragmentTextureName, memory);
             _windowBackgroundTexture = string.IsNullOrWhiteSpace(_windowBackgroundName)
                 ? null
-                : LoadBackgroundTextureGuarded(_windowBackgroundName, memory);
+                : LoadBackgroundTexture(_windowBackgroundName, memory);
             _fragmentStartedAt = Time.unscaledTime;
             _fragmentTransitionDuration = 0f;
             _fragmentTransitionFrom = _fragmentTexture != null ? 1f : 0f;
@@ -2638,7 +2700,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             WindowHeight = snapshot.WindowHeight;
             ScreenAspect = snapshot.ScreenAspect;
             _backgroundName = snapshot.BackgroundName;
-            _backgroundTexture = LoadBackgroundTextureGuarded(_backgroundName, memory);
+            _lastSafeBackgroundName = snapshot.LastSafeBackgroundName ?? string.Empty;
+            _backgroundTexture = LoadRestoredBackgroundTexture(_backgroundName, memory);
             _previousBackgroundTexture = null;
             _backgroundTransitionMask = null;
             _backgroundTransitionDuration = 0f;
@@ -2657,11 +2720,11 @@ namespace Higurashi.IOS.Runtime.Buriko
             _fragmentStyle = snapshot.FragmentStyle;
             _fragmentTexture = string.IsNullOrWhiteSpace(_fragmentTextureName)
                 ? null
-                : LoadSpriteTextureGuarded(_fragmentTextureName, memory);
+                : LoadSpriteTexture(_fragmentTextureName, memory);
             _windowBackgroundName = snapshot.WindowBackgroundName;
             _windowBackgroundTexture = string.IsNullOrWhiteSpace(_windowBackgroundName)
                 ? null
-                : LoadBackgroundTextureGuarded(_windowBackgroundName, memory);
+                : LoadBackgroundTexture(_windowBackgroundName, memory);
             _fragmentStartedAt = Time.unscaledTime;
             _fragmentTransitionDuration = 0f;
             _fragmentTransitionFrom = _fragmentTexture != null ? 1f : 0f;
@@ -2685,7 +2748,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             for (var i = 0; i < snapshot.Layers.Length; i++)
             {
                 var layer = snapshot.Layers[i].CloneWithoutTexture();
-                layer.Texture = LoadSpriteTextureGuarded(layer.TextureName, memory);
+                layer.Texture = LoadLayerTextureRestored(layer, memory);
                 _layers[layer.Id] = layer;
                 if (layer.Filter != null && !layer.Filter.IsIdentity)
                 {
@@ -2696,15 +2759,15 @@ namespace Higurashi.IOS.Runtime.Buriko
 
         public void ReloadVisualAssets(BurikoMemory memory)
         {
-            _backgroundTexture = LoadBackgroundTextureGuarded(_backgroundName, memory);
+            _backgroundTexture = LoadRestoredBackgroundTexture(_backgroundName, memory);
             _previousBackgroundTexture = null;
             _backgroundTransitionDuration = 0f;
             _fragmentTexture = string.IsNullOrWhiteSpace(_fragmentTextureName)
                 ? null
-                : LoadSpriteTextureGuarded(_fragmentTextureName, memory);
+                : LoadSpriteTexture(_fragmentTextureName, memory);
             _windowBackgroundTexture = string.IsNullOrWhiteSpace(_windowBackgroundName)
                 ? null
-                : LoadBackgroundTextureGuarded(_windowBackgroundName, memory);
+                : LoadBackgroundTexture(_windowBackgroundName, memory);
 
             // A style change is an immediate presentation replacement. Do not
             // keep a previous-style transition texture or scene-layer snapshot.
@@ -2712,7 +2775,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             foreach (var pair in _layers)
             {
                 pair.Value.CompleteTransition();
-                pair.Value.Texture = LoadSpriteTextureGuarded(pair.Value.TextureName, memory);
+                pair.Value.Texture = LoadLayerTextureRestored(pair.Value, memory);
             }
         }
 
@@ -2968,6 +3031,12 @@ namespace Higurashi.IOS.Runtime.Buriko
                 ? LoadBackgroundTexture(transitionMask, memory)
                 : null;
             _backgroundName = textureName;
+            // 记录"最近一张安全背景"：可能被 GHideCG 隐藏的名字（主机版事件 CG）
+            // 不覆盖它，供恢复/切风格命中时回退（PC"沿用上一张背景"语义）。
+            if (!IsHideableConsoleCgTexture(textureName, memory, out _))
+            {
+                _lastSafeBackgroundName = textureName;
+            }
             _backgroundTexture = nextTexture;
             _backgroundTransitionStartedAt = Time.unscaledTime;
             _backgroundTransitionDuration = Mathf.Max(0f, duration);
@@ -3033,7 +3102,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             float alpha = 1f,
             float duration = 0f,
             int overrideWidth = 0,
-            int overrideHeight = 0)
+            int overrideHeight = 0,
+            bool guardConsoleCg = false)
         {
             Texture2D previousTexture = null;
             var previousFilter = PresentationLayerFilter.Identity();
@@ -3067,6 +3137,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 Id = id,
                 TextureName = textureName,
                 Texture = LoadSpriteTexture(textureName, memory),
+                GuardConsoleCg = guardConsoleCg,
                 Filter = activeFilter,
                 PreviousFilter = previousFilter,
                 X = x,
@@ -3111,7 +3182,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             int oldYIndex,
             int oldZIndex,
             int priorityIndex,
-            int durationIndex)
+            int durationIndex,
+            bool guardConsoleCg)
         {
             var id = Int(invocation, idIndex, memory);
             var x = Int(invocation, xIndex, memory);
@@ -3127,7 +3199,10 @@ namespace Higurashi.IOS.Runtime.Buriko
                 memory,
                 isBustshot,
                 1f,
-                Int(invocation, durationIndex, memory) / 1000f);
+                Int(invocation, durationIndex, memory) / 1000f,
+                0,
+                0,
+                guardConsoleCg);
             if (invocation.Arguments[moveIndex].AsBool(memory))
             {
                 var layer = _layers[id];
@@ -3169,6 +3244,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             if (!string.IsNullOrEmpty(textureName))
             {
                 layer.TextureName = textureName;
+                // Move 系入口在 PC 上不受 MODSkipImage 守卫：来源改为不受守卫。
+                layer.GuardConsoleCg = false;
                 layer.Texture = LoadSpriteTexture(textureName, memory);
             }
         }
@@ -3220,9 +3297,10 @@ namespace Higurashi.IOS.Runtime.Buriko
                     memory,
                     false,
                     1f,
-                    Int(invocation, 13, memory) / 1000f,
-                    Int(invocation, 6, memory),
-                    Int(invocation, 7, memory));
+                Int(invocation, 13, memory) / 1000f,
+                Int(invocation, 6, memory),
+                Int(invocation, 7, memory),
+                guardConsoleCg: true);
                 SetLayerMask(id, Text(invocation, 2, memory),
                     Int(invocation, 3, memory), false, memory);
                 return;
@@ -3240,7 +3318,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                 1f - Int(invocation, 14, memory) / 256f,
                 Int(invocation, 16, memory) / 1000f,
                 Int(invocation, 8, memory),
-                Int(invocation, 9, memory));
+                Int(invocation, 9, memory),
+                guardConsoleCg: true);
         }
 
         private void FadeBustshot(BurikoOperationInvocation invocation, BurikoMemory memory)
@@ -3340,7 +3419,10 @@ namespace Higurashi.IOS.Runtime.Buriko
                 memory,
                 true,
                 1f,
-                Int(invocation, filtered ? 15 : 16, memory) / 1000f);
+                Int(invocation, filtered ? 15 : 16, memory) / 1000f,
+                0,
+                0,
+                guardConsoleCg: !filtered);
             var layer = _layers[Int(invocation, 0, memory)];
             layer.CharacterId = Int(invocation, 1, memory);
             layer.LipSyncBaseName = texture;
@@ -3386,6 +3468,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                 if (!string.IsNullOrEmpty(textureName))
                 {
                     layer.TextureName = textureName;
+                    // Move 系入口在 PC 上不受 MODSkipImage 守卫。
+                    layer.GuardConsoleCg = false;
                     layer.Texture = LoadSpriteTexture(textureName, memory);
                 }
             }
@@ -3467,26 +3551,12 @@ namespace Higurashi.IOS.Runtime.Buriko
         // scene/ 前缀的主机版事件 CG。判定使用与实际加载完全相同的级联解析。
         private bool ShouldSkipConsoleCg(string textureName, BurikoMemory memory)
         {
-            if (string.IsNullOrWhiteSpace(textureName) || _assets == null || memory == null)
+            if (memory == null || memory.GetGlobalFlag("GHideCG") != 1)
             {
                 return false;
             }
 
-            var hideCg = memory.GetGlobalFlag("GHideCG");
-            if (hideCg != 1)
-            {
-                return false;
-            }
-
-            var backgroundIndex = _settings == null ? 0 : _settings.backgroundStyleIndex;
-            var folders = PcLookupFolders(backgroundIndex);
-            if (!_assets.TryResolveFolder(textureName, folders, out var resolvedFolder,
-                    AllowLipSyncVariantFallback()))
-            {
-                return false;
-            }
-
-            if (!HideConsoleCgPolicy.ShouldSkip(resolvedFolder, textureName, hideCg))
+            if (!IsHideableConsoleCgTexture(textureName, memory, out var resolvedFolder))
             {
                 return false;
             }
@@ -3496,29 +3566,64 @@ namespace Higurashi.IOS.Runtime.Buriko
             return true;
         }
 
-        // 恢复/重载路径与正常绘制共用 GHideCG 守卫（审核 P1）：命中时返回 null。
-        // 旧存档/旧快照/设置切换前已显示的主机版事件 CG 由此在原版模式下隐藏；
-        // 这些路径没有"上一张背景"可回退，命中后表现为无背景（黑屏），直到脚本
-        // 下一次换背景——这是审核确认的显式兼容策略。新构建的存档/快照中
-        // _backgroundName 只会是未被跳过的名字，不会命中。
-        private Texture2D LoadBackgroundTextureGuarded(string textureName, BurikoMemory memory)
+        // 旗标无关判定：该名字在 GHideCG=1 时是否会被隐藏（落点 CG + scene/ 前缀）。
+        // 用于"最近一张安全背景"的记录与恢复回退，避免回退名本身再次命中。
+        private bool IsHideableConsoleCgTexture(string textureName, BurikoMemory memory,
+            out string resolvedFolder)
         {
-            if (ShouldSkipConsoleCg(textureName, memory))
+            resolvedFolder = null;
+            if (string.IsNullOrWhiteSpace(textureName) || _assets == null || memory == null)
             {
-                return null;
+                return false;
             }
 
-            return LoadBackgroundTexture(textureName, memory);
+            var backgroundIndex = _settings == null ? 0 : _settings.backgroundStyleIndex;
+            var folders = PcLookupFolders(backgroundIndex);
+            if (!_assets.TryResolveFolder(textureName, folders, out resolvedFolder,
+                    AllowLipSyncVariantFallback()))
+            {
+                return false;
+            }
+
+            return HideConsoleCgPolicy.ShouldSkip(resolvedFolder, textureName, 1);
         }
 
-        private Texture2D LoadSpriteTextureGuarded(string textureName, BurikoMemory memory)
+        // 恢复/重载路径的背景加载：命中 GHideCG 时优先回退到最近一张安全背景
+        // （PC"沿用上一张背景"语义）；没有任何安全记录（修复前旧档）才降级为
+        // 无纹理（黑屏）。新档的 _lastSafeBackgroundName 随持久化尾部块保存。
+        private Texture2D LoadRestoredBackgroundTexture(string textureName, BurikoMemory memory,
+            string fallbackName = null)
         {
-            if (ShouldSkipConsoleCg(textureName, memory))
+            if (!ShouldSkipConsoleCg(textureName, memory))
+            {
+                return LoadBackgroundTexture(textureName, memory);
+            }
+
+            var fallback = string.IsNullOrEmpty(fallbackName)
+                ? _lastSafeBackgroundName
+                : fallbackName;
+            if (!string.IsNullOrEmpty(fallback))
+            {
+                HigurashiDiagnosticLog.Info("GHideCG",
+                    "Fallback background " + fallback);
+                return LoadBackgroundTexture(fallback, memory);
+            }
+
+            return null;
+        }
+
+        // 恢复/重载路径的图层加载：仅对来自受守卫入口（GuardConsoleCg=true）的
+        // 图层应用守卫；PC 不守卫入口（DrawBustshotWithFiltering 等）的图层
+        // 始终正常加载。
+        private Texture2D LoadLayerTextureRestored(PresentationLayer layer, BurikoMemory memory)
+        {
+            if (layer != null && layer.GuardConsoleCg &&
+                ShouldSkipConsoleCg(layer.TextureName, memory))
             {
                 return null;
             }
 
-            return LoadSpriteTexture(textureName, memory);
+            return LoadSpriteTexture(layer.TextureName, memory);
         }
 
         private void RebuildVisualStyleCatalog()
@@ -3583,6 +3688,12 @@ namespace Higurashi.IOS.Runtime.Buriko
                     (_currentVoiceCharacter < 0 || layer.CharacterId == _currentVoiceCharacter);
                 var targetFrame = shouldAnimate ? frame : 0;
                 if (layer.LipSyncFrame == targetFrame)
+                {
+                    continue;
+                }
+
+                // 受 GHideCG 守卫而被隐藏的图层不因口型同步重新加载纹理。
+                if (layer.GuardConsoleCg && ShouldSkipConsoleCg(layer.TextureName, _memory))
                 {
                     continue;
                 }
@@ -4038,6 +4149,11 @@ namespace Higurashi.IOS.Runtime.Buriko
         public string LipSyncBaseName;
         public string LipSyncRestName;
         public int LipSyncFrame;
+        // 该图层的纹理是否来自受 GHideCG 守卫的绘制入口（DrawBustshot/DrawSprite/
+        // DrawSpriteWithFiltering/ModDrawCharacter/FixedSize 变体为 true；
+        // DrawBustshotWithFiltering/ModDrawCharacterWithFiltering/DrawFace/ChangeBustshot
+        // 等 PC 不守卫的入口为 false）。恢复/重载仅对 true 的图层应用守卫。
+        public bool GuardConsoleCg;
 
         public float TransitionProgress
         {
@@ -4152,6 +4268,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 LipSyncBaseName = LipSyncBaseName,
                 LipSyncRestName = LipSyncRestName,
                 LipSyncFrame = LipSyncFrame,
+                GuardConsoleCg = GuardConsoleCg,
                 MaskName = MaskName,
                 MaskFuzziness = MaskFuzziness,
                 MaskReverse = MaskReverse,
@@ -4247,7 +4364,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             int filmEffectStyle = 0,
             Color filmEffectColor = default(Color),
             float filmEffectStrength = 0f,
-            bool filmAppliesToFace = true)
+            bool filmAppliesToFace = true,
+            string lastSafeBackgroundName = null)
         {
             BackgroundName = backgroundName;
             Layers = layers;
@@ -4288,10 +4406,12 @@ namespace Higurashi.IOS.Runtime.Buriko
             FilmEffectColor = filmEffectColor;
             FilmEffectStrength = Mathf.Clamp01(filmEffectStrength);
             FilmAppliesToFace = filmAppliesToFace;
+            LastSafeBackgroundName = lastSafeBackgroundName ?? string.Empty;
         }
 
         public string BackgroundName { get; }
         public PresentationLayer[] Layers { get; }
+        public string LastSafeBackgroundName { get; }
         public string[] History { get; }
         public HistoryVoiceCue[] HistoryVoices { get; }
         public string Speaker { get; }
