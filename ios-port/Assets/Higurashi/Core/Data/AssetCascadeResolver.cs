@@ -27,6 +27,36 @@ namespace Higurashi.IOS.Data
             out string resolvedPath,
             bool allowLipSyncVariantFallback = false)
         {
+            var found = TryResolveCore(
+                relativePath, cascadeFolders, allowLipSyncVariantFallback,
+                out _, out resolvedPath);
+            return found;
+        }
+
+        /// <summary>
+        /// Reports which cascade folder an asset would resolve from, using the
+        /// exact same lookup as <see cref="TryResolve"/> but without returning
+        /// the path. Used by draw guards that must agree with the loader.
+        /// </summary>
+        public bool TryResolveFolder(
+            string relativePath,
+            IReadOnlyList<string> cascadeFolders,
+            out string resolvedFolder,
+            bool allowLipSyncVariantFallback = false)
+        {
+            return TryResolveCore(
+                relativePath, cascadeFolders, allowLipSyncVariantFallback,
+                out resolvedFolder, out _);
+        }
+
+        private bool TryResolveCore(
+            string relativePath,
+            IReadOnlyList<string> cascadeFolders,
+            bool allowLipSyncVariantFallback,
+            out string resolvedFolder,
+            out string resolvedPath)
+        {
+            resolvedFolder = null;
             if (string.IsNullOrWhiteSpace(relativePath))
             {
                 resolvedPath = null;
@@ -43,6 +73,7 @@ namespace Higurashi.IOS.Data
             {
                 if (TryResolveInFolder(cascadeFolders[i], normalized, out resolvedPath))
                 {
+                    resolvedFolder = cascadeFolders[i];
                     return true;
                 }
 
@@ -50,6 +81,7 @@ namespace Higurashi.IOS.Data
                     IsSpritePath(normalized) &&
                     TryResolveLipSyncVariant(cascadeFolders[i], normalized, out resolvedPath))
                 {
+                    resolvedFolder = cascadeFolders[i];
                     return true;
                 }
             }

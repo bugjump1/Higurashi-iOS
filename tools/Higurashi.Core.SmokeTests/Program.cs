@@ -44,6 +44,7 @@ internal static class Program
             EpisodeEightFragmentContinuationRecoversOnlyUnexpectedFinalExit,
             EpisodeEightLegacyFragmentSaveRestoresMissingGlobals,
             OpeningChoiceLocalizationRecognizesEpisodeEight,
+            HideConsoleCgPolicyMatchesPcModSkipImage,
             ConsoleChoiceMenuLocalizationAndClassification,
             BadEndingChoicesMatchOriginalFlows,
             StoryChoiceLocalizationCoversAllStoryBranches,
@@ -531,6 +532,54 @@ internal static class Program
         Equal("OP 动画中包含剧透，是否要启用？", OpeningChoicePolicy.LocalizedPrompt);
         Equal("启用 OP 动画", OpeningChoicePolicy.LocalizedEnable);
         Equal("禁用 OP 动画", OpeningChoicePolicy.LocalizedDisable);
+    }
+
+    private static void HideConsoleCgPolicyMatchesPcModSkipImage()
+    {
+        // PC SceneController.MODSkipImage: skip only when the texture resolves
+        // into the CG folder, the name starts with "scene/", and GHideCG == 1.
+        True(HideConsoleCgPolicy.ShouldSkip("CG", "scene/008", 1));
+        Equal(false, HideConsoleCgPolicy.ShouldSkip("CG", "scene/008", 0));
+        Equal(false, HideConsoleCgPolicy.ShouldSkip("OGBackgrounds", "scene/008", 1));
+        Equal(false, HideConsoleCgPolicy.ShouldSkip("CGAlt", "scene/008", 1));
+        Equal(false, HideConsoleCgPolicy.ShouldSkip("CG", "background/gk1", 1));
+        Equal(false, HideConsoleCgPolicy.ShouldSkip("CG", "title/foo", 1));
+        Equal(false, HideConsoleCgPolicy.ShouldSkip("CG", "mask6", 1));
+        Equal(false, HideConsoleCgPolicy.ShouldSkip("CG", "scenario_c", 1));
+        Equal(false, HideConsoleCgPolicy.ShouldSkip("CG", "scene/008", 2));
+        Equal(false, HideConsoleCgPolicy.ShouldSkip("CG", string.Empty, 1));
+        Equal(false, HideConsoleCgPolicy.ShouldSkip(null, "scene/008", 1));
+
+        // The folder fed to the policy must come from the same cascade
+        // resolution the loader uses, including its first-hit folder order.
+        var root = Path.Combine(Path.GetTempPath(), "higurashi-hidecg-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var consoleCg = Path.Combine(root, "StreamingAssets", "CG", "scene", "008.png");
+            Directory.CreateDirectory(Path.GetDirectoryName(consoleCg)!);
+            File.WriteAllText(consoleCg, "fixture");
+
+            var folders = new[] { "OGBackgrounds", "OGSprites", "CG" };
+            var resolver = new AssetCascadeResolver(root);
+            True(resolver.TryResolveFolder("scene/008.png", folders, out var folder));
+            Equal("CG", folder);
+            True(resolver.TryResolve("scene/008.png", folders, out var path));
+            Equal(Path.GetFullPath(consoleCg), path);
+
+            var ogScene = Path.Combine(root, "StreamingAssets", "OGBackgrounds", "scene");
+            Directory.CreateDirectory(ogScene);
+            File.WriteAllText(Path.Combine(ogScene, "008.png"), "fixture");
+            True(resolver.TryResolveFolder("scene/008.png", folders, out folder));
+            Equal("OGBackgrounds", folder);
+            Equal(false, HideConsoleCgPolicy.ShouldSkip(folder, "scene/008", 1));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, true);
+            }
+        }
     }
 
     private static void MobileOptionNamesAreLocalized()
