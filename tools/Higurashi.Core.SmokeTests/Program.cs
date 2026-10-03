@@ -515,6 +515,17 @@ internal static class Program
         var laterChineseChoices = new[] { "启用播放", "禁用播放" };
         True(OpeningChoicePolicy.IsOpeningChoice(string.Empty, laterChineseChoices));
 
+        var earlyChineseChoices = new[] { "启用 OP", "禁用 OP" };
+        True(OpeningChoicePolicy.IsOpeningPrompt("OP 动画中包含剧透，是否要启用？"));
+        True(OpeningChoicePolicy.IsOpeningChoice(string.Empty, earlyChineseChoices));
+
+        var rewrittenChoices = new[]
+        {
+            OpeningChoicePolicy.LocalizedEnable, OpeningChoicePolicy.LocalizedDisable
+        };
+        True(OpeningChoicePolicy.IsOpeningChoice(string.Empty, rewrittenChoices));
+        Equal(false, OpeningChoicePolicy.IsOpeningChoice("设置已更改。", new[] { "启用", "禁用" }));
+
         var storyChoices = new[] { "寻找机会", "向他求饶" };
         Equal(false, OpeningChoicePolicy.IsOpeningChoice("你要怎么做？", storyChoices));
         Equal("OP 动画中包含剧透，是否要启用？", OpeningChoicePolicy.LocalizedPrompt);

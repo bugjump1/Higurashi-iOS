@@ -41,8 +41,11 @@ namespace Higurashi.IOS.Compatibility
             return (Contains(first, "Enable opening") && Contains(second, "Disable opening")) ||
                    (Contains(first, "動画再生を有効化") && Contains(second, "動画再生を無効化")) ||
                    (Contains(first, "启用播放") && Contains(second, "禁用播放")) ||
-                   (string.Equals(first, LocalizedEnable, StringComparison.Ordinal) &&
-                    string.Equals(second, LocalizedDisable, StringComparison.Ordinal));
+                   // EP01-EP04 Chinese packs ship "启用 OP"/"禁用 OP". The substring
+                   // check also matches after ShowChoices rewrites the labels to
+                   // LocalizedEnable/LocalizedDisable, which host IsOpeningChoice
+                   // re-evaluates on already-rewritten choices (e.g. snapshot restore).
+                   (Contains(first, "启用 OP") && Contains(second, "禁用 OP"));
         }
 
         private static bool IsChineseOpeningLabel(string value)
