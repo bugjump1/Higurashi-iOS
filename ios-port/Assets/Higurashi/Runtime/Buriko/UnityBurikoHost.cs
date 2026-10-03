@@ -3616,6 +3616,13 @@ namespace Higurashi.IOS.Runtime.Buriko
                 : fallbackName;
             if (!string.IsNullOrEmpty(fallback))
             {
+                // 第 6 轮审核：切风格后同名可能经新级联重新解析为 CG（scene/ 名），
+                // 加载回退前按当前设置重新执行守卫；再命中则降级为无纹理。
+                if (ShouldSkipConsoleCg(fallback, memory))
+                {
+                    return null;
+                }
+
                 HigurashiDiagnosticLog.Info("GHideCG",
                     "Fallback background " + fallback);
                 return LoadBackgroundTexture(fallback, memory);
