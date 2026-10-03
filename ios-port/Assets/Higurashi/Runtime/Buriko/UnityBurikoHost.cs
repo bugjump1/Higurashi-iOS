@@ -2190,6 +2190,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             var persistedFilmEffectStrength = 0f;
             var hasPersistedFilmFaceState = false;
             var persistedFilmAppliesToFace = true;
+            var hasPersistedGHideCgState = false;
             var persistedBgmState = Array.Empty<RuntimeBgmState>();
             _lastSafeBackgroundName = string.Empty;
             _fragmentTextureName = string.Empty;
@@ -2565,11 +2566,22 @@ namespace Higurashi.IOS.Runtime.Buriko
                                 guardedLayer.GuardConsoleCg = true;
                             }
                         }
+                        hasPersistedGHideCgState = true;
                     }
                     else
                     {
                         input.Position = ghideCgTailPosition;
                     }
+                }
+
+                if (!hasPersistedGHideCgState)
+                {
+                    // 旧档显式降级（第 3 轮审核）：无来源信息时图层不套守卫，
+                    // 旧档中保存的 scene/ 图层可能显示到脚本下一次绘制为止；
+                    // 背景侧仍走安全回退/黑屏降级。与正常"非守卫入口"区分开记日志。
+                    HigurashiDiagnosticLog.Info("GHideCG",
+                        "Legacy presentation state without CG provenance; " +
+                        "guarded scene/ layers stay visible until redrawn");
                 }
             }
 
@@ -3728,6 +3740,11 @@ namespace Higurashi.IOS.Runtime.Buriko
                     continue;
                 }
                 var textureName = layer.LipSyncBaseName + "0";
+                // 对待加载名本身执行守卫：被隐藏图层的口型基础帧不得复活纹理。
+                if (layer.GuardConsoleCg && ShouldSkipConsoleCg(textureName, _memory))
+                {
+                    continue;
+                }
                 var texture = LoadSpriteTexture(textureName, _memory);
                 if (texture != null)
                 {
