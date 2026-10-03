@@ -3704,17 +3704,22 @@ namespace Higurashi.IOS.Runtime.Buriko
                     continue;
                 }
 
-                // 受 GHideCG 守卫而被隐藏的图层不因口型同步重新加载纹理。
-                if (layer.GuardConsoleCg && ShouldSkipConsoleCg(layer.TextureName, _memory))
+                // 对待加载名与其回退名本身执行守卫（与 ResetLipSyncFrames 一致）：
+                // 当前纹理名不代表即将加载的名字，不能作为判断依据。
+                var candidateTextureName = layer.LipSyncBaseName + targetFrame;
+                var fallbackTextureName = layer.LipSyncBaseName + "0";
+                if (layer.GuardConsoleCg &&
+                    (ShouldSkipConsoleCg(candidateTextureName, _memory) ||
+                     ShouldSkipConsoleCg(fallbackTextureName, _memory)))
                 {
                     continue;
                 }
 
-                var textureName = layer.LipSyncBaseName + targetFrame;
+                var textureName = candidateTextureName;
                 var texture = LoadSpriteTexture(textureName, _memory);
                 if (texture == null && targetFrame != 0)
                 {
-                    textureName = layer.LipSyncBaseName + "0";
+                    textureName = fallbackTextureName;
                     texture = LoadSpriteTexture(textureName, _memory);
                 }
                 if (texture != null)
