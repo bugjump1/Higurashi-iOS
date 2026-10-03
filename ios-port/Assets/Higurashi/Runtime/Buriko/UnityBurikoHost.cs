@@ -476,6 +476,9 @@ namespace Higurashi.IOS.Runtime.Buriko
             memory.SetGlobalFlag("GArtStyle", spriteIndex);
             // 同步 GBackgroundSet，使脚本/存档视角与实际加载一致（与 PC 行为对齐）。
             memory.SetGlobalFlag("GBackgroundSet", backgroundIndex);
+            // PC OG（纯原版）预设写 GHideCG=1 以隐藏主机版事件 CG；主机/重制背景为 0。
+            // 以背景风格为决定条件；读档/回退后由本方法重写，旧存档旗标不覆盖当前设置。
+            memory.SetGlobalFlag("GHideCG", backgroundIndex == 1 ? 1 : 0);
             memory.SetGlobalFlag("GLipSync", _settings.lipSync ? 1 : 0);
             memory.SetGlobalFlag("GCensor", _settings.censorshipLevel);
             if (HigurashiActiveChapter.Profile.EpisodeNumber >= 4 &&
@@ -796,13 +799,21 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 47:
                 {
                     var duration = Int(invocation, 1, memory) / 1000f;
-                    SetBackground(Text(invocation, 0, memory), memory, false, duration);
+                    if (!SetBackground(Text(invocation, 0, memory), memory, false, duration))
+                    {
+                        return BurikoHostResponse.Continue;
+                    }
+
                     return AnimationResponse(duration, invocation.Arguments[2].AsBool(memory));
                 }
                 case 50:
                 {
                     var duration = Int(invocation, 1, memory) / 1000f;
-                    SetBackground(Text(invocation, 0, memory), memory, true, duration);
+                    if (!SetBackground(Text(invocation, 0, memory), memory, true, duration))
+                    {
+                        return BurikoHostResponse.Continue;
+                    }
+
                     return AnimationResponse(duration, true);
                 }
                 case 51:
@@ -825,14 +836,22 @@ namespace Higurashi.IOS.Runtime.Buriko
                     }
                 {
                     var duration = Int(invocation, 4, memory) / 1000f;
-                    SetBackground(Text(invocation, 0, memory), memory, true, duration,
-                        Text(invocation, 1, memory));
+                    if (!SetBackground(Text(invocation, 0, memory), memory, true, duration,
+                            Text(invocation, 1, memory)))
+                    {
+                        return BurikoHostResponse.Continue;
+                    }
+
                     return AnimationResponse(duration, true);
                 }
                 case 52:
                 {
                     var duration = Int(invocation, 2, memory) / 1000f;
-                    SetBackground(Text(invocation, 0, memory), memory, true, duration);
+                    if (!SetBackground(Text(invocation, 0, memory), memory, true, duration))
+                    {
+                        return BurikoHostResponse.Continue;
+                    }
+
                     return AnimationResponse(duration, true);
                 }
                 case 48:
@@ -856,11 +875,20 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 49:
                 {
                     var duration = Int(invocation, 3, memory) / 1000f;
-                    SetBackground(Text(invocation, 0, memory), memory, false, duration,
-                        Text(invocation, 1, memory));
+                    if (!SetBackground(Text(invocation, 0, memory), memory, false, duration,
+                            Text(invocation, 1, memory)))
+                    {
+                        return BurikoHostResponse.Continue;
+                    }
+
                     return AnimationResponse(duration, invocation.Arguments[4].AsBool(memory));
                 }
                 case 55:
+                    if (ShouldSkipConsoleCg(Text(invocation, 1, memory), memory))
+                    {
+                        return BurikoHostResponse.Continue;
+                    }
+
                     DrawAnimatedLayer(invocation, memory, true, 0, 1, 2, 3, 4, 5, 6, 7, 8, 13, 14);
                     _sceneLayerBatch.Prepare(Int(invocation, 0, memory));
                     return AnimationResponse(Int(invocation, 14, memory) / 1000f,
@@ -908,6 +936,11 @@ namespace Higurashi.IOS.Runtime.Buriko
                     _sceneLayerBatch.Discard(1000);
                     return BurikoHostResponse.Continue;
                 case 62:
+                    if (ShouldSkipConsoleCg(Text(invocation, 1, memory), memory))
+                    {
+                        return BurikoHostResponse.Continue;
+                    }
+
                     DrawLayer(
                         Int(invocation, 0, memory),
                         Text(invocation, 1, memory),
@@ -923,6 +956,11 @@ namespace Higurashi.IOS.Runtime.Buriko
                     return AnimationResponse(Int(invocation, 14, memory) / 1000f,
                         invocation.Arguments[15].AsBool(memory));
                 case 63:
+                    if (ShouldSkipConsoleCg(Text(invocation, 1, memory), memory))
+                    {
+                        return BurikoHostResponse.Continue;
+                    }
+
                     DrawLayer(
                         Int(invocation, 0, memory),
                         Text(invocation, 1, memory),
@@ -1102,6 +1140,15 @@ namespace Higurashi.IOS.Runtime.Buriko
                     ReportApproximated(invocation);
                     return BurikoHostResponse.Continue;
                 case 128:
+                    // PC OperationMODDrawCharacter 最终走被 MODSkipImage 守卫的
+                    // DrawBustshot；filtered 变体走无守卫的 DrawBustshotWithFiltering。
+                    if (ShouldSkipConsoleCg(
+                            ModCharacterTextureName(Text(invocation, 2, memory), Text(invocation, 3, memory)),
+                            memory))
+                    {
+                        return BurikoHostResponse.Continue;
+                    }
+
                     DrawModCharacter(invocation, memory, false);
                     _sceneLayerBatch.Prepare(Int(invocation, 0, memory));
                     return AnimationResponse(Int(invocation, 16, memory) / 1000f,
@@ -2874,9 +2921,17 @@ namespace Higurashi.IOS.Runtime.Buriko
             MovieFinished?.Invoke();
         }
 
-        private void SetBackground(string textureName, BurikoMemory memory, bool clearLayers = true,
+        private bool SetBackground(string textureName, BurikoMemory memory, bool clearLayers = true,
             float duration = 0f, string transitionMask = null)
         {
+            // PC SceneController.MODSkipImage：GHideCG=1 时，落点为 CG 且 scene/
+            // 前缀的主机版事件 CG 整体跳过（不清层、不改背景名、不动批次状态），
+            // 屏幕沿用上一张背景。返回 false 表示本次绘制被跳过。
+            if (ShouldSkipConsoleCg(textureName, memory))
+            {
+                return false;
+            }
+
             var preparedLayerIds = clearLayers
                 ? _sceneLayerBatch.ConsumeForSceneChange()
                 : System.Array.Empty<int>();
@@ -2936,6 +2991,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                     _layers[preparedLayers[i].Id] = preparedLayers[i];
                 }
             }
+
+            return true;
         }
 
         public void CommitPendingPresentation()
@@ -3243,16 +3300,19 @@ namespace Higurashi.IOS.Runtime.Buriko
             }
         }
 
+        // 与 PC OperationMODDrawCharacter 一致：口型同步开启时先画基础表情帧。
+        private string ModCharacterTextureName(string texture, string expression)
+        {
+            return _settings != null && _settings.lipSync ? texture + "0" : texture + expression;
+        }
+
         private void DrawModCharacter(
             BurikoOperationInvocation invocation,
             BurikoMemory memory,
             bool filtered)
         {
             var texture = Text(invocation, 2, memory);
-            var expression = Text(invocation, 3, memory);
-            var renderedTexture = _settings != null && _settings.lipSync
-                ? texture + "0"
-                : texture + expression;
+            var renderedTexture = ModCharacterTextureName(texture, Text(invocation, 3, memory));
             var xIndex = filtered ? 6 : 4;
             var yIndex = filtered ? 7 : 5;
             var zIndex = filtered ? 12 : 6;
@@ -3388,6 +3448,39 @@ namespace Higurashi.IOS.Runtime.Buriko
                 }
             }
             return false;
+        }
+
+        // PC SceneController.MODSkipImage 对齐：GHideCG=1 时跳过落点为 CG 且
+        // scene/ 前缀的主机版事件 CG。判定使用与实际加载完全相同的级联解析。
+        private bool ShouldSkipConsoleCg(string textureName, BurikoMemory memory)
+        {
+            if (string.IsNullOrWhiteSpace(textureName) || _assets == null || memory == null)
+            {
+                return false;
+            }
+
+            var hideCg = memory.GetGlobalFlag("GHideCG");
+            if (hideCg != 1)
+            {
+                return false;
+            }
+
+            var backgroundIndex = _settings == null ? 0 : _settings.backgroundStyleIndex;
+            var folders = PcLookupFolders(backgroundIndex);
+            if (!_assets.TryResolveFolder(textureName, folders, out var resolvedFolder,
+                    AllowLipSyncVariantFallback()))
+            {
+                return false;
+            }
+
+            if (!HideConsoleCgPolicy.ShouldSkip(resolvedFolder, textureName, hideCg))
+            {
+                return false;
+            }
+
+            HigurashiDiagnosticLog.Info("GHideCG",
+                "Skip console CG " + textureName + " folder=" + resolvedFolder);
+            return true;
         }
 
         private void RebuildVisualStyleCatalog()
@@ -4678,6 +4771,26 @@ namespace Higurashi.IOS.Runtime.Buriko
             {
                 // 诊断失败不应影响启动。
             }
+        }
+
+        // 与 LoadTexture 同一套解析（preferAsianVariant 恒为 false，不做 _j 前置），
+        // 仅报告命中的级联目录，供 GHideCG 守卫与加载保持一致。
+        public bool TryResolveFolder(
+            string textureName,
+            IReadOnlyList<string> folders,
+            out string resolvedFolder,
+            bool allowLipSyncVariantFallback)
+        {
+            var normalized = textureName.Replace('\\', '/').TrimStart('/').ToLowerInvariant();
+            var extension = Path.GetExtension(normalized);
+            if (!string.IsNullOrEmpty(extension))
+            {
+                return _resolver.TryResolveFolder(normalized, folders, out resolvedFolder,
+                    allowLipSyncVariantFallback);
+            }
+
+            return _resolver.TryResolveFolder(normalized + ".png", folders, out resolvedFolder,
+                allowLipSyncVariantFallback);
         }
 
         public Texture2D LoadTexture(
