@@ -3704,22 +3704,23 @@ namespace Higurashi.IOS.Runtime.Buriko
                     continue;
                 }
 
-                // 对待加载名与其回退名本身执行守卫（与 ResetLipSyncFrames 一致）：
-                // 当前纹理名不代表即将加载的名字，不能作为判断依据。
-                var candidateTextureName = layer.LipSyncBaseName + targetFrame;
-                var fallbackTextureName = layer.LipSyncBaseName + "0";
-                if (layer.GuardConsoleCg &&
-                    (ShouldSkipConsoleCg(candidateTextureName, _memory) ||
-                     ShouldSkipConsoleCg(fallbackTextureName, _memory)))
+                // 守卫顺序与加载顺序一致（第 5 轮审核）：先守卫并加载候选帧；
+                // 仅当候选帧缺失、即将改用回退帧时，再守卫并加载回退帧——
+                // 回退名命中不得阻断本应显示的候选帧。
+                var textureName = layer.LipSyncBaseName + targetFrame;
+                if (layer.GuardConsoleCg && ShouldSkipConsoleCg(textureName, _memory))
                 {
                     continue;
                 }
 
-                var textureName = candidateTextureName;
                 var texture = LoadSpriteTexture(textureName, _memory);
                 if (texture == null && targetFrame != 0)
                 {
-                    textureName = fallbackTextureName;
+                    textureName = layer.LipSyncBaseName + "0";
+                    if (layer.GuardConsoleCg && ShouldSkipConsoleCg(textureName, _memory))
+                    {
+                        continue;
+                    }
                     texture = LoadSpriteTexture(textureName, _memory);
                 }
                 if (texture != null)
