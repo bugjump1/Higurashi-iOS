@@ -47,3 +47,6 @@ tools/**/obj/
 
 # AI handoff/review notes stay local; never publish the docs folder.
 /docs/
+
+# Local security-scanner plugin state.
+.mimosa/
