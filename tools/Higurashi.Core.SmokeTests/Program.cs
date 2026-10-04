@@ -45,6 +45,7 @@ internal static class Program
             EpisodeEightLegacyFragmentSaveRestoresMissingGlobals,
             OpeningChoiceLocalizationRecognizesEpisodeEight,
             HideConsoleCgPolicyMatchesPcModSkipImage,
+            RichTextSizeNormalizeConvertsRelativeToAbsolute,
             ConsoleChoiceMenuLocalizationAndClassification,
             BadEndingChoicesMatchOriginalFlows,
             StoryChoiceLocalizationCoversAllStoryBranches,
@@ -532,6 +533,53 @@ internal static class Program
         Equal("OP 动画中包含剧透，是否要启用？", OpeningChoicePolicy.LocalizedPrompt);
         Equal("启用 OP 动画", OpeningChoicePolicy.LocalizedEnable);
         Equal("禁用 OP 动画", OpeningChoicePolicy.LocalizedDisable);
+    }
+
+    private static void RichTextSizeNormalizeConvertsRelativeToAbsolute()
+    {
+        // 相对字号按"当前生效字号"换算为绝对像素：规避 IMGUI 渲染路径对
+        // 相对字号支持不确定的问题；实际效果待构建后真机验证。
+        Equal("<size=27>哎</size>", RichTextSizeNormalize.Normalize("<size=-2>哎</size>", 29));
+        Equal("<size=33>哎</size>", RichTextSizeNormalize.Normalize("<size=+4>哎</size>", 29));
+        // 绝对值保持原样。
+        Equal("<size=20>abc</size>", RichTextSizeNormalize.Normalize("<size=20>abc</size>", 29));
+        // 嵌套：相对值基于当前生效字号叠加，闭合后恢复外层。
+        Equal("<size=20>a<size=18>b</size>c</size>",
+            RichTextSizeNormalize.Normalize("<size=20>a<size=-2>b</size>c</size>", 29));
+        Equal("<size=20><size=18><size=16>x</size></size></size>",
+            RichTextSizeNormalize.Normalize("<size=20><size=-2><size=-2>x</size></size></size>", 20));
+        // 与 color/i/b 组合：其他标签原样保留。
+        Equal("<color=#ffffff><i><size=27>好</size></i></color>",
+            RichTextSizeNormalize.Normalize("<color=#ffffff><i><size=-2>好</size></i></color>", 29));
+        // 标签在开头/中间；Line_Continue 两段拼接后的整体归一化。
+        Equal("<size=27>哎</size>呀", RichTextSizeNormalize.Normalize("<size=-2>哎</size>呀", 29));
+        Equal("前<size=27>哎</size>后", RichTextSizeNormalize.Normalize("前<size=-2>哎</size>后", 29));
+        Equal("<size=27>哎</size><size=33>呀</size>",
+            RichTextSizeNormalize.Normalize("<size=-2>哎</size><size=+4>呀</size>", 29));
+        // 空文本直通。
+        Equal(string.Empty, RichTextSizeNormalize.Normalize(string.Empty, 29));
+        // 未闭合开标签仍换算（IMGUI 允许标签作用到串尾）。
+        Equal("<size=27>abc", RichTextSizeNormalize.Normalize("<size=-2>abc", 29));
+        // 非法/未知 size 参数原样保留，不静默改写正文。
+        Equal("<size=abc>啊", RichTextSizeNormalize.Normalize("<size=abc>啊", 29));
+        Equal("<size>啊", RichTextSizeNormalize.Normalize("<size>啊", 29));
+        // 残缺闭合（缺 '>'）原样透传；其前的完整开标签仍正常换算。
+        Equal("<size=27>啊</size", RichTextSizeNormalize.Normalize("<size=-2>啊</size", 29));
+        // 等号两侧空格：IMGUI 文档明确不支持该参数形式，保持原样。
+        Equal("<size =-2>啊", RichTextSizeNormalize.Normalize("<size =-2>啊", 29));
+        // 多余闭合原样保留；相对结果最小钳到 1。
+        Equal("</size>啊", RichTextSizeNormalize.Normalize("</size>啊", 29));
+        Equal("<size=1>啊</size>", RichTextSizeNormalize.Normalize("<size=-2>啊</size>", 2));
+        // 无 size 标签零开销直通。
+        Equal("普通正文", RichTextSizeNormalize.Normalize("普通正文", 29));
+        // 与 RichTextReveal 互操作：逐字截断不切半标签，归一化不改变可见字符。
+        var truncated = RichTextReveal.VisibleSubstring("<size=-2>abc</size>", 2);
+        Equal("<size=-2>ab", truncated);
+        Equal("<size=27>ab", RichTextSizeNormalize.Normalize(truncated, 29));
+        // 原始字符串不被修改。
+        var original = "<size=-2>哎</size>";
+        RichTextSizeNormalize.Normalize(original, 29);
+        Equal("<size=-2>哎</size>", original);
     }
 
     private static void HideConsoleCgPolicyMatchesPcModSkipImage()

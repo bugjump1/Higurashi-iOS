@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using Higurashi.IOS.Buriko;
 using Higurashi.IOS.Compatibility;
+using Higurashi.IOS.Playback;
 using Higurashi.IOS.Runtime.Buriko;
 using Higurashi.IOS.Runtime.Diagnostics;
 using UnityEngine;
@@ -1443,7 +1444,10 @@ namespace Higurashi.IOS.Runtime
             var windowFade = _host.WindowOpacity;
             var toolbarReserve = Mathf.Min(content.width * 0.18f, 250f * scale);
             var dialogueWidth = content.width - 56f * scale - toolbarReserve;
-            var layoutText = _host.Dialogue + (_host.IsDialogueRevealComplete ? "　▼" : string.Empty);
+            // CalcHeight 必须与最终填充层使用同一份归一化文本与标签语义。
+            var layoutText = NormalizeSizeTagsForDraw(
+                _host.Dialogue + (_host.IsDialogueRevealComplete ? "　▼" : string.Empty),
+                _dialogueStyle);
             var speakerHeight = string.IsNullOrEmpty(_host.Speaker) ? 0f : 39f * scale;
             var dialogueHeight = _dialogueStyle.CalcHeight(new GUIContent(layoutText), dialogueWidth);
             var minimumHeight = Mathf.Max(content.height * 0.18f, 132f * scale);
@@ -1477,14 +1481,16 @@ namespace Higurashi.IOS.Runtime
             if (!string.IsNullOrEmpty(_host.Speaker))
             {
                 DrawDialogueLabel(new Rect(left, top, dialogueWidth, 40f * scale),
-                    _host.Speaker, _speakerStyle, true);
+                    NormalizeSizeTagsForDraw(_host.Speaker, _speakerStyle), _speakerStyle, true);
                 top += 39f * scale;
             }
             var previousDialogueColor = _dialogueStyle.normal.textColor;
             _dialogueStyle.normal.textColor = _host.DialogueColor;
             DrawDialogueLabel(
                 new Rect(left, top, dialogueWidth, rect.yMax - top - 14f * scale),
-                _host.VisibleDialogue + (_host.IsDialogueRevealComplete ? "　▼" : string.Empty),
+                NormalizeSizeTagsForDraw(
+                    _host.VisibleDialogue + (_host.IsDialogueRevealComplete ? "　▼" : string.Empty),
+                    _dialogueStyle),
                 _dialogueStyle, true);
             _dialogueStyle.normal.textColor = previousDialogueColor;
             GUI.color = previousGuiColor;
@@ -1498,7 +1504,9 @@ namespace Higurashi.IOS.Runtime
             var rect = new Rect(content.x + content.width * 0.10f,
                 content.y + content.height * 0.72f,
                 content.width * 0.80f, content.height * 0.20f);
-            var text = _host.VisibleDialogue + (_host.IsDialogueRevealComplete ? "　▼" : string.Empty);
+            var text = NormalizeSizeTagsForDraw(
+                _host.VisibleDialogue + (_host.IsDialogueRevealComplete ? "　▼" : string.Empty),
+                _dialogueStyle);
             var previousGuiColor = GUI.color;
             var windowFade = _host.WindowOpacity;
             GUI.color = new Color(previousGuiColor.r, previousGuiColor.g,
@@ -3014,6 +3022,15 @@ namespace Higurashi.IOS.Runtime
             GUI.Label(new Rect(rect.x + 3f * UiScale, rect.y + 3f * UiScale, rect.width, rect.height), text, style);
             style.normal.textColor = original;
             GUI.Label(rect, text, style);
+        }
+
+        // 当前方案把相对字号（PC 的 <size=-2>/<size=+4> 语义）转换为绝对字号，
+        // 以规避 IMGUI 渲染路径对相对字号支持不确定的问题（设备观察：标签被吞
+        // 但字号不变）；实际效果仍待 GitHub Actions 构建后的真机验证。
+        // 只影响本次绘制的文本副本，不修改 Host 的原始 Dialogue，也不进入历史/存档。
+        private static string NormalizeSizeTagsForDraw(string text, GUIStyle style)
+        {
+            return Higurashi.IOS.Playback.RichTextSizeNormalize.Normalize(text, style.fontSize);
         }
 
         private void DrawDialogueLabel(Rect rect, string text, GUIStyle style,
