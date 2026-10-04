@@ -44,3 +44,6 @@ ios-port/MemoryCaptures/
 !tools/**/*.csproj
 tools/**/bin/
 tools/**/obj/
+
+# AI handoff/review notes stay local; never publish the docs folder.
+/docs/
