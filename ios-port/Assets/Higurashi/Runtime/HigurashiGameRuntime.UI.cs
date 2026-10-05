@@ -191,6 +191,10 @@ namespace Higurashi.IOS.Runtime
                 baseContent.width * scale.x,
                 baseContent.height * scale.y);
             var screenScale = content.height / 480f;
+            var previousSceneContent = GetSceneContentRect(content, _host.PreviousBackgroundTexture);
+            var previousSceneScale = previousSceneContent.height / 480f;
+            var sceneContent = GetSceneContentRect(content, _host.BackgroundTexture);
+            var sceneScale = sceneContent.height / 480f;
             var backgroundProgress = _host.BackgroundTransitionProgress;
             if (_host.PreviousBackgroundTexture != null && backgroundProgress < 1f)
             {
@@ -207,10 +211,12 @@ namespace Higurashi.IOS.Runtime
                 for (var i = 0; i < _orderedLayers.Count; i++)
                 {
                     var previousLayer = _orderedLayers[i];
+                    var layerContent = previousLayer.IsBustshot ? previousSceneContent : content;
+                    var layerScale = previousLayer.IsBustshot ? previousSceneScale : screenScale;
                     previousLayer.GetRenderState(out var x, out var y, out var z, out var alpha);
-                    DrawPresentationTexture(content, previousLayer.Texture, x, y, z,
+                    DrawPresentationTexture(layerContent, previousLayer.Texture, x, y, z,
                         alpha * (1f - backgroundProgress),
-                        previousLayer.IsCentered, screenScale, false,
+                        previousLayer.IsCentered, layerScale, false,
                         previousLayer.OverrideWidth, previousLayer.OverrideHeight,
                         previousLayer.Filter, previousLayer.Id != 1000 || _host.FilmAppliesToFace);
                 }
@@ -245,6 +251,8 @@ namespace Higurashi.IOS.Runtime
             for (var i = 0; i < _orderedLayers.Count; i++)
             {
                 var layer = _orderedLayers[i];
+                var layerContent = layer.IsBustshot ? sceneContent : content;
+                var layerScale = layer.IsBustshot ? sceneScale : screenScale;
                 if (IsFullFrameBlack(layer.TextureName))
                 {
                     DrawFullFrameBlackLayer(content, layer);
@@ -268,10 +276,16 @@ namespace Higurashi.IOS.Runtime
                     }
                     else
                     {
-                        DrawPresentationTexture(content, layer.PreviousTexture,
+                        var previousLayerContent = layer.PreviousIsBustshot
+                            ? previousSceneContent
+                            : content;
+                        var previousLayerScale = layer.PreviousIsBustshot
+                            ? previousSceneScale
+                            : screenScale;
+                        DrawPresentationTexture(previousLayerContent, layer.PreviousTexture,
                             layer.PreviousX, layer.PreviousY, layer.PreviousZ,
                             layer.PreviousAlpha * (1f - layer.TransitionProgress),
-                            layer.PreviousIsCentered, screenScale, false,
+                            layer.PreviousIsCentered, previousLayerScale, false,
                             layer.PreviousOverrideWidth, layer.PreviousOverrideHeight,
                             layer.PreviousFilter, layer.Id != 1000 || _host.FilmAppliesToFace);
                     }
@@ -282,16 +296,16 @@ namespace Higurashi.IOS.Runtime
                     var maskProgress = layer.MaskReverse
                         ? 1f - layer.TransitionProgress
                         : layer.TransitionProgress;
-                    DrawMaskedPresentationTexture(content, layer.Texture, layer.MaskTexture,
+                    DrawMaskedPresentationTexture(layerContent, layer.Texture, layer.MaskTexture,
                         layerX, layerY, layerZ, layer.MaskReverse ? layer.FromAlpha : layer.Alpha,
-                        layer.IsCentered, screenScale, maskProgress, layer.MaskFuzziness,
+                        layer.IsCentered, layerScale, maskProgress, layer.MaskFuzziness,
                         IsCinemaMatte(layer.TextureName), layer.OverrideWidth, layer.OverrideHeight,
                         layer.Filter, layer.Id != 1000 || _host.FilmAppliesToFace);
                 }
                 else
                 {
-                    DrawPresentationTexture(content, layer.Texture, layerX, layerY, layerZ,
-                        layerAlpha, layer.IsCentered, screenScale, IsCinemaMatte(layer.TextureName),
+                    DrawPresentationTexture(layerContent, layer.Texture, layerX, layerY, layerZ,
+                        layerAlpha, layer.IsCentered, layerScale, IsCinemaMatte(layer.TextureName),
                         layer.OverrideWidth, layer.OverrideHeight, layer.Filter,
                         layer.Id != 1000 || _host.FilmAppliesToFace);
                 }
@@ -368,7 +382,7 @@ namespace Higurashi.IOS.Runtime
         private void GetBackgroundGeometry(Rect content, Texture texture, out Rect destination,
             out Rect source)
         {
-            if (_settings.presentationMode == MobilePresentationMode.Fill)
+            if (EffectivePresentationMode == MobilePresentationMode.Fill)
             {
                 var scale = Mathf.Max(content.width / texture.width, content.height / texture.height);
                 var visibleWidth = Mathf.Clamp01(content.width / (texture.width * scale));
@@ -385,6 +399,17 @@ namespace Higurashi.IOS.Runtime
             destination = new Rect(content.center.x - width * 0.5f,
                 content.center.y - height * 0.5f, width, height);
             source = new Rect(0f, 0f, 1f, 1f);
+        }
+
+        private Rect GetSceneContentRect(Rect content, Texture texture)
+        {
+            if (texture == null)
+            {
+                return content;
+            }
+
+            GetBackgroundGeometry(content, texture, out var destination, out _);
+            return destination;
         }
 
         private void DrawPresentationTexture(Rect content, Texture2D texture,
@@ -2044,7 +2069,9 @@ namespace Higurashi.IOS.Runtime
             var contentBottom = panel.yMax - 66f * scale;
             var viewport = new Rect(innerX, contentTop, innerWidth,
                 Mathf.Max(80f * scale, contentBottom - contentTop));
-            var leftContentHeight = 8f * buttonHeight + 7f * 9f * scale;
+            var leftButtonCount = 7 + (SupportsChapterChoiceMode() ? 1 : 0);
+            var leftContentHeight = leftButtonCount * buttonHeight +
+                                    Mathf.Max(0, leftButtonCount - 1) * 9f * scale;
             var rightContentHeight = 6f * 66f * scale;
             var contentHeight = Mathf.Max(viewport.height,
                 Mathf.Max(leftContentHeight, rightContentHeight) + 8f * scale);
@@ -2125,14 +2152,6 @@ namespace Higurashi.IOS.Runtime
                 }
                 y += buttonHeight + 9f * scale;
             }
-            if (FittedPcButton(new Rect(x, y, width, buttonHeight),
-                    "画面适配：" + PresentationModeName(_settings.presentationMode), 13))
-            {
-                _settings.presentationMode = (MobilePresentationMode)(((int)_settings.presentationMode + 1) % 3);
-                SaveSettings();
-                SuppressInput();
-            }
-            y += buttonHeight + 9f * scale;
             if (FittedPcButton(new Rect(x, y, width, buttonHeight),
                     "口型同步（仅主机版立绘）：" + (_settings.lipSync ? "开" : "关"), 13))
             {
@@ -3131,12 +3150,13 @@ namespace Higurashi.IOS.Runtime
         private Rect GetContentRect()
         {
             var safe = GetGuiSafeArea();
-            if (_settings.presentationMode == MobilePresentationMode.Fill)
+            var presentationMode = EffectivePresentationMode;
+            if (presentationMode == MobilePresentationMode.Fill)
             {
                 return safe;
             }
 
-            var ratio = _settings.presentationMode == MobilePresentationMode.OriginalFourByThree
+            var ratio = presentationMode == MobilePresentationMode.OriginalFourByThree
                 ? 4f / 3f
                 : GetPresentationAspect();
             var fitted = AspectFitLayout.Fit(
@@ -3146,12 +3166,12 @@ namespace Higurashi.IOS.Runtime
 
         private float GetPresentationAspect()
         {
-            var texture = _host.BackgroundTexture ?? _host.PreviousBackgroundTexture;
-            return PresentationAspectPolicy.Resolve(
-                _host.ScreenAspect,
-                texture != null ? texture.width : 0f,
-                texture != null ? texture.height : 0f);
+            return PresentationAspectPolicy.AspectForBackgroundStyle(
+                _settings.backgroundStyleIndex);
         }
+
+        private MobilePresentationMode EffectivePresentationMode =>
+            PresentationAspectPolicy.ModeForBackgroundStyle(_settings.backgroundStyleIndex);
 
         private void EnsureStyles()
         {
@@ -3373,16 +3393,6 @@ namespace Higurashi.IOS.Runtime
         private static int Next(int value, int count)
         {
             return count <= 0 ? 0 : (value + 1) % count;
-        }
-
-        private static string PresentationModeName(MobilePresentationMode mode)
-        {
-            switch (mode)
-            {
-                case MobilePresentationMode.OriginalFourByThree: return "原始 4:3";
-                case MobilePresentationMode.Fill: return "铺满（裁切）";
-                default: return "完整显示";
-            }
         }
 
         private static bool IsEndrollTexture(string textureName)

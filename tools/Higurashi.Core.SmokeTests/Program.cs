@@ -47,6 +47,7 @@ internal static class Program
             HideConsoleCgPolicyMatchesPcModSkipImage,
             RichTextSizeNormalizeConvertsRelativeToAbsolute,
             PresentationAspectUsesDeclaredCanvasBeforeBackground,
+            PresentationModeFollowsBackgroundStyle,
             ConsoleChoiceMenuLocalizationAndClassification,
             BadEndingChoicesMatchOriginalFlows,
             StoryChoiceLocalizationCoversAllStoryBranches,
@@ -595,6 +596,19 @@ internal static class Program
             PresentationAspectPolicy.Resolve(null, 0f, 0f));
         Equal(16f / 9f,
             PresentationAspectPolicy.Resolve("0.5625", 640f, 480f));
+    }
+
+    private static void PresentationModeFollowsBackgroundStyle()
+    {
+        Equal(MobilePresentationMode.Fit,
+            PresentationAspectPolicy.ModeForBackgroundStyle(0));
+        Equal(MobilePresentationMode.OriginalFourByThree,
+            PresentationAspectPolicy.ModeForBackgroundStyle(1));
+        Equal(16f / 9f, PresentationAspectPolicy.AspectForBackgroundStyle(0));
+        Equal(4f / 3f, PresentationAspectPolicy.AspectForBackgroundStyle(1));
+        Equal(480f * 16f / 9f,
+            PresentationAspectPolicy.LogicalCanvasWidthForBackgroundStyle(0));
+        Equal(640f, PresentationAspectPolicy.LogicalCanvasWidthForBackgroundStyle(1));
     }
 
     private static void HideConsoleCgPolicyMatchesPcModSkipImage()

@@ -4,12 +4,29 @@ using System.Globalization;
 namespace Higurashi.IOS.Compatibility
 {
     /// <summary>
-    /// Resolves the aspect ratio of the PC presentation canvas.
-    /// The script-declared aspect belongs to the whole composition; a background
-    /// texture's aspect is only a fallback when that declaration is unavailable.
+    /// Resolves the user-facing presentation policy and legacy aspect declarations.
+    /// Runtime display mode is now derived from the selected background style;
+    /// Resolve remains for compatibility tests and older declared-aspect paths.
     /// </summary>
     public static class PresentationAspectPolicy
     {
+        public static MobilePresentationMode ModeForBackgroundStyle(int backgroundStyleIndex)
+        {
+            return backgroundStyleIndex == 1
+                ? MobilePresentationMode.OriginalFourByThree
+                : MobilePresentationMode.Fit;
+        }
+
+        public static float AspectForBackgroundStyle(int backgroundStyleIndex)
+        {
+            return backgroundStyleIndex == 1 ? 4f / 3f : 16f / 9f;
+        }
+
+        public static float LogicalCanvasWidthForBackgroundStyle(int backgroundStyleIndex)
+        {
+            return 480f * AspectForBackgroundStyle(backgroundStyleIndex);
+        }
+
         public static float Resolve(string declaredAspect, float backgroundWidth,
             float backgroundHeight)
         {

@@ -3994,12 +3994,29 @@ namespace Higurashi.IOS.Runtime.Buriko
         {
             var targetWidth = Mathf.Max(1f, width);
             var targetHeight = Mathf.Max(1f, height);
+            var canvasWidth = PresentationAspectPolicy.LogicalCanvasWidthForBackgroundStyle(
+                _settings == null ? 0 : _settings.backgroundStyleIndex);
+            var canvasHeight = 480f;
+            var canvasAspect = canvasWidth / canvasHeight;
+            var targetAspect = targetWidth / targetHeight;
+            if (Mathf.Abs(targetAspect - canvasAspect) > 0.01f)
+            {
+                targetHeight = targetWidth / canvasAspect;
+                if (targetHeight > canvasHeight)
+                {
+                    targetHeight = canvasHeight;
+                    targetWidth = targetHeight * canvasAspect;
+                }
+
+                x = Mathf.RoundToInt((canvasWidth - targetWidth) * 0.5f);
+                y = Mathf.RoundToInt((canvasHeight - targetHeight) * 0.5f);
+            }
             _enlargeFromScale = PresentationScale;
             _enlargeFromTranslation = PresentationTranslation;
-            _enlargeTargetScale = new Vector2(640f / targetWidth, 480f / targetHeight);
+            _enlargeTargetScale = new Vector2(canvasWidth / targetWidth, canvasHeight / targetHeight);
             _enlargeTargetTranslation = new Vector2(
-                (320f - (x + targetWidth * 0.5f)) * _enlargeTargetScale.x,
-                (240f - (y + targetHeight * 0.5f)) * _enlargeTargetScale.y);
+                (canvasWidth * 0.5f - (x + targetWidth * 0.5f)) * _enlargeTargetScale.x,
+                (canvasHeight * 0.5f - (y + targetHeight * 0.5f)) * _enlargeTargetScale.y);
             _enlargeStartedAt = Time.unscaledTime;
             _enlargeDuration = Mathf.Max(0f, duration);
             if (_enlargeDuration <= 0f)
@@ -4011,7 +4028,10 @@ namespace Higurashi.IOS.Runtime.Buriko
 
         private void ResetEnlargeScreen(float duration)
         {
-            StartEnlargeScreen(0, 0, 640, 480, duration);
+            var canvasWidth = Mathf.RoundToInt(PresentationAspectPolicy
+                .LogicalCanvasWidthForBackgroundStyle(
+                    _settings == null ? 0 : _settings.backgroundStyleIndex));
+            StartEnlargeScreen(0, 0, canvasWidth, 480, duration);
         }
 
         private static float ShakeDuration(float speed, int loopCount)
