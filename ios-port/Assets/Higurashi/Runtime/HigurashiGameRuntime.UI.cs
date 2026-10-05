@@ -3147,12 +3147,10 @@ namespace Higurashi.IOS.Runtime
         private float GetPresentationAspect()
         {
             var texture = _host.BackgroundTexture ?? _host.PreviousBackgroundTexture;
-            if (texture != null && texture.height > 0)
-            {
-                return (float)texture.width / texture.height;
-            }
-
-            return ParseAspect(_host.ScreenAspect);
+            return PresentationAspectPolicy.Resolve(
+                _host.ScreenAspect,
+                texture != null ? texture.width : 0f,
+                texture != null ? texture.height : 0f);
         }
 
         private void EnsureStyles()
@@ -3429,15 +3427,6 @@ namespace Higurashi.IOS.Runtime
                 case MobileChoiceMode.AdditionalChoicesWithAnswer: return "有分支选项（标记正确答案）";
                 default: return "无分支选项";
             }
-        }
-
-        private static float ParseAspect(string value)
-        {
-            if (!float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var ratio) || ratio <= 0)
-            {
-                return 16f / 9f;
-            }
-            return ratio < 1f ? 1f / ratio : ratio;
         }
 
         private static Rect Inset(Rect rect, float amount)

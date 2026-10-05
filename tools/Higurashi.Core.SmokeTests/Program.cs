@@ -46,6 +46,7 @@ internal static class Program
             OpeningChoiceLocalizationRecognizesEpisodeEight,
             HideConsoleCgPolicyMatchesPcModSkipImage,
             RichTextSizeNormalizeConvertsRelativeToAbsolute,
+            PresentationAspectUsesDeclaredCanvasBeforeBackground,
             ConsoleChoiceMenuLocalizationAndClassification,
             BadEndingChoicesMatchOriginalFlows,
             StoryChoiceLocalizationCoversAllStoryBranches,
@@ -580,6 +581,20 @@ internal static class Program
         var original = "<size=-2>哎</size>";
         RichTextSizeNormalize.Normalize(original, 29);
         Equal("<size=-2>哎</size>", original);
+    }
+
+    private static void PresentationAspectUsesDeclaredCanvasBeforeBackground()
+    {
+        Equal(16f / 9f,
+            PresentationAspectPolicy.Resolve("1.7777778", 640f, 480f));
+        Equal(4f / 3f,
+            PresentationAspectPolicy.Resolve(string.Empty, 640f, 480f));
+        Equal(16f / 9f,
+            PresentationAspectPolicy.Resolve("invalid", 1280f, 720f));
+        Equal(16f / 9f,
+            PresentationAspectPolicy.Resolve(null, 0f, 0f));
+        Equal(16f / 9f,
+            PresentationAspectPolicy.Resolve("0.5625", 640f, 480f));
     }
 
     private static void HideConsoleCgPolicyMatchesPcModSkipImage()
