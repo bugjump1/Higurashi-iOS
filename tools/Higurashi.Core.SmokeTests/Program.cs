@@ -49,7 +49,7 @@ internal static class Program
             PresentationAspectUsesDeclaredCanvasBeforeBackground,
             PresentationModeFollowsBackgroundStyle,
             PresentationAspectFollowsSceneTexture,
-            PresentationLayerFitScalesOversizedLayers,
+            RyukishiSpritePlacementMatchesPcRevert,
             ConsoleChoiceMenuLocalizationAndClassification,
             BadEndingChoicesMatchOriginalFlows,
             StoryChoiceLocalizationCoversAllStoryBranches,
@@ -641,17 +641,33 @@ internal static class Program
         Equal(false, PresentationAspectPolicy.IsFullFrameSceneName(null));
     }
 
-    private static void PresentationLayerFitScalesOversizedLayers()
+    private static void RyukishiSpritePlacementMatchesPcRevert()
     {
-        // 16:9-only asset inside a 4:3 frame shrinks uniformly, no crop.
-        Equal(640f / 853f,
-            PresentationAspectPolicy.LayerFitScale(853f, 480f, 640f, 480f));
-        Equal(1f, PresentationAspectPolicy.LayerFitScale(640f, 480f, 640f, 480f));
-        // Never enlarges smaller layers.
-        Equal(1f, PresentationAspectPolicy.LayerFitScale(320f, 240f, 640f, 480f));
-        // Height-bound tall layers shrink uniformly too.
-        Equal(0.5f, PresentationAspectPolicy.LayerFitScale(480f, 960f, 640f, 480f));
-        Equal(1f, PresentationAspectPolicy.LayerFitScale(0f, 480f, 640f, 480f));
+        // PC MODRyukishiRevertSpritePosition: with OG backgrounds active, sprite/
+        // portrait x positions written for console layout pull one step inward.
+        Equal(160, RyukishiSpritePlacementPolicy.RemapSpriteX(1, "sprite/me1a_def_", 240));
+        Equal(-160, RyukishiSpritePlacementPolicy.RemapSpriteX(1, "sprite/me1a_def_", -240));
+        Equal(240, RyukishiSpritePlacementPolicy.RemapSpriteX(1, "portrait/re1a_hig_def_", 320));
+        Equal(-240, RyukishiSpritePlacementPolicy.RemapSpriteX(1, "portrait/re1a_hig_def_", -320));
+        // Other x values pass through untouched.
+        Equal(0, RyukishiSpritePlacementPolicy.RemapSpriteX(1, "sprite/me1a_def_", 0));
+        Equal(160, RyukishiSpritePlacementPolicy.RemapSpriteX(1, "sprite/me1a_def_", 160));
+        Equal(290, RyukishiSpritePlacementPolicy.RemapSpriteX(1, "sprite/me1a_def_", 290));
+        // Console backgrounds (GBackgroundSet != 1) never remap.
+        Equal(240, RyukishiSpritePlacementPolicy.RemapSpriteX(0, "sprite/me1a_def_", 240));
+        Equal(320, RyukishiSpritePlacementPolicy.RemapSpriteX(2, "sprite/me1a_def_", 320));
+        // Non-sprite layers (scene/, background/, effects) never remap.
+        Equal(240, RyukishiSpritePlacementPolicy.RemapSpriteX(1, "scene/014a", 240));
+        Equal(240, RyukishiSpritePlacementPolicy.RemapSpriteX(1, "background/g1", 240));
+        Equal(240, RyukishiSpritePlacementPolicy.RemapSpriteX(1, null, 240));
+
+        // PC AssetManager.RelativePathIsSprite: sprite/ or portrait/ prefix only.
+        True(RyukishiSpritePlacementPolicy.IsSpriteOrPortraitPath("sprite/kuma_def_"));
+        True(RyukishiSpritePlacementPolicy.IsSpriteOrPortraitPath("portrait/me2_def_"));
+        Equal(false, RyukishiSpritePlacementPolicy.IsSpriteOrPortraitPath("scene/maid"));
+        Equal(false, RyukishiSpritePlacementPolicy.IsSpriteOrPortraitPath("sprites/x"));
+        Equal(false, RyukishiSpritePlacementPolicy.IsSpriteOrPortraitPath(""));
+        Equal(false, RyukishiSpritePlacementPolicy.IsSpriteOrPortraitPath(null));
     }
 
     private static void HideConsoleCgPolicyMatchesPcModSkipImage()

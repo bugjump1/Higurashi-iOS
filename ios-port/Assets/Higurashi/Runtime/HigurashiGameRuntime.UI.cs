@@ -416,10 +416,6 @@ namespace Higurashi.IOS.Runtime
             var depthScale = Mathf.Max(0.05f, 1f - layerZ / 400f);
             var width = canonicalWidth * screenScale * depthScale;
             var height = canonicalHeight * screenScale * depthScale;
-            var fitScale = PresentationAspectPolicy.LayerFitScale(
-                width, height, content.width, content.height);
-            width *= fitScale;
-            height *= fitScale;
             float x;
             float y;
             if (centered)
@@ -482,10 +478,6 @@ namespace Higurashi.IOS.Runtime
             var depthScale = Mathf.Max(0.05f, 1f - layerZ / 400f);
             var width = canonicalWidth * screenScale * depthScale;
             var height = canonicalHeight * screenScale * depthScale;
-            var fitScale = PresentationAspectPolicy.LayerFitScale(
-                width, height, content.width, content.height);
-            width *= fitScale;
-            height *= fitScale;
             var x = centered
                 ? content.center.x + layerX * screenScale - width * 0.5f
                 : content.center.x + layerX * screenScale;
@@ -2461,10 +2453,6 @@ namespace Higurashi.IOS.Runtime
             var depthScale = Mathf.Max(0.05f, 1f - layerZ / 400f);
             var width = canonicalWidth * screenScale * depthScale;
             var height = canonicalHeight * screenScale * depthScale;
-            var fitScale = PresentationAspectPolicy.LayerFitScale(
-                width, height, content.width, content.height);
-            width *= fitScale;
-            height *= fitScale;
             var x = layer.IsCentered
                 ? content.center.x + layerX * screenScale - width * 0.5f
                 : content.center.x + layerX * screenScale;

@@ -81,26 +81,6 @@ namespace Higurashi.IOS.Compatibility
             return 16f / 9f;
         }
 
-        /// <summary>
-        /// Uniform scale that keeps a presentation layer inside the canvas frame
-        /// without cropping: oversized layers shrink proportionally (never enlarge,
-        /// never stretch), so CG-fallback-only wide assets stay fully visible in a
-        /// 4:3 frame.
-        /// </summary>
-        public static float LayerFitScale(float width, float height,
-            float frameWidth, float frameHeight)
-        {
-            if (width <= 0f || height <= 0f || frameWidth <= 0f || frameHeight <= 0f)
-            {
-                return 1f;
-            }
-
-            var widthScale = frameWidth / width;
-            var heightScale = frameHeight / height;
-            var scale = widthScale < heightScale ? widthScale : heightScale;
-            return scale < 1f ? scale : 1f;
-        }
-
         private static float RealTextureAspect(string name, int width, int height)
         {
             if (IsFullFrameSceneName(name) || width <= 0 || height <= 0)

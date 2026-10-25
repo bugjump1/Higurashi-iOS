@@ -3421,10 +3421,16 @@ namespace Higurashi.IOS.Runtime.Buriko
             var yIndex = filtered ? 7 : 5;
             var zIndex = filtered ? 12 : 6;
             var priorityIndex = filtered ? 14 : 15;
+            // PC MODRyukishiRevertSpritePosition：原版背景下把主机版排布的 ±240/±320
+            // 立绘 x 向内收一档（本移植无拉伸背景模式，等价于 PC 的不拉伸分支）。
+            // 只换算最终 x；move 起点沿用脚本原值，与 PC 一致。
+            var x = RyukishiSpritePlacementPolicy.RemapSpriteX(
+                memory.GetGlobalFlag("GBackgroundSet"), texture,
+                Int(invocation, xIndex, memory));
             DrawLayer(
                 Int(invocation, 0, memory),
                 renderedTexture,
-                Int(invocation, xIndex, memory),
+                x,
                 Int(invocation, yIndex, memory),
                 Int(invocation, zIndex, memory),
                 Int(invocation, priorityIndex, memory),
