@@ -72,6 +72,8 @@ namespace Higurashi.IOS.Runtime
         private bool _badEndingChoiceSelected;
         private bool _badEndingPlaybackActive;
         private bool _badEndingDecisionVisible;
+        private string _lastStoryChoiceRefusalKey = string.Empty;
+        private bool _badEndingMissingCheckpointLogged;
         private int _activeFragmentId = -1;
         private bool _fragment51ContinuationNoticeVisible;
         private Vector2 _historyScroll;
@@ -959,10 +961,19 @@ namespace Higurashi.IOS.Runtime
         private void CaptureStoryChoiceCheckpointIfNeeded()
         {
             if (_runtime == null || _host == null || !_host.ChoiceVisible ||
-                _host.IsOpeningChoice || _host.IsConsoleChoiceMenu || !_host.GameplayUiVisible ||
-                !_host.SavingEnabled || !_host.InterfaceEnabled ||
                 _runtime.BlockReason != BurikoBlockReason.Choice)
             {
+                return;
+            }
+
+            if (_host.IsOpeningChoice || _host.IsConsoleChoiceMenu)
+            {
+                return;
+            }
+
+            if (!_host.GameplayUiVisible || !_host.SavingEnabled || !_host.InterfaceEnabled)
+            {
+                LogStoryChoiceCaptureRefused();
                 return;
             }
 
@@ -980,6 +991,8 @@ namespace Higurashi.IOS.Runtime
             _badEndingChoiceSelected = false;
             _badEndingPlaybackActive = false;
             _badEndingDecisionVisible = false;
+            _lastStoryChoiceRefusalKey = string.Empty;
+            _badEndingMissingCheckpointLogged = false;
 
             try
             {
@@ -1004,6 +1017,22 @@ namespace Higurashi.IOS.Runtime
             }
         }
 
+        private void LogStoryChoiceCaptureRefused()
+        {
+            var key = (_runtime.CurrentScriptName ?? string.Empty) + ":" + _runtime.CurrentLine +
+                      ":gameplay=" + _host.GameplayUiVisible +
+                      ":saving=" + _host.SavingEnabled +
+                      ":interface=" + _host.InterfaceEnabled;
+            if (string.Equals(key, _lastStoryChoiceRefusalKey, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _lastStoryChoiceRefusalKey = key;
+            HigurashiDiagnosticLog.Warning("StoryChoice",
+                "Checkpoint refused " + key + " " + RuntimeLocation());
+        }
+
         private void UpdateBadEndingDecision()
         {
             if (_runtime == null || _host == null || _badEndingDecisionVisible)
@@ -1016,6 +1045,12 @@ namespace Higurashi.IOS.Runtime
                 script.IndexOf("badend", StringComparison.OrdinalIgnoreCase) >= 0 ||
                 script.IndexOf("bad_end", StringComparison.OrdinalIgnoreCase) >= 0)
             {
+                if (!_badEndingPlaybackActive)
+                {
+                    HigurashiDiagnosticLog.Info("BadEnding",
+                        "Playback active source=" +
+                        (_badEndingChoiceSelected ? "choice" : ("script:" + script)));
+                }
                 _badEndingPlaybackActive = true;
             }
 
@@ -1023,11 +1058,22 @@ namespace Higurashi.IOS.Runtime
                 (!_host.TitleVisible &&
                  _runtime.BlockReason != BurikoBlockReason.Completed))
             {
+                if (_badEndingPlaybackActive && _storyChoiceCheckpoint == null &&
+                    !_badEndingMissingCheckpointLogged &&
+                    (_host.TitleVisible || _runtime.BlockReason == BurikoBlockReason.Completed))
+                {
+                    _badEndingMissingCheckpointLogged = true;
+                    HigurashiDiagnosticLog.Warning("BadEnding",
+                        "Bad end finished without a story-choice checkpoint; return dialog suppressed " +
+                        RuntimeLocation());
+                }
                 return;
             }
 
             _badEndingPlaybackActive = false;
             _badEndingDecisionVisible = true;
+            HigurashiDiagnosticLog.Info("BadEnding",
+                "Return dialog shown " + RuntimeLocation());
             _fastTraversal.Stop();
             _autoMode = false;
             _host.StopAllAudio();
@@ -1071,6 +1117,8 @@ namespace Higurashi.IOS.Runtime
             _badEndingChoiceSelected = false;
             _badEndingPlaybackActive = false;
             _badEndingDecisionVisible = false;
+            _lastStoryChoiceRefusalKey = string.Empty;
+            _badEndingMissingCheckpointLogged = false;
         }
 
         private void UnlockTipsMenu()
