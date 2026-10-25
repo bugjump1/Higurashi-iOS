@@ -50,6 +50,7 @@ internal static class Program
             PresentationModeFollowsBackgroundStyle,
             PresentationAspectFollowsSceneTexture,
             RyukishiSpritePlacementMatchesPcRevert,
+            TipsVisibilityMatchesPcTipsData,
             ConsoleChoiceMenuLocalizationAndClassification,
             BadEndingChoicesMatchOriginalFlows,
             StoryChoiceLocalizationCoversAllStoryBranches,
@@ -687,6 +688,80 @@ internal static class Program
         // Degenerate inputs never scale.
         Equal(1f, RyukishiSpritePlacementPolicy.ReferenceScaleFactor(0f, 480f, 640f, 480f));
         Equal(1f, RyukishiSpritePlacementPolicy.ReferenceScaleFactor(640f, 480f, 0f, 0f));
+    }
+
+    private static void TipsVisibilityMatchesPcTipsData()
+    {
+        // PC TipsManager.Show: 0=cumulative, 1=new-only, 2=global.
+        Equal(0, TipsVisibilityPolicy.ScopeCumulative);
+        Equal(1, TipsVisibilityPolicy.ScopeNewOnly);
+        Equal(2, TipsVisibilityPolicy.ScopeGlobal);
+
+        // EP1-4 chapter model (PC TipsData EP01-04): == for new, <= otherwise,
+        // global compares against the max-progress day flag.
+        True(TipsVisibilityPolicy.ChapterModelIncludes(true, 7, 7));
+        Equal(false, TipsVisibilityPolicy.ChapterModelIncludes(true, 6, 7));
+        True(TipsVisibilityPolicy.ChapterModelIncludes(false, 7, 7));
+        True(TipsVisibilityPolicy.ChapterModelIncludes(false, 3, 7));
+        Equal(false, TipsVisibilityPolicy.ChapterModelIncludes(false, 8, 7));
+        True(TipsVisibilityPolicy.ChapterModelGlobalIncludes(7, 9));
+        Equal(false, TipsVisibilityPolicy.ChapterModelGlobalIncludes(10, 9));
+
+        // Episode day-flag names (PC reads L/G<arc>Day).
+        Equal("LOnikakushiDay", TipsVisibilityPolicy.LocalDayFlagName(1));
+        Equal("GWatanagashiDay", TipsVisibilityPolicy.GlobalDayFlagName(2));
+        Equal("LTatarigoroshiDay", TipsVisibilityPolicy.LocalDayFlagName(3));
+        Equal("GHimatsubushiDay", TipsVisibilityPolicy.GlobalDayFlagName(4));
+
+        // EP5-8 count model (PC TipsData EP05-08). Window basis: EP5 uses the
+        // list index (Id-1), EP6+ use the global Id.
+        Equal(false, TipsVisibilityPolicy.UsesCountModel(4));
+        True(TipsVisibilityPolicy.UsesCountModel(5));
+        True(TipsVisibilityPolicy.UsesCountModel(8));
+        Equal(0, TipsVisibilityPolicy.WindowBasis(5, 1));
+        Equal(22, TipsVisibilityPolicy.WindowBasis(5, 23));
+        Equal(24, TipsVisibilityPolicy.WindowBasis(6, 24));
+        Equal(51, TipsVisibilityPolicy.WindowBasis(8, 51));
+        // onlyNew: basis inside [start, start+count); cumulative: basis < end.
+        True(TipsVisibilityPolicy.CountModelIncludes(true, 3, 3, 2));
+        True(TipsVisibilityPolicy.CountModelIncludes(true, 4, 3, 2));
+        Equal(false, TipsVisibilityPolicy.CountModelIncludes(true, 5, 3, 2));
+        Equal(false, TipsVisibilityPolicy.CountModelIncludes(true, 2, 3, 2));
+        True(TipsVisibilityPolicy.CountModelIncludes(false, 4, 3, 2));
+        Equal(false, TipsVisibilityPolicy.CountModelIncludes(false, 5, 3, 2));
+        True(TipsVisibilityPolicy.CountModelIncludes(false, 0, 0, 1));
+        // Global: Id < GTotalTips, and game-clear opens everything.
+        True(TipsVisibilityPolicy.CountModelGlobalIncludes(20, 21, false));
+        Equal(false, TipsVisibilityPolicy.CountModelGlobalIncludes(21, 21, false));
+        True(TipsVisibilityPolicy.CountModelGlobalIncludes(51, 0, true));
+
+        // Cheat support: day number parsed from EP1-4 jump tokens.
+        Equal(1, TipsVisibilityPolicy.DayNumberFromToken("Day1"));
+        Equal(9, TipsVisibilityPolicy.DayNumberFromToken("Day9_2"));
+        Equal(14, TipsVisibilityPolicy.DayNumberFromToken("Day14_2"));
+        Equal(-1, TipsVisibilityPolicy.DayNumberFromToken("EP05_CHAPTER_03"));
+        Equal(-1, TipsVisibilityPolicy.DayNumberFromToken(null));
+
+        // Cheat support: cumulative tips per jump chapter, derived from the
+        // flow NewTipsStart/Count pairing. Monotonic, ends at the catalog total.
+        Equal(0, TipsVisibilityPolicy.TipsThroughChapter(5, 0));
+        Equal(1, TipsVisibilityPolicy.TipsThroughChapter(5, 1));
+        Equal(5, TipsVisibilityPolicy.TipsThroughChapter(5, 4));
+        Equal(23, TipsVisibilityPolicy.TipsThroughChapter(5, 14));
+        Equal(23, TipsVisibilityPolicy.TipsThroughChapter(5, 99));
+        Equal(4, TipsVisibilityPolicy.TipsThroughChapter(6, 3));
+        Equal(14, TipsVisibilityPolicy.TipsThroughChapter(6, 13));
+        Equal(7, TipsVisibilityPolicy.TipsThroughChapter(7, 6));
+        Equal(13, TipsVisibilityPolicy.TipsThroughChapter(7, 12));
+        Equal(52, TipsVisibilityPolicy.TipsThroughChapter(8, 1));
+        Equal(0, TipsVisibilityPolicy.TipsThroughChapter(1, 3));
+        var ep5 = new[] { 5, 12 };
+        for (var chapter = ep5[0]; chapter <= ep5[1]; chapter++)
+        {
+            True(TipsVisibilityPolicy.TipsThroughChapter(5, chapter) >=
+                 TipsVisibilityPolicy.TipsThroughChapter(5, chapter - 1),
+                "cumulative tips must never decrease");
+        }
     }
 
     private static void HideConsoleCgPolicyMatchesPcModSkipImage()

@@ -1380,7 +1380,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         public bool OpenTipsLibrary(BurikoMemory memory, int unlockedChapter)
         {
             if (memory == null || _tipsCatalog.IsEmpty ||
-                !_tipsCatalog.HasVisibleThrough(Math.Max(0, unlockedChapter)))
+                !HasUnlockedTips(memory, unlockedChapter))
             {
                 return false;
             }
@@ -1388,7 +1388,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             _tipsChapterVisible = false;
             _tipsListVisible = true;
             _tipsLibraryStandalone = true;
-            _tipsScope = 1;
+            _tipsScope = TipsVisibilityPolicy.ScopeGlobal;
             _tipsPage = 0;
             _selectedTipId = -1;
             _tipsVisibleChapterOverride = Math.Max(0, unlockedChapter);
@@ -1519,13 +1519,39 @@ namespace Higurashi.IOS.Runtime.Buriko
 
         internal bool HasUnlockedTips(BurikoMemory memory, int unlockedChapter)
         {
-            return memory != null && !_tipsCatalog.IsEmpty &&
-                   _tipsCatalog.HasVisibleThrough(Math.Max(0, unlockedChapter));
+            if (memory == null || _tipsCatalog.IsEmpty)
+            {
+                return false;
+            }
+            var episode = HigurashiActiveChapter.Profile.EpisodeNumber;
+            if (TipsVisibilityPolicy.UsesCountModel(episode))
+            {
+                // EP5-8：章节跳转档位（1 起）对应的累计 TIPS 数（PC 累计制无章号，
+                // 用档位推导表折算）。
+                return TipsVisibilityPolicy.TipsThroughChapter(
+                    episode, Math.Max(0, unlockedChapter)) > 0;
+            }
+            return _tipsCatalog.HasVisibleThrough(Math.Max(0, unlockedChapter));
         }
 
         internal bool HasTipsForChapter(int chapter)
         {
-            return _tipsCatalog.HasEntryAtChapter(Math.Max(0, chapter));
+            var episode = HigurashiActiveChapter.Profile.EpisodeNumber;
+            if (TipsVisibilityPolicy.UsesCountModel(episode))
+            {
+                var total = TipsVisibilityPolicy.TipsThroughChapter(episode, chapter);
+                return total > 0 && total > TipsVisibilityPolicy.TipsThroughChapter(
+                    episode, chapter - 1);
+            }
+            // EP1-4：档位名内嵌 flow 章号（"Day9_2"→9），tips.json 的
+            // UnlockChapter 与 flow 同刻度。
+            var sections = GetChapterJumpSections();
+            if (chapter < 1 || chapter > sections.Count)
+            {
+                return false;
+            }
+            var day = TipsVisibilityPolicy.DayNumberFromToken(sections[chapter - 1]);
+            return day > 0 && _tipsCatalog.HasEntryAtChapter(day);
         }
 
         internal HigurashiTipDefinition GetSelectedTip()
@@ -1631,7 +1657,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             _tipsListVisible = true;
             _tipsLibraryStandalone = true;
             _tipReading = false;
-            _tipsScope = 1;
+            _tipsScope = TipsVisibilityPolicy.ScopeGlobal;
             _tipsPage = 0;
             _selectedTipId = -1;
             _tipReturnRequested = false;
@@ -4854,18 +4880,76 @@ namespace Higurashi.IOS.Runtime.Buriko
             int scope,
             int chapterOverride = -1)
         {
+            // PC TipsManager.Show / TipsData.GetVisibleTips（八章 DLL 反编译实证）：
+            // scope 0=累计、1=仅新增、2=图鉴。EP1-4 章号制（L/G<篇名>Day 对
+            // tips.json 的 UnlockChapter）；EP5-8 累计制（NewTipsStart/Count 窗口
+            // 与 GTotalTips 计数，通关全开）。chapterOverride 是旧 PlayerPrefs 图鉴
+            // 口径的遗留参数，PC 模型下忽略。
             var result = new List<HigurashiTipDefinition>();
-            var chapter = chapterOverride >= 0
-                ? chapterOverride
-                : (memory == null ? 0 : Math.Max(0, memory.GetLocalFlag("ChapterNumber")));
-            for (var i = 0; i < _entries.Count; i++)
+            if (memory == null || _entries.Count == 0)
             {
-                var entry = _entries[i];
-                var isNew = entry.UnlockChapter == chapter;
-                var isUnlocked = entry.UnlockChapter <= chapter;
-                if ((scope == 0 && isNew) || (scope != 0 && isUnlocked))
+                return result;
+            }
+
+            var episode = HigurashiActiveChapter.Profile.EpisodeNumber;
+            if (scope == TipsVisibilityPolicy.ScopeGlobal)
+            {
+                if (TipsVisibilityPolicy.UsesCountModel(episode))
                 {
-                    result.Add(entry);
+                    var totalTips = memory.GetGlobalFlag("GTotalTips");
+                    var gameClear = memory.GetGlobalFlag("GFlag_GameClear") != 0;
+                    for (var i = 0; i < _entries.Count; i++)
+                    {
+                        if (TipsVisibilityPolicy.CountModelGlobalIncludes(
+                                TipsVisibilityPolicy.WindowBasis(episode, _entries[i].Id),
+                                totalTips, gameClear))
+                        {
+                            result.Add(_entries[i]);
+                        }
+                    }
+                }
+                else
+                {
+                    var maxDay = Math.Max(0, memory.GetGlobalFlag(
+                        TipsVisibilityPolicy.GlobalDayFlagName(episode)));
+                    for (var i = 0; i < _entries.Count; i++)
+                    {
+                        if (TipsVisibilityPolicy.ChapterModelGlobalIncludes(
+                                _entries[i].UnlockChapter, maxDay))
+                        {
+                            result.Add(_entries[i]);
+                        }
+                    }
+                }
+                return result;
+            }
+
+            var onlyNew = scope == TipsVisibilityPolicy.ScopeNewOnly;
+            if (TipsVisibilityPolicy.UsesCountModel(episode))
+            {
+                var start = Math.Max(0, memory.GetLocalFlag("NewTipsStart"));
+                var count = Math.Max(0, memory.GetLocalFlag("NewTipsCount"));
+                for (var i = 0; i < _entries.Count; i++)
+                {
+                    if (TipsVisibilityPolicy.CountModelIncludes(onlyNew,
+                            TipsVisibilityPolicy.WindowBasis(episode, _entries[i].Id),
+                            start, count))
+                    {
+                        result.Add(_entries[i]);
+                    }
+                }
+            }
+            else
+            {
+                var currentDay = Math.Max(0, memory.GetLocalFlag(
+                    TipsVisibilityPolicy.LocalDayFlagName(episode)));
+                for (var i = 0; i < _entries.Count; i++)
+                {
+                    if (TipsVisibilityPolicy.ChapterModelIncludes(onlyNew,
+                            _entries[i].UnlockChapter, currentDay))
+                    {
+                        result.Add(_entries[i]);
+                    }
                 }
             }
             return result;
@@ -4899,10 +4983,6 @@ namespace Higurashi.IOS.Runtime.Buriko
             }
             for (var i = 0; i < entries.Length; i++)
             {
-                if (entries[i].UnlockChapter <= 0)
-                {
-                    entries[i].UnlockChapter = GetUnlockChapter(episode, entries[i].Id);
-                }
                 for (var j = 0; j < _items.Length; j++)
                 {
                     if (_items[j].Episode == episode && _items[j].Id == entries[i].Id &&
@@ -4913,34 +4993,6 @@ namespace Higurashi.IOS.Runtime.Buriko
                     }
                 }
             }
-        }
-
-        private static int GetUnlockChapter(int episode, int id)
-        {
-            int[] chapters;
-            int firstId;
-            switch (episode)
-            {
-                case 5:
-                    firstId = 1;
-                    chapters = new[] { 1, 2, 3, 4, 4, 5, 6, 7, 7, 8, 8, 8,
-                        9, 9, 9, 10, 10, 11, 12, 12, 13, 14, 14 };
-                    break;
-                case 6:
-                    firstId = 24;
-                    chapters = new[] { 1, 2, 3, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13 };
-                    break;
-                case 7:
-                    firstId = 38;
-                    chapters = new[] { 1, 2, 3, 4, 5, 6, 6, 7, 7, 8, 10, 11, 12 };
-                    break;
-                case 8:
-                    return id == 51 ? 10 : int.MaxValue;
-                default:
-                    return 0;
-            }
-            var index = id - firstId;
-            return index >= 0 && index < chapters.Length ? chapters[index] : int.MaxValue;
         }
 
         private static void EnsureLoaded()

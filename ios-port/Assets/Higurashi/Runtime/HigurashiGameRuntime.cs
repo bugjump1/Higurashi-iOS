@@ -1348,6 +1348,7 @@ namespace Higurashi.IOS.Runtime
             if (hasChapterTips)
             {
                 UnlockTipsThroughChapter(tipsChapter);
+                UnlockTipsForChapterInMemory(tipsChapter, sections);
             }
             if (jumpChapter > PlayerPrefs.GetInt(ChapterJumpUnlockedKey, 0))
             {
@@ -1357,6 +1358,40 @@ namespace Higurashi.IOS.Runtime
             ShowToast(hasChapterTips
                 ? "隐藏解锁：第" + jumpChapter + "章跳跃／第" + tipsChapter + "章 TIPS"
                 : "隐藏解锁：第" + jumpChapter + "章跳跃（本章无 TIPS）");
+        }
+
+        /// <summary>
+        /// 隐藏解锁的 TIPS 部分同步写 PC 原生旗标：EP1-4 抬 G&lt;篇名&gt;Day（图鉴
+        /// 全局口径，PC TipsData 实证），EP5-8 抬 GTotalTips（累计制口径，按
+        /// 章节跳转档位折算）。不写 L/窗口旗标——那是存档本地状态，与 PC 一致。
+        /// </summary>
+        private void UnlockTipsForChapterInMemory(int tipsChapter, IReadOnlyList<string> sections)
+        {
+            if (_runtime == null)
+            {
+                return;
+            }
+            var episode = HigurashiActiveChapter.Profile.EpisodeNumber;
+            var memory = _runtime.Memory;
+            if (TipsVisibilityPolicy.UsesCountModel(episode))
+            {
+                var total = TipsVisibilityPolicy.TipsThroughChapter(episode, tipsChapter);
+                if (total > memory.GetGlobalFlag("GTotalTips"))
+                {
+                    memory.SetGlobalFlag("GTotalTips", total);
+                }
+                return;
+            }
+            if (tipsChapter < 1 || tipsChapter > sections.Count)
+            {
+                return;
+            }
+            var day = TipsVisibilityPolicy.DayNumberFromToken(sections[tipsChapter - 1]);
+            var flag = TipsVisibilityPolicy.GlobalDayFlagName(episode);
+            if (day > 0 && day > memory.GetGlobalFlag(flag))
+            {
+                memory.SetGlobalFlag(flag, day);
+            }
         }
 
         private void StartBonusContent()
