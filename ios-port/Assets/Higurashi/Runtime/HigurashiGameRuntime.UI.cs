@@ -202,13 +202,17 @@ namespace Higurashi.IOS.Runtime
                 {
                     var previousLayer = _orderedLayers[i];
                     var layerContent = previousLayer.IsBustshot ? previousSceneContent : content;
-                    var layerScale = previousLayer.IsBustshot ? previousSceneScale : screenScale;
+                    var isCharacterSprite = IsCharacterSpriteLayer(previousLayer);
+                    var layerScale = isCharacterSprite
+                        ? GetCharacterSpriteScale(layerContent)
+                        : previousLayer.IsBustshot ? previousSceneScale : screenScale;
                     previousLayer.GetRenderState(out var x, out var y, out var z, out var alpha);
                     DrawPresentationTexture(layerContent, previousLayer.Texture, x, y, z,
                         alpha * (1f - backgroundProgress),
                         previousLayer.IsCentered, layerScale, false,
                         previousLayer.OverrideWidth, previousLayer.OverrideHeight,
-                        previousLayer.Filter, previousLayer.Id != 1000 || _host.FilmAppliesToFace);
+                        previousLayer.Filter, previousLayer.Id != 1000 || _host.FilmAppliesToFace,
+                        bottomAnchor: isCharacterSprite);
                 }
             }
             if (_host.BackgroundTexture != null)
@@ -242,7 +246,10 @@ namespace Higurashi.IOS.Runtime
             {
                 var layer = _orderedLayers[i];
                 var layerContent = layer.IsBustshot ? sceneContent : content;
-                var layerScale = layer.IsBustshot ? sceneScale : screenScale;
+                var isCharacterSprite = IsCharacterSpriteLayer(layer);
+                var layerScale = isCharacterSprite
+                    ? GetCharacterSpriteScale(layerContent)
+                    : layer.IsBustshot ? sceneScale : screenScale;
                 if (IsFullFrameBlack(layer.TextureName))
                 {
                     DrawFullFrameBlackLayer(content, layer);
@@ -269,15 +276,18 @@ namespace Higurashi.IOS.Runtime
                         var previousLayerContent = layer.PreviousIsBustshot
                             ? previousSceneContent
                             : content;
-                        var previousLayerScale = layer.PreviousIsBustshot
-                            ? previousSceneScale
-                            : screenScale;
+                        var previousLayerScale = isCharacterSprite
+                            ? GetCharacterSpriteScale(previousLayerContent)
+                            : layer.PreviousIsBustshot
+                                ? previousSceneScale
+                                : screenScale;
                         DrawPresentationTexture(previousLayerContent, layer.PreviousTexture,
                             layer.PreviousX, layer.PreviousY, layer.PreviousZ,
                             layer.PreviousAlpha * (1f - layer.TransitionProgress),
                             layer.PreviousIsCentered, previousLayerScale, false,
                             layer.PreviousOverrideWidth, layer.PreviousOverrideHeight,
-                            layer.PreviousFilter, layer.Id != 1000 || _host.FilmAppliesToFace);
+                            layer.PreviousFilter, layer.Id != 1000 || _host.FilmAppliesToFace,
+                            bottomAnchor: isCharacterSprite);
                     }
                 }
                 layer.GetRenderState(out var layerX, out var layerY, out var layerZ, out var layerAlpha);
@@ -290,14 +300,16 @@ namespace Higurashi.IOS.Runtime
                         layerX, layerY, layerZ, layer.MaskReverse ? layer.FromAlpha : layer.Alpha,
                         layer.IsCentered, layerScale, maskProgress, layer.MaskFuzziness,
                         IsCinemaMatte(layer.TextureName), layer.OverrideWidth, layer.OverrideHeight,
-                        layer.Filter, layer.Id != 1000 || _host.FilmAppliesToFace);
+                        layer.Filter, layer.Id != 1000 || _host.FilmAppliesToFace,
+                        bottomAnchor: isCharacterSprite);
                 }
                 else
                 {
                     DrawPresentationTexture(layerContent, layer.Texture, layerX, layerY, layerZ,
                         layerAlpha, layer.IsCentered, layerScale, IsCinemaMatte(layer.TextureName),
                         layer.OverrideWidth, layer.OverrideHeight, layer.Filter,
-                        layer.Id != 1000 || _host.FilmAppliesToFace);
+                        layer.Id != 1000 || _host.FilmAppliesToFace,
+                        bottomAnchor: isCharacterSprite);
                 }
             }
 
@@ -400,14 +412,26 @@ namespace Higurashi.IOS.Runtime
                 return content;
             }
 
-            GetBackgroundGeometry(content, texture, out var destination, out _);
+            GetBackgroundGeometry(content, texture, out var destination, _);
             return destination;
+        }
+
+        private static bool IsCharacterSpriteLayer(PresentationLayer layer)
+        {
+            return RyukishiSpritePlacementPolicy.IsSpriteOrPortraitPath(layer.TextureName);
+        }
+
+        private float GetCharacterSpriteScale(Rect frame)
+        {
+            var safe = GetGuiSafeArea();
+            return frame.height / 480f * RyukishiSpritePlacementPolicy.ReferenceScaleFactor(
+                frame.width, frame.height, safe.width, safe.height);
         }
 
         private void DrawPresentationTexture(Rect content, Texture2D texture,
             float layerX, float layerY, float layerZ, float alpha, bool centered, float screenScale,
             bool cropTransparentEdges = false, int overrideWidth = 0, int overrideHeight = 0,
-            PresentationLayerFilter filter = null, bool applyFilm = true)
+            PresentationLayerFilter filter = null, bool applyFilm = true, bool bottomAnchor = false)
         {
             var canonicalHeight = overrideHeight > 0 ? overrideHeight : Mathf.Min(texture.height, 480f);
             var canonicalWidth = overrideWidth > 0
@@ -427,6 +451,13 @@ namespace Higurashi.IOS.Runtime
             {
                 x = content.center.x + layerX * screenScale;
                 y = content.center.y + layerY * screenScale;
+            }
+            if (bottomAnchor && height <= content.height)
+            {
+                // 立绘锚定脚底：PC 满幅立绘 quad 高=画布高，居中与贴底等价；
+                // 立绘缩放改锚 16:9 参考比例后小于帧高，须贴帧底保持脚着地。
+                // 特写（z 放大到超出帧高）仍按 PC 居中裁切。
+                y = content.yMax - height + layerY * screenScale;
             }
             var previousColor = GUI.color;
             GUI.color = new Color(1f, 1f, 1f, alpha);
@@ -469,7 +500,7 @@ namespace Higurashi.IOS.Runtime
             float layerX, float layerY, float layerZ, float alpha, bool centered,
             float screenScale, float progress, float fuzziness, bool cropTransparentEdges = false,
             int overrideWidth = 0, int overrideHeight = 0, PresentationLayerFilter filter = null,
-            bool applyFilm = true)
+            bool applyFilm = true, bool bottomAnchor = false)
         {
             var canonicalHeight = overrideHeight > 0 ? overrideHeight : Mathf.Min(texture.height, 480f);
             var canonicalWidth = overrideWidth > 0
@@ -481,9 +512,11 @@ namespace Higurashi.IOS.Runtime
             var x = centered
                 ? content.center.x + layerX * screenScale - width * 0.5f
                 : content.center.x + layerX * screenScale;
-            var y = centered
-                ? content.center.y + layerY * screenScale - height * 0.5f
-                : content.center.y + layerY * screenScale;
+            var y = bottomAnchor && height <= content.height
+                ? content.yMax - height + layerY * screenScale
+                : centered
+                    ? content.center.y + layerY * screenScale - height * 0.5f
+                    : content.center.y + layerY * screenScale;
             var edgeInset = cropTransparentEdges
                 ? Mathf.Min(3f / Mathf.Max(1f, texture.height), 0.01f)
                 : 0f;

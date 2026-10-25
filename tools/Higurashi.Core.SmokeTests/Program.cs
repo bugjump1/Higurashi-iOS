@@ -668,6 +668,25 @@ internal static class Program
         Equal(false, RyukishiSpritePlacementPolicy.IsSpriteOrPortraitPath("sprites/x"));
         Equal(false, RyukishiSpritePlacementPolicy.IsSpriteOrPortraitPath(""));
         Equal(false, RyukishiSpritePlacementPolicy.IsSpriteOrPortraitPath(null));
+
+        // Sprite scale anchor: same character size in every style combo. On an
+        // iPad-ish base (2420x1668) a 4:3 frame shrinks sprites by
+        // (16:9 fit height)/(4:3 fit height) = 1361.25/1668.
+        Equal(1f, RyukishiSpritePlacementPolicy.ReferenceScaleFactor(
+            2420f, 1361.25f, 2420f, 1668f));
+        Equal(1361.25f / 1668f, RyukishiSpritePlacementPolicy.ReferenceScaleFactor(
+            2224f, 1668f, 2420f, 1668f));
+        // Tall (iPhone-ish) screens: both 4:3 and 16:9 frames are height-bound,
+        // so no correction is needed.
+        Equal(1f, RyukishiSpritePlacementPolicy.ReferenceScaleFactor(
+            1480f, 1110f, 2420f, 1110f));
+        // Frames wider than 16:9 may scale sprites slightly above frame height
+        // (PC keeps sprites at full 16:9-canvas size while the bg letterboxes).
+        Equal(1361.25f / (2420f / 1.84f), RyukishiSpritePlacementPolicy.ReferenceScaleFactor(
+            2420f, 2420f / 1.84f, 2420f, 1668f));
+        // Degenerate inputs never scale.
+        Equal(1f, RyukishiSpritePlacementPolicy.ReferenceScaleFactor(0f, 480f, 640f, 480f));
+        Equal(1f, RyukishiSpritePlacementPolicy.ReferenceScaleFactor(640f, 480f, 0f, 0f));
     }
 
     private static void HideConsoleCgPolicyMatchesPcModSkipImage()

@@ -48,5 +48,32 @@ namespace Higurashi.IOS.Compatibility
                     return x;
             }
         }
+
+        /// <summary>
+        /// 立绘缩放参考系数：同一基准矩形（安全区）内，16:9 适配高度 ÷ 当前帧
+        /// 比例适配高度。PC 画布恒 16:9、立绘逻辑高恒 480，与背景风格无关；
+        /// 本移植画布随背景纹理比例变化（D10），4:3 帧会放大立绘（iPad 上
+        /// 实测 +22%）。乘上本系数后，同一张立绘在任意背景/立绘风格组合下
+        /// 屏幕尺寸一致（PC 不变量）。帧比例≥16:9 时系数为 1；帧为 4:3 时
+        /// 约 0.75~0.82（视屏幕宽高比，iPhone 竖宽屏上两帧同受高度限制为 1）。
+        /// </summary>
+        public static float ReferenceScaleFactor(
+            float frameWidth, float frameHeight, float baseWidth, float baseHeight)
+        {
+            if (frameWidth <= 0f || frameHeight <= 0f || baseWidth <= 0f || baseHeight <= 0f)
+            {
+                return 1f;
+            }
+
+            var frameAspect = frameWidth / frameHeight;
+            var frameFitHeight = Math.Min(baseHeight, baseWidth / frameAspect);
+            var referenceHeight = Math.Min(baseHeight, baseWidth * 9f / 16f);
+            if (frameFitHeight <= 0f)
+            {
+                return 1f;
+            }
+
+            return referenceHeight / frameFitHeight;
+        }
     }
 }
