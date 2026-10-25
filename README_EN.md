@@ -14,13 +14,20 @@ Each episode is built as an independent app with its own name, icon, bundle iden
 - iOS/iPadOS 15.0 or newer
 - ARM64, iPhone, and iPad
 - Landscape only, with both landscape orientations and safe areas supported
-- Console, remake, and original art/background sets
+- Every background aspect-fits the screen by its own ratio: no bars on all four sides, no cropping, no stretching; EP06's 16:9 original artwork displays full-bleed correctly
+- Console, remake, and original art/background sets mix freely, with character size and placement matching the PC original in every combination
 - Dialogue voice, BGM, sound effects, scene transitions, and lip sync on supported art sets
 - Manual saves, quick saves, auto saves, and a consolidated Latest Save slot
 - History with voice replay, chapter jump, TIPS, Omake/Staff Room content
+- Chapter-end TIPS presentation and library pacing match the PC engine: separate cumulative and new-only views, full library unlock after clearing the episode
+- Episodes 05 through 08 play a scrolling staff roll after the normal ending
 - Episode 08 fragment list, prerequisites, reading progress, and persistent fragment state
 - Automatic save before story choices; bad endings can return to the choice or title screen
 - Diagnostic log export from System Settings to the app's `Documents/logs` directory
+
+### Hidden gesture
+
+Tap the "iOS版移植" port credit line at the bottom of the title screen five times in a row to unlock the next chapter jump together with its TIPS; once everything is unlocked, further taps reveal the episode's extra content.
 
 ## Requirements
 
