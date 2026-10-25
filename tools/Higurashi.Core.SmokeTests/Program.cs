@@ -48,6 +48,8 @@ internal static class Program
             RichTextSizeNormalizeConvertsRelativeToAbsolute,
             PresentationAspectUsesDeclaredCanvasBeforeBackground,
             PresentationModeFollowsBackgroundStyle,
+            PresentationAspectFollowsSceneTexture,
+            PresentationLayerFitScalesOversizedLayers,
             ConsoleChoiceMenuLocalizationAndClassification,
             BadEndingChoicesMatchOriginalFlows,
             StoryChoiceLocalizationCoversAllStoryBranches,
@@ -609,6 +611,47 @@ internal static class Program
         Equal(480f * 16f / 9f,
             PresentationAspectPolicy.LogicalCanvasWidthForBackgroundStyle(0));
         Equal(640f, PresentationAspectPolicy.LogicalCanvasWidthForBackgroundStyle(1));
+    }
+
+    private static void PresentationAspectFollowsSceneTexture()
+    {
+        Equal(4f / 3f,
+            PresentationAspectPolicy.AspectForSceneTextures("haikei", 640, 480, null, 0, 0));
+        // EP06 OG art is 853x480 (1.77708), not exactly 16:9; the texture's own
+        // ratio drives the canvas.
+        Equal(853f / 480f,
+            PresentationAspectPolicy.AspectForSceneTextures("g1", 853, 480, null, 0, 0));
+        // black/white fills must not drive the canvas; keep the previous frame.
+        Equal(4f / 3f,
+            PresentationAspectPolicy.AspectForSceneTextures("black", 8, 8, "haikei", 640, 480));
+        Equal(853f / 480f,
+            PresentationAspectPolicy.AspectForSceneTextures("white.png", 8, 8, "g1", 853, 480));
+        Equal(4f / 3f,
+            PresentationAspectPolicy.AspectForSceneTextures("scene/black", 8, 8, "haikei", 640, 480));
+        Equal(16f / 9f,
+            PresentationAspectPolicy.AspectForSceneTextures("black", 8, 8, "black", 8, 8));
+        Equal(16f / 9f,
+            PresentationAspectPolicy.AspectForSceneTextures(null, 0, 0, null, 0, 0));
+        Equal(853f / 480f,
+            PresentationAspectPolicy.AspectForSceneTextures("haikei", 0, 0, "g1", 853, 480));
+
+        True(PresentationAspectPolicy.IsFullFrameSceneName("black"));
+        True(PresentationAspectPolicy.IsFullFrameSceneName("WHITE.png"));
+        Equal(false, PresentationAspectPolicy.IsFullFrameSceneName("blackboard"));
+        Equal(false, PresentationAspectPolicy.IsFullFrameSceneName(null));
+    }
+
+    private static void PresentationLayerFitScalesOversizedLayers()
+    {
+        // 16:9-only asset inside a 4:3 frame shrinks uniformly, no crop.
+        Equal(640f / 853f,
+            PresentationAspectPolicy.LayerFitScale(853f, 480f, 640f, 480f));
+        Equal(1f, PresentationAspectPolicy.LayerFitScale(640f, 480f, 640f, 480f));
+        // Never enlarges smaller layers.
+        Equal(1f, PresentationAspectPolicy.LayerFitScale(320f, 240f, 640f, 480f));
+        // Height-bound tall layers shrink uniformly too.
+        Equal(0.5f, PresentationAspectPolicy.LayerFitScale(480f, 960f, 640f, 480f));
+        Equal(1f, PresentationAspectPolicy.LayerFitScale(0f, 480f, 640f, 480f));
     }
 
     private static void HideConsoleCgPolicyMatchesPcModSkipImage()

@@ -379,17 +379,6 @@ namespace Higurashi.IOS.Runtime
                 return;
             }
 
-            if (EffectivePresentationMode == MobilePresentationMode.Fill)
-            {
-                var scale = Mathf.Max(content.width / texture.width, content.height / texture.height);
-                var visibleWidth = Mathf.Clamp01(content.width / (texture.width * scale));
-                var visibleHeight = Mathf.Clamp01(content.height / (texture.height * scale));
-                destination = content;
-                source = new Rect((1f - visibleWidth) * 0.5f,
-                    (1f - visibleHeight) * 0.5f, visibleWidth, visibleHeight);
-                return;
-            }
-
             var fitScale = Mathf.Min(content.width / texture.width, content.height / texture.height);
             var width = texture.width * fitScale;
             var height = texture.height * fitScale;
@@ -400,14 +389,8 @@ namespace Higurashi.IOS.Runtime
 
         private static bool IsFullFrameSceneTexture(Texture texture)
         {
-            if (texture == null)
-            {
-                return false;
-            }
-
-            var name = Path.GetFileNameWithoutExtension(texture.name ?? string.Empty);
-            return string.Equals(name, "black", StringComparison.OrdinalIgnoreCase) ||
-                   string.Equals(name, "white", StringComparison.OrdinalIgnoreCase);
+            return texture != null &&
+                   PresentationAspectPolicy.IsFullFrameSceneName(texture.name);
         }
 
         private Rect GetSceneContentRect(Rect content, Texture texture)
@@ -433,6 +416,10 @@ namespace Higurashi.IOS.Runtime
             var depthScale = Mathf.Max(0.05f, 1f - layerZ / 400f);
             var width = canonicalWidth * screenScale * depthScale;
             var height = canonicalHeight * screenScale * depthScale;
+            var fitScale = PresentationAspectPolicy.LayerFitScale(
+                width, height, content.width, content.height);
+            width *= fitScale;
+            height *= fitScale;
             float x;
             float y;
             if (centered)
@@ -495,6 +482,10 @@ namespace Higurashi.IOS.Runtime
             var depthScale = Mathf.Max(0.05f, 1f - layerZ / 400f);
             var width = canonicalWidth * screenScale * depthScale;
             var height = canonicalHeight * screenScale * depthScale;
+            var fitScale = PresentationAspectPolicy.LayerFitScale(
+                width, height, content.width, content.height);
+            width *= fitScale;
+            height *= fitScale;
             var x = centered
                 ? content.center.x + layerX * screenScale - width * 0.5f
                 : content.center.x + layerX * screenScale;
@@ -2470,6 +2461,10 @@ namespace Higurashi.IOS.Runtime
             var depthScale = Mathf.Max(0.05f, 1f - layerZ / 400f);
             var width = canonicalWidth * screenScale * depthScale;
             var height = canonicalHeight * screenScale * depthScale;
+            var fitScale = PresentationAspectPolicy.LayerFitScale(
+                width, height, content.width, content.height);
+            width *= fitScale;
+            height *= fitScale;
             var x = layer.IsCentered
                 ? content.center.x + layerX * screenScale - width * 0.5f
                 : content.center.x + layerX * screenScale;
@@ -3159,17 +3154,8 @@ namespace Higurashi.IOS.Runtime
         private Rect GetContentRect()
         {
             var safe = GetGuiSafeArea();
-            var presentationMode = EffectivePresentationMode;
-            if (presentationMode == MobilePresentationMode.Fill)
-            {
-                return safe;
-            }
-
-            var ratio = presentationMode == MobilePresentationMode.OriginalFourByThree
-                ? 4f / 3f
-                : GetPresentationAspect();
             var fitted = AspectFitLayout.Fit(
-                safe.x, safe.y, safe.width, safe.height, ratio);
+                safe.x, safe.y, safe.width, safe.height, GetPresentationAspect());
             return new Rect(fitted.X, fitted.Y, fitted.Width, fitted.Height);
         }
 
@@ -3190,12 +3176,16 @@ namespace Higurashi.IOS.Runtime
 
         private float GetPresentationAspect()
         {
-            return PresentationAspectPolicy.AspectForBackgroundStyle(
-                _settings.backgroundStyleIndex);
+            var current = _host.BackgroundTexture;
+            var previous = _host.PreviousBackgroundTexture;
+            return PresentationAspectPolicy.AspectForSceneTextures(
+                current == null ? null : current.name,
+                current == null ? 0 : current.width,
+                current == null ? 0 : current.height,
+                previous == null ? null : previous.name,
+                previous == null ? 0 : previous.width,
+                previous == null ? 0 : previous.height);
         }
-
-        private MobilePresentationMode EffectivePresentationMode =>
-            PresentationAspectPolicy.ModeForBackgroundStyle(_settings.backgroundStyleIndex);
 
         private void EnsureStyles()
         {

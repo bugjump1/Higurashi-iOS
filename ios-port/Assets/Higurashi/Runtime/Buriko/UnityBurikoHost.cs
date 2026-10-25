@@ -3990,12 +3990,24 @@ namespace Higurashi.IOS.Runtime.Buriko
             _windowShakeStartedAt = Time.unscaledTime;
         }
 
+        private float CurrentPresentationAspect()
+        {
+            var current = BackgroundTexture;
+            var previous = PreviousBackgroundTexture;
+            return PresentationAspectPolicy.AspectForSceneTextures(
+                current == null ? null : current.name,
+                current == null ? 0 : current.width,
+                current == null ? 0 : current.height,
+                previous == null ? null : previous.name,
+                previous == null ? 0 : previous.width,
+                previous == null ? 0 : previous.height);
+        }
+
         private void StartEnlargeScreen(int x, int y, int width, int height, float duration)
         {
             var targetWidth = Mathf.Max(1f, width);
             var targetHeight = Mathf.Max(1f, height);
-            var canvasWidth = PresentationAspectPolicy.LogicalCanvasWidthForBackgroundStyle(
-                _settings == null ? 0 : _settings.backgroundStyleIndex);
+            var canvasWidth = 480f * CurrentPresentationAspect();
             var canvasHeight = 480f;
             var canvasAspect = canvasWidth / canvasHeight;
             var targetAspect = targetWidth / targetHeight;
@@ -4028,9 +4040,7 @@ namespace Higurashi.IOS.Runtime.Buriko
 
         private void ResetEnlargeScreen(float duration)
         {
-            var canvasWidth = Mathf.RoundToInt(PresentationAspectPolicy
-                .LogicalCanvasWidthForBackgroundStyle(
-                    _settings == null ? 0 : _settings.backgroundStyleIndex));
+            var canvasWidth = Mathf.RoundToInt(480f * CurrentPresentationAspect());
             StartEnlargeScreen(0, 0, canvasWidth, 480, duration);
         }
 
