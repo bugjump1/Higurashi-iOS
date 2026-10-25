@@ -412,7 +412,7 @@ namespace Higurashi.IOS.Runtime
                 return content;
             }
 
-            GetBackgroundGeometry(content, texture, out var destination, _);
+            GetBackgroundGeometry(content, texture, out var destination, out _);
             return destination;
         }
 
