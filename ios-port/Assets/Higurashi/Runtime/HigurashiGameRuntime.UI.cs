@@ -179,23 +179,13 @@ namespace Higurashi.IOS.Runtime
 
         private void DrawPresentation()
         {
-            var content = GetContentRect();
-            var presentationOffset = _host.PresentationOffset * (content.height / 480f);
-            content.position += presentationOffset;
-            var baseContent = content;
-            var scale = _host.PresentationScale;
-            var translation = _host.PresentationTranslation * (baseContent.height / 480f);
-            content = new Rect(
-                baseContent.center.x - baseContent.width * scale.x * 0.5f + translation.x,
-                baseContent.center.y - baseContent.height * scale.y * 0.5f + translation.y,
-                baseContent.width * scale.x,
-                baseContent.height * scale.y);
+            var content = GetPresentationContentRect();
             var screenScale = content.height / 480f;
+            var backgroundProgress = _host.BackgroundTransitionProgress;
             var previousSceneContent = GetSceneContentRect(content, _host.PreviousBackgroundTexture);
             var previousSceneScale = previousSceneContent.height / 480f;
             var sceneContent = GetSceneContentRect(content, _host.BackgroundTexture);
             var sceneScale = sceneContent.height / 480f;
-            var backgroundProgress = _host.BackgroundTransitionProgress;
             if (_host.PreviousBackgroundTexture != null && backgroundProgress < 1f)
             {
                 DrawBackgroundTexture(content, _host.PreviousBackgroundTexture, 1f);
@@ -382,6 +372,13 @@ namespace Higurashi.IOS.Runtime
         private void GetBackgroundGeometry(Rect content, Texture texture, out Rect destination,
             out Rect source)
         {
+            if (IsFullFrameSceneTexture(texture))
+            {
+                destination = content;
+                source = new Rect(0f, 0f, 1f, 1f);
+                return;
+            }
+
             if (EffectivePresentationMode == MobilePresentationMode.Fill)
             {
                 var scale = Mathf.Max(content.width / texture.width, content.height / texture.height);
@@ -399,6 +396,18 @@ namespace Higurashi.IOS.Runtime
             destination = new Rect(content.center.x - width * 0.5f,
                 content.center.y - height * 0.5f, width, height);
             source = new Rect(0f, 0f, 1f, 1f);
+        }
+
+        private static bool IsFullFrameSceneTexture(Texture texture)
+        {
+            if (texture == null)
+            {
+                return false;
+            }
+
+            var name = Path.GetFileNameWithoutExtension(texture.name ?? string.Empty);
+            return string.Equals(name, "black", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(name, "white", StringComparison.OrdinalIgnoreCase);
         }
 
         private Rect GetSceneContentRect(Rect content, Texture texture)
@@ -2321,7 +2330,7 @@ namespace Higurashi.IOS.Runtime
                 return false;
             }
 
-            var content = GetContentRect();
+            var content = GetPresentationContentRect();
             var layerRect = GetPresentationLayerRect(content, layer);
             if (layerRect.width <= 0f || layerRect.height <= 0f)
             {
@@ -2396,7 +2405,7 @@ namespace Higurashi.IOS.Runtime
                 return false;
             }
 
-            var content = GetContentRect();
+            var content = GetPresentationContentRect();
             var layerRect = GetPresentationLayerRect(content, layer);
             if (layerRect.width <= 0f || layerRect.height <= 0f)
             {
@@ -3162,6 +3171,21 @@ namespace Higurashi.IOS.Runtime
             var fitted = AspectFitLayout.Fit(
                 safe.x, safe.y, safe.width, safe.height, ratio);
             return new Rect(fitted.X, fitted.Y, fitted.Width, fitted.Height);
+        }
+
+        private Rect GetPresentationContentRect()
+        {
+            var content = GetContentRect();
+            var presentationOffset = _host.PresentationOffset * (content.height / 480f);
+            content.position += presentationOffset;
+            var baseContent = content;
+            var scale = _host.PresentationScale;
+            var translation = _host.PresentationTranslation * (baseContent.height / 480f);
+            return new Rect(
+                baseContent.center.x - baseContent.width * scale.x * 0.5f + translation.x,
+                baseContent.center.y - baseContent.height * scale.y * 0.5f + translation.y,
+                baseContent.width * scale.x,
+                baseContent.height * scale.y);
         }
 
         private float GetPresentationAspect()
