@@ -81,6 +81,57 @@ namespace Higurashi.IOS.Compatibility
             return 16f / 9f;
         }
 
+        /// <summary>
+        /// Shared title/decoration layers that exist only as 16:9 console art
+        /// (no 4:3 OG variant): the EP5-8 main-menu title logo and its companion
+        /// banner, the chapter-preview logo, and full-screen text overlays.
+        /// Inside a 4:3 original-style frame these 853-logical-px-wide layers
+        /// would overflow and clip their right-edge lettering (the EP5-8 title
+        /// and chapter-preview truncation), so they shrink uniformly instead -
+        /// the PC 4:3-mode letterbox behavior for non-sprite CG. Character
+        /// sprites (sprite//portrait/) are deliberately NOT in this list: they
+        /// keep the PC full-height, viewport-clipped presentation.
+        /// </summary>
+        public static bool IsSharedDecorationLayer(string textureName)
+        {
+            if (string.IsNullOrEmpty(textureName))
+            {
+                return false;
+            }
+
+            var name = Path.GetFileNameWithoutExtension(textureName);
+            if (string.Equals(name, "titlelogo", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("sgtitle", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            var normalized = textureName.Replace('\\', '/');
+            return normalized.StartsWith("scenario/logo", StringComparison.OrdinalIgnoreCase) ||
+                   normalized.StartsWith("text/", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Uniform shrink that keeps a shared decoration layer fully inside the
+        /// canvas frame (never enlarges, never stretches). Layers outside the
+        /// decoration list return 1 so their presentation is unchanged.
+        /// </summary>
+        public static float DecorationLayerFitScale(
+            string textureName, float width, float height,
+            float frameWidth, float frameHeight)
+        {
+            if (!IsSharedDecorationLayer(textureName) ||
+                width <= 0f || height <= 0f || frameWidth <= 0f || frameHeight <= 0f)
+            {
+                return 1f;
+            }
+
+            var widthScale = frameWidth / width;
+            var heightScale = frameHeight / height;
+            var scale = widthScale < heightScale ? widthScale : heightScale;
+            return scale < 1f ? scale : 1f;
+        }
+
         private static float RealTextureAspect(string name, int width, int height)
         {
             if (IsFullFrameSceneName(name) || width <= 0 || height <= 0)

@@ -212,7 +212,8 @@ namespace Higurashi.IOS.Runtime
                         previousLayer.IsCentered, layerScale, false,
                         previousLayer.OverrideWidth, previousLayer.OverrideHeight,
                         previousLayer.Filter, previousLayer.Id != 1000 || _host.FilmAppliesToFace,
-                        bottomAnchor: isCharacterSprite);
+                        bottomAnchor: isCharacterSprite,
+                        requestedName: previousLayer.TextureName);
                 }
             }
             if (_host.BackgroundTexture != null)
@@ -287,7 +288,8 @@ namespace Higurashi.IOS.Runtime
                             layer.PreviousIsCentered, previousLayerScale, false,
                             layer.PreviousOverrideWidth, layer.PreviousOverrideHeight,
                             layer.PreviousFilter, layer.Id != 1000 || _host.FilmAppliesToFace,
-                            bottomAnchor: isCharacterSprite);
+                            bottomAnchor: isCharacterSprite,
+                            requestedName: layer.TextureName);
                     }
                 }
                 layer.GetRenderState(out var layerX, out var layerY, out var layerZ, out var layerAlpha);
@@ -301,7 +303,8 @@ namespace Higurashi.IOS.Runtime
                         layer.IsCentered, layerScale, maskProgress, layer.MaskFuzziness,
                         IsCinemaMatte(layer.TextureName), layer.OverrideWidth, layer.OverrideHeight,
                         layer.Filter, layer.Id != 1000 || _host.FilmAppliesToFace,
-                        bottomAnchor: isCharacterSprite);
+                        bottomAnchor: isCharacterSprite,
+                        requestedName: layer.TextureName);
                 }
                 else
                 {
@@ -309,7 +312,8 @@ namespace Higurashi.IOS.Runtime
                         layerAlpha, layer.IsCentered, layerScale, IsCinemaMatte(layer.TextureName),
                         layer.OverrideWidth, layer.OverrideHeight, layer.Filter,
                         layer.Id != 1000 || _host.FilmAppliesToFace,
-                        bottomAnchor: isCharacterSprite);
+                        bottomAnchor: isCharacterSprite,
+                        requestedName: layer.TextureName);
                 }
             }
 
@@ -431,7 +435,8 @@ namespace Higurashi.IOS.Runtime
         private void DrawPresentationTexture(Rect content, Texture2D texture,
             float layerX, float layerY, float layerZ, float alpha, bool centered, float screenScale,
             bool cropTransparentEdges = false, int overrideWidth = 0, int overrideHeight = 0,
-            PresentationLayerFilter filter = null, bool applyFilm = true, bool bottomAnchor = false)
+            PresentationLayerFilter filter = null, bool applyFilm = true, bool bottomAnchor = false,
+            string requestedName = null)
         {
             var canonicalHeight = overrideHeight > 0 ? overrideHeight : Mathf.Min(texture.height, 480f);
             var canonicalWidth = overrideWidth > 0
@@ -440,6 +445,10 @@ namespace Higurashi.IOS.Runtime
             var depthScale = Mathf.Max(0.05f, 1f - layerZ / 400f);
             var width = canonicalWidth * screenScale * depthScale;
             var height = canonicalHeight * screenScale * depthScale;
+            var fitScale = PresentationAspectPolicy.DecorationLayerFitScale(
+                requestedName ?? texture.name, width, height, content.width, content.height);
+            width *= fitScale;
+            height *= fitScale;
             float x;
             float y;
             if (centered)
@@ -500,7 +509,7 @@ namespace Higurashi.IOS.Runtime
             float layerX, float layerY, float layerZ, float alpha, bool centered,
             float screenScale, float progress, float fuzziness, bool cropTransparentEdges = false,
             int overrideWidth = 0, int overrideHeight = 0, PresentationLayerFilter filter = null,
-            bool applyFilm = true, bool bottomAnchor = false)
+            bool applyFilm = true, bool bottomAnchor = false, string requestedName = null)
         {
             var canonicalHeight = overrideHeight > 0 ? overrideHeight : Mathf.Min(texture.height, 480f);
             var canonicalWidth = overrideWidth > 0
@@ -509,6 +518,10 @@ namespace Higurashi.IOS.Runtime
             var depthScale = Mathf.Max(0.05f, 1f - layerZ / 400f);
             var width = canonicalWidth * screenScale * depthScale;
             var height = canonicalHeight * screenScale * depthScale;
+            var fitScale = PresentationAspectPolicy.DecorationLayerFitScale(
+                requestedName ?? texture.name, width, height, content.width, content.height);
+            width *= fitScale;
+            height *= fitScale;
             var x = centered
                 ? content.center.x + layerX * screenScale - width * 0.5f
                 : content.center.x + layerX * screenScale;

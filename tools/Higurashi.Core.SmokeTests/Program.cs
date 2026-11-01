@@ -51,6 +51,7 @@ internal static class Program
             PresentationAspectFollowsSceneTexture,
             RyukishiSpritePlacementMatchesPcRevert,
             TipsVisibilityMatchesPcTipsData,
+            SharedDecorationLayersFitInsideFrame,
             ConsoleChoiceMenuLocalizationAndClassification,
             BadEndingChoicesMatchOriginalFlows,
             StoryChoiceLocalizationCoversAllStoryBranches,
@@ -762,6 +763,52 @@ internal static class Program
                  TipsVisibilityPolicy.TipsThroughChapter(5, chapter - 1),
                 "cumulative tips must never decrease");
         }
+    }
+
+    private static void SharedDecorationLayersFitInsideFrame()
+    {
+        // Shared title/decoration layers exist only as 16:9 console art. In a
+        // 4:3 original-style frame (640 logical px wide) an 853-px-wide layer
+        // shrinks to fit; in a 16:9 frame (853 px) it already fits.
+        Equal(640f / 853f, PresentationAspectPolicy.DecorationLayerFitScale(
+            "titlelogo", 853f, 480f, 640f, 480f));
+        Equal(640f / 853f, PresentationAspectPolicy.DecorationLayerFitScale(
+            "sgtitle900200", 853f, 480f, 640f, 480f));
+        Equal(640f / 853f, PresentationAspectPolicy.DecorationLayerFitScale(
+            "scenario/logo", 853f, 480f, 640f, 480f));
+        Equal(640f / 853f, PresentationAspectPolicy.DecorationLayerFitScale(
+            "text/title_hinamizawa", 853f, 480f, 640f, 480f));
+        // 16:9 frames already fit: factor 1.
+        Equal(1f, PresentationAspectPolicy.DecorationLayerFitScale(
+            "titlelogo", 853f, 480f, 853f, 480f));
+        // 4:3 decoration art (OG logo, si_matsuri) never shrinks.
+        Equal(1f, PresentationAspectPolicy.DecorationLayerFitScale(
+            "Logo", 640f, 480f, 640f, 480f));
+        Equal(1f, PresentationAspectPolicy.DecorationLayerFitScale(
+            "text/si_matsuri_01", 640f, 480f, 640f, 480f));
+        // Character sprites and scene CG keep the PC full-height presentation.
+        Equal(1f, PresentationAspectPolicy.DecorationLayerFitScale(
+            "sprite/me1a_def_", 853f, 480f, 640f, 480f));
+        Equal(1f, PresentationAspectPolicy.DecorationLayerFitScale(
+            "scene/014a", 853f, 480f, 640f, 480f));
+        // Choice artwork keeps its exact geometry (hit bands are computed from
+        // the unshrunk rect).
+        Equal(1f, PresentationAspectPolicy.DecorationLayerFitScale(
+            "2choices", 853f, 480f, 640f, 480f));
+        Equal(1f, PresentationAspectPolicy.DecorationLayerFitScale(
+            "3choices", 853f, 480f, 640f, 480f));
+        // Case-insensitive stem matching for the logo names.
+        True(PresentationAspectPolicy.IsSharedDecorationLayer("TitleLogo"));
+        True(PresentationAspectPolicy.IsSharedDecorationLayer("SGTitle900200"));
+        True(PresentationAspectPolicy.IsSharedDecorationLayer("Scenario/Logo"));
+        True(PresentationAspectPolicy.IsSharedDecorationLayer("TEXT/foo"));
+        Equal(false, PresentationAspectPolicy.IsSharedDecorationLayer("background/so2"));
+        Equal(false, PresentationAspectPolicy.IsSharedDecorationLayer("haikei"));
+        Equal(false, PresentationAspectPolicy.IsSharedDecorationLayer(null));
+        Equal(false, PresentationAspectPolicy.IsSharedDecorationLayer(""));
+        // Height-bound tall decoration still shrinks uniformly.
+        Equal(0.5f, PresentationAspectPolicy.DecorationLayerFitScale(
+            "text/tall", 853f, 960f, 640f, 480f));
     }
 
     private static void HideConsoleCgPolicyMatchesPcModSkipImage()
