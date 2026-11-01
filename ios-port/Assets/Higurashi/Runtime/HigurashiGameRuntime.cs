@@ -619,11 +619,18 @@ namespace Higurashi.IOS.Runtime
             if (!advanced && _fastTraversal.IsActive &&
                 _runtime.BlockReason != BurikoBlockReason.Completed &&
                 _runtime.BlockReason != BurikoBlockReason.Faulted &&
-                !_host.TitleVisible && !_host.ChoiceVisible)
+                !_host.TitleVisible && !_host.ChoiceVisible &&
+                !_host.FragmentChapterVisible && !_host.FragmentListVisible &&
+                !_host.TipsChapterVisible && !_host.TipsListVisible)
             {
                 // Voice-bearing lines can contain an intermediate non-dialogue boundary.
                 // Keep traversal alive and retry on the next rendered frame instead of
                 // treating that transient boundary as the end of fast traversal.
+                // Host-blocked menus (fragment browser, TIPS screens) are excluded:
+                // each retry would ResumeInput past them, re-run the flow loop,
+                // redraw the scene transition and reset the selection every tick,
+                // which showed up as the flickering EP08 fragment list after a
+                // fast-forwarded fragment finished.
                 return true;
             }
             return advanced;
