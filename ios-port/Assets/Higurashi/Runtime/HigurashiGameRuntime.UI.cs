@@ -445,15 +445,19 @@ namespace Higurashi.IOS.Runtime
             var depthScale = Mathf.Max(0.05f, 1f - layerZ / 400f);
             var width = canonicalWidth * screenScale * depthScale;
             var height = canonicalHeight * screenScale * depthScale;
+            var decorationName = requestedName ?? texture.name;
+            var episode = HigurashiActiveChapter.Profile.EpisodeNumber;
             var fitScale = PresentationAspectPolicy.DecorationLayerFitScale(
-                requestedName ?? texture.name, width, height, content.width, content.height);
+                episode, decorationName, width, height, content.width, content.height);
             width *= fitScale;
             height *= fitScale;
+            var decorationOffsetX = PresentationAspectPolicy.DecorationLayerOffsetX(
+                episode, decorationName, width, content.width);
             float x;
             float y;
             if (centered)
             {
-                x = content.center.x + layerX * screenScale - width * 0.5f;
+                x = content.center.x + layerX * screenScale - width * 0.5f + decorationOffsetX;
                 y = content.center.y + layerY * screenScale - height * 0.5f;
             }
             else
@@ -518,12 +522,16 @@ namespace Higurashi.IOS.Runtime
             var depthScale = Mathf.Max(0.05f, 1f - layerZ / 400f);
             var width = canonicalWidth * screenScale * depthScale;
             var height = canonicalHeight * screenScale * depthScale;
+            var decorationName = requestedName ?? texture.name;
+            var episode = HigurashiActiveChapter.Profile.EpisodeNumber;
             var fitScale = PresentationAspectPolicy.DecorationLayerFitScale(
-                requestedName ?? texture.name, width, height, content.width, content.height);
+                episode, decorationName, width, height, content.width, content.height);
             width *= fitScale;
             height *= fitScale;
             var x = centered
-                ? content.center.x + layerX * screenScale - width * 0.5f
+                ? content.center.x + layerX * screenScale - width * 0.5f +
+                  PresentationAspectPolicy.DecorationLayerOffsetX(
+                      episode, decorationName, width, content.width)
                 : content.center.x + layerX * screenScale;
             var y = bottomAnchor && height <= content.height
                 ? content.yMax - height + layerY * screenScale
@@ -1675,8 +1683,10 @@ namespace Higurashi.IOS.Runtime
             var logoHeight = logoWidth / 2.9569f;
             var logoRect = new Rect(content.xMax - marginX - logoWidth,
                 content.y + marginY, logoWidth, logoHeight);
-            var chapterWidth = logoWidth * 0.48f;
-            var chapterHeight = chapterWidth / 2.4315f;
+            // scenario/title 的汉化图字形区为 x 311-866、y 116-256（含副标题全句），
+            // 裁切区留 10 px 边并保持旧版"祭囃篇"字高（旧裁切宽 355 对应 0.48）。
+            var chapterWidth = logoWidth * 0.48f * 576f / 355f;
+            var chapterHeight = chapterWidth * 152f / 576f;
             var chapterRect = new Rect(content.xMax - marginX - chapterWidth,
                 logoRect.yMax + 5f * scale, chapterWidth, chapterHeight);
 
@@ -1685,7 +1695,7 @@ namespace Higurashi.IOS.Runtime
                 DrawTextureRegion(logoRect, _creditsSeriesLogo,
                     new Rect(206f / 1920f, 285f / 1080f, 1508f / 1920f, 510f / 1080f));
                 DrawTextureRegion(chapterRect, _creditsChapterTitle,
-                    new Rect(308f / 1920f, 829f / 1080f, 355f / 1920f, 146f / 1080f));
+                    new Rect(300f / 1920f, 818f / 1080f, 576f / 1920f, 152f / 1080f));
             }
             else
             {

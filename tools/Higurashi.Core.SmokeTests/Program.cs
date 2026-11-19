@@ -52,6 +52,7 @@ internal static class Program
             RyukishiSpritePlacementMatchesPcRevert,
             TipsVisibilityMatchesPcTipsData,
             SharedDecorationLayersFitInsideFrame,
+            EpisodeEightSeriesLogoSkipsUntranslatedOriginal,
             ConsoleChoiceMenuLocalizationAndClassification,
             BadEndingChoicesMatchOriginalFlows,
             StoryChoiceLocalizationCoversAllStoryBranches,
@@ -768,47 +769,91 @@ internal static class Program
     private static void SharedDecorationLayersFitInsideFrame()
     {
         // Shared title/decoration layers exist only as 16:9 console art. In a
-        // 4:3 original-style frame (640 logical px wide) an 853-px-wide layer
-        // shrinks to fit; in a 16:9 frame (853 px) it already fits.
-        Equal(640f / 853f, PresentationAspectPolicy.DecorationLayerFitScale(
-            "titlelogo", 853f, 480f, 640f, 480f));
-        Equal(640f / 853f, PresentationAspectPolicy.DecorationLayerFitScale(
-            "sgtitle900200", 853f, 480f, 640f, 480f));
-        Equal(640f / 853f, PresentationAspectPolicy.DecorationLayerFitScale(
-            "scenario/logo", 853f, 480f, 640f, 480f));
-        Equal(640f / 853f, PresentationAspectPolicy.DecorationLayerFitScale(
-            "text/title_hinamizawa", 853f, 480f, 640f, 480f));
-        // 16:9 frames already fit: factor 1.
+        // 4:3 original-style frame (640 logical px wide) corner-composed art
+        // keeps full size and pins its right edge to the frame; centered
+        // full-screen art (text/, 16:9 boot logo) shrinks to fit.
+        Equal(DecorationLayerPlacement.AnchorRight,
+            PresentationAspectPolicy.DecorationPlacementFor(5, "titlelogo"));
+        Equal(DecorationLayerPlacement.AnchorRight,
+            PresentationAspectPolicy.DecorationPlacementFor(8, "SGTitle900200"));
+        Equal(DecorationLayerPlacement.AnchorRight,
+            PresentationAspectPolicy.DecorationPlacementFor(1, "Scenario/Logo"));
+        Equal(DecorationLayerPlacement.FitInsideFrame,
+            PresentationAspectPolicy.DecorationPlacementFor(5, "text/title_hinamizawa"));
+        Equal(DecorationLayerPlacement.FitInsideFrame,
+            PresentationAspectPolicy.DecorationPlacementFor(8, "logo"));
+        // EP8 stripes only: its localized credits sit past the 4:3 crop.
+        Equal(DecorationLayerPlacement.ShiftLeft,
+            PresentationAspectPolicy.DecorationPlacementFor(8, "scenario/stripes"));
+        Equal(DecorationLayerPlacement.None,
+            PresentationAspectPolicy.DecorationPlacementFor(7, "scenario/stripes"));
+
+        // Corner art never shrinks; it moves right by the overflow half.
         Equal(1f, PresentationAspectPolicy.DecorationLayerFitScale(
-            "titlelogo", 853f, 480f, 853f, 480f));
+            5, "titlelogo", 853f, 480f, 640f, 480f));
+        Equal(1f, PresentationAspectPolicy.DecorationLayerFitScale(
+            8, "sgtitle900200", 853f, 480f, 640f, 480f));
+        Equal((640f - 853f) * 0.5f, PresentationAspectPolicy.DecorationLayerOffsetX(
+            8, "sgtitle900200", 853f, 640f));
+        Equal((640f - 853f) * 0.5f, PresentationAspectPolicy.DecorationLayerOffsetX(
+            1, "scenario/logo", 853f, 640f));
+        // EP8 stripes shift 140/1920 of their width (credits end inside 4:3 crop).
+        True(Math.Abs(-853f * 140f / 1920f - PresentationAspectPolicy.DecorationLayerOffsetX(
+            8, "scenario/stripes", 853f, 640f)) < 0.001f);
+        // Centered full-screen art shrinks and is not offset.
+        Equal(640f / 853f, PresentationAspectPolicy.DecorationLayerFitScale(
+            5, "text/title_hinamizawa", 853f, 480f, 640f, 480f));
+        Equal(640f / 853f, PresentationAspectPolicy.DecorationLayerFitScale(
+            8, "logo", 853f, 480f, 640f, 480f));
+        Equal(0f, PresentationAspectPolicy.DecorationLayerOffsetX(
+            5, "text/title_hinamizawa", 640f, 640f));
+        // 16:9 frames already fit: no scale, no offset.
+        Equal(1f, PresentationAspectPolicy.DecorationLayerFitScale(
+            5, "text/title_hinamizawa", 853f, 480f, 853f, 480f));
+        Equal(0f, PresentationAspectPolicy.DecorationLayerOffsetX(
+            8, "sgtitle900200", 853f, 853f));
+        Equal(0f, PresentationAspectPolicy.DecorationLayerOffsetX(
+            8, "scenario/stripes", 853f, 853f));
         // 4:3 decoration art (OG logo, si_matsuri) never shrinks.
         Equal(1f, PresentationAspectPolicy.DecorationLayerFitScale(
-            "Logo", 640f, 480f, 640f, 480f));
+            1, "Logo", 640f, 480f, 640f, 480f));
         Equal(1f, PresentationAspectPolicy.DecorationLayerFitScale(
-            "text/si_matsuri_01", 640f, 480f, 640f, 480f));
-        // Character sprites and scene CG keep the PC full-height presentation.
-        Equal(1f, PresentationAspectPolicy.DecorationLayerFitScale(
-            "sprite/me1a_def_", 853f, 480f, 640f, 480f));
-        Equal(1f, PresentationAspectPolicy.DecorationLayerFitScale(
-            "scene/014a", 853f, 480f, 640f, 480f));
-        // Choice artwork keeps its exact geometry (hit bands are computed from
-        // the unshrunk rect).
-        Equal(1f, PresentationAspectPolicy.DecorationLayerFitScale(
-            "2choices", 853f, 480f, 640f, 480f));
-        Equal(1f, PresentationAspectPolicy.DecorationLayerFitScale(
-            "3choices", 853f, 480f, 640f, 480f));
-        // Case-insensitive stem matching for the logo names.
-        True(PresentationAspectPolicy.IsSharedDecorationLayer("TitleLogo"));
-        True(PresentationAspectPolicy.IsSharedDecorationLayer("SGTitle900200"));
-        True(PresentationAspectPolicy.IsSharedDecorationLayer("Scenario/Logo"));
-        True(PresentationAspectPolicy.IsSharedDecorationLayer("TEXT/foo"));
-        Equal(false, PresentationAspectPolicy.IsSharedDecorationLayer("background/so2"));
-        Equal(false, PresentationAspectPolicy.IsSharedDecorationLayer("haikei"));
-        Equal(false, PresentationAspectPolicy.IsSharedDecorationLayer(null));
-        Equal(false, PresentationAspectPolicy.IsSharedDecorationLayer(""));
+            8, "text/si_matsuri_01", 640f, 480f, 640f, 480f));
+        // Character sprites, scene CG and choice artwork keep their geometry
+        // (choice hit bands are computed from the unshrunk rect).
+        foreach (var name in new[] { "sprite/me1a_def_", "scene/014a", "2choices", "3choices",
+                     "background/so2", "haikei", "scenario/background", null, "" })
+        {
+            Equal(DecorationLayerPlacement.None,
+                PresentationAspectPolicy.DecorationPlacementFor(8, name));
+            Equal(1f, PresentationAspectPolicy.DecorationLayerFitScale(
+                8, name, 853f, 480f, 640f, 480f));
+            Equal(0f, PresentationAspectPolicy.DecorationLayerOffsetX(8, name, 853f, 640f));
+        }
         // Height-bound tall decoration still shrinks uniformly.
         Equal(0.5f, PresentationAspectPolicy.DecorationLayerFitScale(
-            "text/tall", 853f, 960f, 640f, 480f));
+            5, "text/tall", 853f, 960f, 640f, 480f));
+    }
+
+    private static void EpisodeEightSeriesLogoSkipsUntranslatedOriginal()
+    {
+        // EP8's OGBackgrounds/logo.png is the untranslated English original;
+        // only that episode's "logo" drops OGBackgrounds so CG/logo.png wins.
+        var original = new[] { "OGBackgrounds", "OGSprites", "CG" };
+        Equal("OGSprites,CG", string.Join(",",
+            VisualStyleFolderPolicy.FoldersForTexture(8, "logo", original)));
+        Equal("OGSprites,CG", string.Join(",",
+            VisualStyleFolderPolicy.FoldersForTexture(8, "Logo.png", original)));
+        Equal("OGBackgrounds,OGSprites,CG", string.Join(",",
+            VisualStyleFolderPolicy.FoldersForTexture(7, "logo", original)));
+        Equal("OGBackgrounds,OGSprites,CG", string.Join(",",
+            VisualStyleFolderPolicy.FoldersForTexture(8, "scenario/logo", original)));
+        Equal("OGBackgrounds,OGSprites,CG", string.Join(",",
+            VisualStyleFolderPolicy.FoldersForTexture(8, "logomask", original)));
+        Equal("OGBackgrounds,OGSprites,CG", string.Join(",",
+            VisualStyleFolderPolicy.FoldersForTexture(8, "background/moon", original)));
+        Equal("CG", string.Join(",",
+            VisualStyleFolderPolicy.FoldersForTexture(8, "logo", new[] { "CG" })));
     }
 
     private static void HideConsoleCgPolicyMatchesPcModSkipImage()

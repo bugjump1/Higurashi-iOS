@@ -89,6 +89,44 @@ namespace Higurashi.IOS.Compatibility
             return result.ToArray();
         }
 
+        /// <summary>
+        /// 移植特例（非 PC 行为）：EP8 数据包的 OGBackgrounds/logo.png 是未汉化的
+        /// 英文原图（"Higurashi When They Cry"），EP1-7 同位置均为中文 logo。
+        /// 原版背景下 EP8 的 logo 跳过 OGBackgrounds，落到 CG/logo.png（中文简体，
+        /// 16:9，由 PresentationAspectPolicy 缩入 4:3 画布）。其余贴图与其余章节不受影响。
+        /// </summary>
+        public static IReadOnlyList<string> FoldersForTexture(
+            int episode, string textureName, IReadOnlyList<string> folders)
+        {
+            if (episode != 8 || folders == null || !IsSeriesLogoName(textureName))
+            {
+                return folders;
+            }
+
+            var result = new List<string>();
+            for (var i = 0; i < folders.Count; i++)
+            {
+                if (!IsOgBackgrounds(folders[i]))
+                {
+                    result.Add(folders[i]);
+                }
+            }
+
+            return result.Count == 0 ? folders : result;
+        }
+
+        private static bool IsSeriesLogoName(string textureName)
+        {
+            if (string.IsNullOrEmpty(textureName))
+            {
+                return false;
+            }
+
+            var normalized = textureName.Replace('\\', '/').TrimStart('/');
+            return string.Equals(normalized, "logo", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(normalized, "logo.png", StringComparison.OrdinalIgnoreCase);
+        }
+
         private static List<string> NonBlankFolders(IReadOnlyList<string> folders)
         {
             var result = new List<string>();

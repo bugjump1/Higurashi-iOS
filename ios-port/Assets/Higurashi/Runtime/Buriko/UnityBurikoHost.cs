@@ -3546,6 +3546,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             {
                 return null;
             }
+            folders = VisualStyleFolderPolicy.FoldersForTexture(
+                HigurashiActiveChapter.Profile.EpisodeNumber, textureName, folders);
             return _assets.LoadTexture(textureName,
                 folders == null || folders.Count == 0 ? new[] { fallback } : folders,
                 preferAsianVariant: false,
