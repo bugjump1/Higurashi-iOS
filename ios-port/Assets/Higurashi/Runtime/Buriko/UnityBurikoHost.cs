@@ -3624,7 +3624,9 @@ namespace Higurashi.IOS.Runtime.Buriko
             }
 
             var backgroundIndex = _settings == null ? 0 : _settings.backgroundStyleIndex;
-            var folders = PcLookupFolders(backgroundIndex);
+            var folders = VisualStyleFolderPolicy.FoldersForTexture(
+                HigurashiActiveChapter.Profile.EpisodeNumber, textureName,
+                PcLookupFolders(backgroundIndex));
             if (!_assets.TryResolveFolder(textureName, folders, out resolvedFolder,
                     AllowLipSyncVariantFallback()))
             {

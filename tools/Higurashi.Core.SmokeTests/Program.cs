@@ -52,6 +52,7 @@ internal static class Program
             RyukishiSpritePlacementMatchesPcRevert,
             TipsVisibilityMatchesPcTipsData,
             SharedDecorationLayersFitInsideFrame,
+            EndrollStaffTexturesNeverShrinkAsDecoration,
             EpisodeEightSeriesLogoSkipsUntranslatedOriginal,
             ConsoleChoiceMenuLocalizationAndClassification,
             BadEndingChoicesMatchOriginalFlows,
@@ -769,15 +770,18 @@ internal static class Program
     private static void SharedDecorationLayersFitInsideFrame()
     {
         // Shared title/decoration layers exist only as 16:9 console art. In a
-        // 4:3 original-style frame (640 logical px wide) corner-composed art
-        // keeps full size and pins its right edge to the frame; centered
-        // full-screen art (text/, 16:9 boot logo) shrinks to fit.
+        // 4:3 original-style frame (640 logical px wide) top-right menu art
+        // keeps full size and pins its right edge to the frame; the
+        // chapter-preview logo shrinks uniformly and pins to bottom-right;
+        // centered full-screen art (text/, 16:9 boot logo) shrinks centered.
         Equal(DecorationLayerPlacement.AnchorRight,
             PresentationAspectPolicy.DecorationPlacementFor(5, "titlelogo"));
         Equal(DecorationLayerPlacement.AnchorRight,
             PresentationAspectPolicy.DecorationPlacementFor(8, "SGTitle900200"));
-        Equal(DecorationLayerPlacement.AnchorRight,
+        Equal(DecorationLayerPlacement.FitBottomRight,
             PresentationAspectPolicy.DecorationPlacementFor(1, "Scenario/Logo"));
+        Equal(DecorationLayerPlacement.FitBottomRight,
+            PresentationAspectPolicy.DecorationPlacementFor(8, "scenario/logo"));
         Equal(DecorationLayerPlacement.FitInsideFrame,
             PresentationAspectPolicy.DecorationPlacementFor(5, "text/title_hinamizawa"));
         Equal(DecorationLayerPlacement.FitInsideFrame,
@@ -788,15 +792,30 @@ internal static class Program
         Equal(DecorationLayerPlacement.None,
             PresentationAspectPolicy.DecorationPlacementFor(7, "scenario/stripes"));
 
-        // Corner art never shrinks; it moves right by the overflow half.
+        // Top-right menu art never shrinks; it moves left by the overflow half
+        // so its right edge meets the frame's right edge.
         Equal(1f, PresentationAspectPolicy.DecorationLayerFitScale(
             5, "titlelogo", 853f, 480f, 640f, 480f));
         Equal(1f, PresentationAspectPolicy.DecorationLayerFitScale(
             8, "sgtitle900200", 853f, 480f, 640f, 480f));
         Equal((640f - 853f) * 0.5f, PresentationAspectPolicy.DecorationLayerOffsetX(
             8, "sgtitle900200", 853f, 640f));
-        Equal((640f - 853f) * 0.5f, PresentationAspectPolicy.DecorationLayerOffsetX(
-            1, "scenario/logo", 853f, 640f));
+
+        // Chapter-preview logo shrinks uniformly and pins to bottom-right in 4:3,
+        // keeping clear of EP8's long description above and buttons on the left.
+        Equal(640f / 853f, PresentationAspectPolicy.DecorationLayerFitScale(
+            8, "scenario/logo", 853f, 480f, 640f, 480f));
+        PresentationAspectPolicy.ResolveDecorationLayer(
+            8, "scenario/logo", 853f, 480f, 640f, 480f,
+            out var previewW, out var previewH, out var previewOffX, out var previewOffY);
+        Equal(640f, previewW);
+        True(Math.Abs(480f * 640f / 853f - previewH) < 0.001f);
+        Equal(0f, previewOffX);
+        True(Math.Abs((480f - previewH) * 0.5f - previewOffY) < 0.001f);
+        // Right and bottom edges of centered+offset rect meet the 640x480 frame:
+        True(Math.Abs(320f - (previewW * 0.5f + previewOffX)) < 0.001f);
+        True(Math.Abs(240f - (previewH * 0.5f + previewOffY)) < 0.001f);
+
         // EP8 stripes shift 140/1920 of their width (credits end inside 4:3 crop).
         True(Math.Abs(-853f * 140f / 1920f - PresentationAspectPolicy.DecorationLayerOffsetX(
             8, "scenario/stripes", 853f, 640f)) < 0.001f);
@@ -810,6 +829,13 @@ internal static class Program
         // 16:9 frames already fit: no scale, no offset.
         Equal(1f, PresentationAspectPolicy.DecorationLayerFitScale(
             5, "text/title_hinamizawa", 853f, 480f, 853f, 480f));
+        PresentationAspectPolicy.ResolveDecorationLayer(
+            8, "scenario/logo", 853f, 480f, 853f, 480f,
+            out var wideW, out var wideH, out var wideOffX, out var wideOffY);
+        Equal(853f, wideW);
+        Equal(480f, wideH);
+        Equal(0f, wideOffX);
+        Equal(0f, wideOffY);
         Equal(0f, PresentationAspectPolicy.DecorationLayerOffsetX(
             8, "sgtitle900200", 853f, 853f));
         Equal(0f, PresentationAspectPolicy.DecorationLayerOffsetX(
@@ -830,9 +856,48 @@ internal static class Program
                 8, name, 853f, 480f, 640f, 480f));
             Equal(0f, PresentationAspectPolicy.DecorationLayerOffsetX(8, name, 853f, 640f));
         }
-        // Height-bound tall decoration still shrinks uniformly.
+        // Height-bound non-endroll text/ overlay still shrinks uniformly.
         Equal(0.5f, PresentationAspectPolicy.DecorationLayerFitScale(
             5, "text/tall", 853f, 960f, 640f, 480f));
+    }
+
+    private static void EndrollStaffTexturesNeverShrinkAsDecoration()
+    {
+        // EP5/6/8 scrolling staff rolls live under text/ (e.g. text/meak_staff_01,
+        // text/tumi_staff_01, text/staff_maturi1a/1b/2) at 1600-4000 logical px tall.
+        // They must never be classified as FitInsideFrame text/ overlays.
+        var endrollNames = new[]
+        {
+            "text/meak_staff_01",
+            "text/meak_staff_01.png",
+            "text/tumi_staff_01",
+            "staff_mina",
+            "text/staff_maturi1a",
+            "text/staff_maturi1b",
+            "text/staff_maturi2",
+            "TEXT/STAFF_MATURI2"
+        };
+        foreach (var name in endrollNames)
+        {
+            True(PresentationAspectPolicy.IsEndrollTexture(name), name);
+            Equal(DecorationLayerPlacement.None,
+                PresentationAspectPolicy.DecorationPlacementFor(8, name));
+            Equal(1f, PresentationAspectPolicy.DecorationLayerFitScale(
+                8, name, 640f, 4000f, 853f, 480f));
+            Equal(1f, PresentationAspectPolicy.DecorationLayerFitScale(
+                5, name, 640f, 2740f, 640f, 480f));
+            PresentationAspectPolicy.ResolveDecorationLayer(
+                8, name, 640f, 4000f, 640f, 480f,
+                out var w, out var h, out var offX, out var offY);
+            Equal(640f, w);
+            Equal(4000f, h);
+            Equal(0f, offX);
+            Equal(0f, offY);
+        }
+
+        Equal(false, PresentationAspectPolicy.IsEndrollTexture("text/title_mea"));
+        Equal(false, PresentationAspectPolicy.IsEndrollTexture("text/si_matsuri_01"));
+        Equal(false, PresentationAspectPolicy.IsEndrollTexture(null));
     }
 
     private static void EpisodeEightSeriesLogoSkipsUntranslatedOriginal()

@@ -289,7 +289,7 @@ namespace Higurashi.IOS.Runtime
                             layer.PreviousOverrideWidth, layer.PreviousOverrideHeight,
                             layer.PreviousFilter, layer.Id != 1000 || _host.FilmAppliesToFace,
                             bottomAnchor: isCharacterSprite,
-                            requestedName: layer.TextureName);
+                            requestedName: layer.PreviousTexture.name);
                     }
                 }
                 layer.GetRenderState(out var layerX, out var layerY, out var layerZ, out var layerAlpha);
@@ -445,20 +445,17 @@ namespace Higurashi.IOS.Runtime
             var depthScale = Mathf.Max(0.05f, 1f - layerZ / 400f);
             var width = canonicalWidth * screenScale * depthScale;
             var height = canonicalHeight * screenScale * depthScale;
-            var decorationName = requestedName ?? texture.name;
-            var episode = HigurashiActiveChapter.Profile.EpisodeNumber;
-            var fitScale = PresentationAspectPolicy.DecorationLayerFitScale(
-                episode, decorationName, width, height, content.width, content.height);
-            width *= fitScale;
-            height *= fitScale;
-            var decorationOffsetX = PresentationAspectPolicy.DecorationLayerOffsetX(
-                episode, decorationName, width, content.width);
             float x;
             float y;
             if (centered)
             {
+                var decorationName = requestedName ?? texture.name;
+                var episode = HigurashiActiveChapter.Profile.EpisodeNumber;
+                PresentationAspectPolicy.ResolveDecorationLayer(
+                    episode, decorationName, width, height, content.width, content.height,
+                    out width, out height, out var decorationOffsetX, out var decorationOffsetY);
                 x = content.center.x + layerX * screenScale - width * 0.5f + decorationOffsetX;
-                y = content.center.y + layerY * screenScale - height * 0.5f;
+                y = content.center.y + layerY * screenScale - height * 0.5f + decorationOffsetY;
             }
             else
             {
@@ -522,21 +519,23 @@ namespace Higurashi.IOS.Runtime
             var depthScale = Mathf.Max(0.05f, 1f - layerZ / 400f);
             var width = canonicalWidth * screenScale * depthScale;
             var height = canonicalHeight * screenScale * depthScale;
-            var decorationName = requestedName ?? texture.name;
-            var episode = HigurashiActiveChapter.Profile.EpisodeNumber;
-            var fitScale = PresentationAspectPolicy.DecorationLayerFitScale(
-                episode, decorationName, width, height, content.width, content.height);
-            width *= fitScale;
-            height *= fitScale;
+            var decorationOffsetX = 0f;
+            var decorationOffsetY = 0f;
+            if (centered)
+            {
+                var decorationName = requestedName ?? texture.name;
+                var episode = HigurashiActiveChapter.Profile.EpisodeNumber;
+                PresentationAspectPolicy.ResolveDecorationLayer(
+                    episode, decorationName, width, height, content.width, content.height,
+                    out width, out height, out decorationOffsetX, out decorationOffsetY);
+            }
             var x = centered
-                ? content.center.x + layerX * screenScale - width * 0.5f +
-                  PresentationAspectPolicy.DecorationLayerOffsetX(
-                      episode, decorationName, width, content.width)
+                ? content.center.x + layerX * screenScale - width * 0.5f + decorationOffsetX
                 : content.center.x + layerX * screenScale;
             var y = bottomAnchor && height <= content.height
                 ? content.yMax - height + layerY * screenScale
                 : centered
-                    ? content.center.y + layerY * screenScale - height * 0.5f
+                    ? content.center.y + layerY * screenScale - height * 0.5f + decorationOffsetY
                     : content.center.y + layerY * screenScale;
             var edgeInset = cropTransparentEdges
                 ? Mathf.Min(3f / Mathf.Max(1f, texture.height), 0.01f)
@@ -3455,11 +3454,7 @@ namespace Higurashi.IOS.Runtime
 
         private static bool IsEndrollTexture(string textureName)
         {
-            var name = Path.GetFileNameWithoutExtension(textureName ?? string.Empty);
-            return name.StartsWith("tumi_staff", StringComparison.OrdinalIgnoreCase) ||
-                   name.StartsWith("meak_staff", StringComparison.OrdinalIgnoreCase) ||
-                   name.StartsWith("staff_mina", StringComparison.OrdinalIgnoreCase) ||
-                   name.StartsWith("staff_maturi", StringComparison.OrdinalIgnoreCase);
+            return PresentationAspectPolicy.IsEndrollTexture(textureName);
         }
 
         private void DrawEndrollTexture(Rect content, PresentationLayer layer)
@@ -3473,7 +3468,7 @@ namespace Higurashi.IOS.Runtime
             DrawPresentationTexture(content, layer.Texture, x, y, z, alpha,
                 layer.IsCentered, content.height / 480f, false,
                 Mathf.RoundToInt(logicalWidth), Mathf.RoundToInt(logicalHeight),
-                layer.Filter, false);
+                layer.Filter, false, requestedName: layer.TextureName);
         }
 
         private static MobileChoiceMode NextChoiceMode(MobileChoiceMode mode)
