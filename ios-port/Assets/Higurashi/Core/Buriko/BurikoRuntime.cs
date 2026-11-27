@@ -27,8 +27,10 @@ namespace Higurashi.IOS.Buriko
         public BurikoBlockReason BlockReason { get; private set; }
         public Exception LastError { get; private set; }
         public string CurrentScriptName => _current?.Name;
+        public string CurrentSectionName => _current?.SectionName;
         public int CurrentLine => _current?.LineNumber ?? 0;
         public int CallDepth => _callStack.Count + (_current == null ? 0 : 1);
+        public int RemainingWaitMilliseconds => _remainingWaitMilliseconds;
 
         public void Start(string scriptName = "init")
         {
@@ -317,6 +319,25 @@ namespace Higurashi.IOS.Buriko
             }
 
             _remainingWaitMilliseconds -= Math.Max(0, elapsedMilliseconds);
+            if (_remainingWaitMilliseconds <= 0)
+            {
+                _remainingWaitMilliseconds = 0;
+                BlockReason = BurikoBlockReason.None;
+            }
+        }
+
+        public void ClampRemainingWaitMilliseconds(int maximumMilliseconds)
+        {
+            if (BlockReason != BurikoBlockReason.WaitForTime)
+            {
+                return;
+            }
+
+            var limit = Math.Max(0, maximumMilliseconds);
+            if (_remainingWaitMilliseconds > limit)
+            {
+                _remainingWaitMilliseconds = limit;
+            }
             if (_remainingWaitMilliseconds <= 0)
             {
                 _remainingWaitMilliseconds = 0;
@@ -615,6 +636,7 @@ namespace Higurashi.IOS.Buriko
             }
 
             public string Name { get; }
+            public string SectionName { get; private set; }
             public CompiledScriptContainer Container { get; }
             public BinaryReader Reader { get; }
             public int LineNumber { get; set; }
@@ -626,6 +648,7 @@ namespace Higurashi.IOS.Buriko
                     throw new KeyNotFoundException("Buriko block was not found: " + name);
                 }
 
+                SectionName = name;
                 Reader.BaseStream.Position = position;
             }
 

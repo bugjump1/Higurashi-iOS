@@ -84,7 +84,11 @@ internal static class Program
             BurikoPersistentStateMetadataReadsChapter,
             BurikoRuntimeHandlesModCrossScriptSectionCall,
             BurikoRuntimeHandlesEpisode04ReturnOperation,
-            BurikoMemoryInitializesTextColorToWhite
+            BurikoMemoryInitializesTextColorToWhite,
+            EndrollWaitPolicyClampsPostFadeBlackAndRunawayWaits,
+            UnexpectedChapterPreviewRedirectsToTitleOnlyWhenUnauthorized,
+            TitleInteractionCooldownPreventsImmediateAccidentalTap,
+            BurikoRuntimeTracksCurrentSectionAndClampsWait
         };
 
         foreach (var test in tests)
@@ -1973,6 +1977,125 @@ internal static class Program
     {
         var memory = new BurikoMemory();
         Equal(0xFFFFFF, memory.GetLocalFlag("LTextColor"));
+    }
+
+    private static void EndrollWaitPolicyClampsPostFadeBlackAndRunawayWaits()
+    {
+        True(EndrollAndFlowTransitionPolicy.IsEndrollScript("&endroll_staff6"));
+        True(EndrollAndFlowTransitionPolicy.IsEndrollScript("&endroll_staff8"));
+        True(!EndrollAndFlowTransitionPolicy.IsEndrollScript("_tsum_026a"));
+
+        // Non-endroll scripts and pre-scroll waits stay untouched.
+        Equal(10000, EndrollAndFlowTransitionPolicy.ResolveEndrollWaitMilliseconds(
+            "_tsum_026a", 10000, true, false, 0));
+        Equal(2500, EndrollAndFlowTransitionPolicy.ResolveEndrollWaitMilliseconds(
+            "&endroll_staff6", 2500, false, false, 0));
+
+        // EP06 post-scroll Wait(10000) concurrent with FadeSprite(5, 3000, false)
+        // keeps the full 3s fade-out plus a 1s beat, and the final Wait(2000) clamps to 1s.
+        Equal(4000, EndrollAndFlowTransitionPolicy.ResolveEndrollWaitMilliseconds(
+            "&endroll_staff6", 10000, true, false, 3000));
+        Equal(1000, EndrollAndFlowTransitionPolicy.ResolveEndrollWaitMilliseconds(
+            "&endroll_staff6", 2000, true, false, 0));
+
+        // EP05/EP07/EP08 visible scrolling & holding waits stay verbatim.
+        Equal(4000, EndrollAndFlowTransitionPolicy.ResolveEndrollWaitMilliseconds(
+            "&endroll_staff5", 4000, true, true, 0));
+        Equal(80000, EndrollAndFlowTransitionPolicy.ResolveEndrollWaitMilliseconds(
+            "&endroll_staff7", 80000, true, true, 80000));
+        Equal(100000, EndrollAndFlowTransitionPolicy.ResolveEndrollWaitMilliseconds(
+            "&endroll_staff8", 100000, true, true, 200000));
+
+        // EP08 upstream typo Wait(1850000) (~30.8m) clamps to remaining scroll + 5s margin.
+        Equal(105000, EndrollAndFlowTransitionPolicy.ResolveEndrollWaitMilliseconds(
+            "&endroll_staff8", 1850000, true, true, 100000));
+    }
+
+    private static void UnexpectedChapterPreviewRedirectsToTitleOnlyWhenUnauthorized()
+    {
+        // Normal "Start Game" path authorizes ChapterPreview and must not redirect.
+        True(!EndrollAndFlowTransitionPolicy.ShouldRedirectUnexpectedChapterPreviewToTitle(
+            "flow", "ChapterPreview", false, chapterPreviewAuthorized: true, tipReading: false));
+        True(!EndrollAndFlowTransitionPolicy.ShouldRedirectUnexpectedChapterPreviewToTitle(
+            "flow", "ChapterPreview", true, chapterPreviewAuthorized: true, tipReading: false));
+
+        // Returning from a direct-entry script into flow.ChapterPreview redirects to Title
+        // before any preview animation plays (and also catches ChapterPreviewVisible fallback).
+        True(EndrollAndFlowTransitionPolicy.ShouldRedirectUnexpectedChapterPreviewToTitle(
+            "flow", "ChapterPreview", false, chapterPreviewAuthorized: false, tipReading: false));
+        True(EndrollAndFlowTransitionPolicy.ShouldRedirectUnexpectedChapterPreviewToTitle(
+            "flow", "main", true, chapterPreviewAuthorized: false, tipReading: false));
+
+        // TIPS browser return path retains control instead of redirecting to Title.
+        True(!EndrollAndFlowTransitionPolicy.ShouldRedirectUnexpectedChapterPreviewToTitle(
+            "flow", "ChapterPreview", false, chapterPreviewAuthorized: false, tipReading: true));
+
+        // Normal Title / Game / story scripts do not trigger redirect.
+        True(!EndrollAndFlowTransitionPolicy.ShouldRedirectUnexpectedChapterPreviewToTitle(
+            "flow", "Title", false, chapterPreviewAuthorized: false, tipReading: false));
+        True(!EndrollAndFlowTransitionPolicy.ShouldRedirectUnexpectedChapterPreviewToTitle(
+            "flow", "Game", false, chapterPreviewAuthorized: false, tipReading: false));
+        True(!EndrollAndFlowTransitionPolicy.ShouldRedirectUnexpectedChapterPreviewToTitle(
+            "_tsum_026a", "ChapterPreview", false, chapterPreviewAuthorized: false, tipReading: false));
+    }
+
+    private static void TitleInteractionCooldownPreventsImmediateAccidentalTap()
+    {
+        True(!EndrollAndFlowTransitionPolicy.IsTitleInteractionReady(false, 5f));
+        True(!EndrollAndFlowTransitionPolicy.IsTitleInteractionReady(true, 0f));
+        True(!EndrollAndFlowTransitionPolicy.IsTitleInteractionReady(true, 0.59f));
+        True(EndrollAndFlowTransitionPolicy.IsTitleInteractionReady(
+            true, EndrollAndFlowTransitionPolicy.TitleInputCooldownSeconds));
+        True(EndrollAndFlowTransitionPolicy.IsTitleInteractionReady(true, 1.5f));
+    }
+
+    private static void BurikoRuntimeTracksCurrentSectionAndClampsWait()
+    {
+        var mainBytes = BuildBytecode(writer =>
+        {
+            WriteOperation(writer, 8, () => WriteStringValue(writer, "ChapterPreview"));
+            writer.Write((short)0);
+        });
+        var previewBytes = BuildBytecode(writer =>
+        {
+            WriteOperation(writer, 10, () => WriteIntValue(writer, 10000));
+            writer.Write((short)0);
+        });
+        using var stream = new MemoryStream();
+        using (var writer = new BinaryWriter(stream, Encoding.UTF8, true))
+        {
+            writer.Write(Encoding.ASCII.GetBytes("MGSC"));
+            writer.Write(1);
+            writer.Write(2);
+            writer.Write(0);
+            writer.Write(mainBytes.Length + previewBytes.Length);
+            writer.Write("main");
+            writer.Write(0);
+            writer.Write("ChapterPreview");
+            writer.Write(mainBytes.Length);
+            writer.Write(mainBytes);
+            writer.Write(previewBytes);
+        }
+        stream.Position = 0;
+        var flow = CompiledScriptContainer.Read(stream);
+
+        var runtime = new BurikoRuntime(
+            new DictionaryScriptRepository(("flow", flow)),
+            new CapturingHost());
+        runtime.Start("flow");
+        Equal("main", runtime.CurrentSectionName);
+        Equal(BurikoBlockReason.WaitForTime, runtime.RunUntilBlocked());
+        Equal("ChapterPreview", runtime.CurrentSectionName);
+        Equal(10000, runtime.RemainingWaitMilliseconds);
+
+        runtime.ClampRemainingWaitMilliseconds(1000);
+        Equal(BurikoBlockReason.WaitForTime, runtime.BlockReason);
+        Equal(1000, runtime.RemainingWaitMilliseconds);
+
+        runtime.ClampRemainingWaitMilliseconds(0);
+        Equal(BurikoBlockReason.None, runtime.BlockReason);
+        Equal(0, runtime.RemainingWaitMilliseconds);
+        Equal(BurikoBlockReason.Completed, runtime.RunUntilBlocked());
     }
 
     private static void BurikoRuntimeCommitsPresentationAtWaitBoundaries()

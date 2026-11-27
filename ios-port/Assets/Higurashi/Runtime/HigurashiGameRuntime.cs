@@ -487,7 +487,7 @@ namespace Higurashi.IOS.Runtime
             }
 
             var script = _runtime.CurrentScriptName ?? string.Empty;
-            var isEndroll = script.IndexOf("endroll_staff", StringComparison.OrdinalIgnoreCase) >= 0;
+            var isEndroll = EndrollAndFlowTransitionPolicy.IsEndrollScript(script);
             if (isEndroll && !_host.EndrollVisible &&
                 HigurashiActiveChapter.Profile.EpisodeNumber == 6)
             {
@@ -496,7 +496,7 @@ namespace Higurashi.IOS.Runtime
                 // reaches this script only after the normal route, so mirror
                 // those writes here without treating bad-end scripts as clear.
                 _runtime.Memory.SetGlobalFlag("GFlag_GameClear", 1);
-                _runtime.Memory.SetGlobalFlag("GHighestChapter", 12);
+                _runtime.Memory.SetGlobalFlag("GHighestChapter", 26);
                 _runtime.Memory.SetGlobalFlag("GTotalTips", 38);
             }
             _host.SetEndrollMode(isEndroll);
@@ -708,6 +708,16 @@ namespace Higurashi.IOS.Runtime
                     return;
                 }
 
+                if (TryRedirectUnexpectedChapterPreviewToTitle())
+                {
+                    continue;
+                }
+
+                if (ClampEndrollWaitIfNeeded())
+                {
+                    continue;
+                }
+
                 if (TryContinueEpisodeEightStoryAfterFragment50())
                 {
                     continue;
@@ -861,6 +871,72 @@ namespace Higurashi.IOS.Runtime
                 "Fragment 50 completed with FragmentRead51; continuing immediately at flow.Game s_jump=" +
                 EpisodeEightFragmentContinuationPolicy.ResumeStoryJumpValue + " " + RuntimeLocation());
             return true;
+        }
+
+        private bool TryRedirectUnexpectedChapterPreviewToTitle()
+        {
+            if (_runtime == null || _host == null ||
+                _tipsLibraryReturnCheckpoint != null ||
+                _bonusContentReturnCheckpoint != null)
+            {
+                return false;
+            }
+
+            if (_host.IsChapterPreviewAuthorized &&
+                (!string.Equals(_runtime.CurrentScriptName, "flow",
+                     StringComparison.OrdinalIgnoreCase) ||
+                 (!string.Equals(_runtime.CurrentSectionName, "Title",
+                      StringComparison.OrdinalIgnoreCase) &&
+                  !string.Equals(_runtime.CurrentSectionName, "ChapterPreview",
+                      StringComparison.OrdinalIgnoreCase))))
+            {
+                _host.ClearChapterPreviewAuthorization();
+            }
+
+            if (!EndrollAndFlowTransitionPolicy.ShouldRedirectUnexpectedChapterPreviewToTitle(
+                    _runtime.CurrentScriptName,
+                    _runtime.CurrentSectionName,
+                    _host.ChapterPreviewVisible,
+                    _host.IsChapterPreviewAuthorized,
+                    _host.TipReading))
+            {
+                return false;
+            }
+
+            _fastTraversal.Stop();
+            _autoMode = false;
+            _host.StopAllAudio();
+            _host.ClearChapterPreviewAuthorization();
+            _runtime.JumpToScriptSectionFromUi("flow", "Title");
+            _suppressInputUntilFrame = Time.frameCount + 2;
+            HigurashiDiagnosticLog.Info("Flow",
+                "Redirected unexpected ChapterPreview entry to flow.Title " + RuntimeLocation());
+            return true;
+        }
+
+        private bool ClampEndrollWaitIfNeeded()
+        {
+            if (_runtime == null || _host == null || !_host.EndrollVisible ||
+                _runtime.BlockReason != BurikoBlockReason.WaitForTime)
+            {
+                return false;
+            }
+
+            _host.GetEndrollLayerState(
+                out var endrollLayerShown,
+                out var hasVisibleTarget,
+                out var remainingTransitionMs);
+            var clamped = EndrollAndFlowTransitionPolicy.ResolveEndrollWaitMilliseconds(
+                _runtime.CurrentScriptName,
+                _runtime.RemainingWaitMilliseconds,
+                endrollLayerShown,
+                hasVisibleTarget,
+                remainingTransitionMs);
+            if (clamped < _runtime.RemainingWaitMilliseconds)
+            {
+                _runtime.ClampRemainingWaitMilliseconds(clamped);
+            }
+            return _runtime.BlockReason == BurikoBlockReason.None;
         }
 
         private bool TryRestoreTipsLibraryBeforeFlowTransition()
@@ -1412,7 +1488,7 @@ namespace Higurashi.IOS.Runtime
             try
             {
                 var returnCheckpoint = CaptureCurrentCheckpoint();
-                if (!_host.StartFromTitle(_runtime.Memory))
+                if (!_host.StartFromTitle(_runtime.Memory, allowChapterPreview: false))
                 {
                     return;
                 }
@@ -1449,7 +1525,8 @@ namespace Higurashi.IOS.Runtime
 
         private void StartGame()
         {
-            if (_runtime == null || !_host.StartFromTitle(_runtime.Memory))
+            if (_runtime == null || !_host.IsTitleInputReady ||
+                !_host.StartFromTitle(_runtime.Memory, allowChapterPreview: true))
             {
                 return;
             }

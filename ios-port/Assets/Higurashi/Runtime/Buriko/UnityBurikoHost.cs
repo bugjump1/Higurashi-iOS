@@ -135,6 +135,9 @@ namespace Higurashi.IOS.Runtime.Buriko
         private int _lastVoiceIssuedForDialogueSerial = -1;
         private float _creditsPageChangedAt;
         private bool _chapterPreviewAccepted;
+        private bool _chapterPreviewAuthorized;
+        private bool _endrollLayerShown;
+        private float _titleShownAt = -10f;
         private BurikoMemory _memory;
         private VideoPlayer _videoPlayer;
 
@@ -146,6 +149,9 @@ namespace Higurashi.IOS.Runtime.Buriko
         public bool EndrollVisible { get; private set; }
         public int CreditsPage { get; private set; }
         public bool ChapterPreviewVisible { get; private set; }
+        public bool IsChapterPreviewAuthorized => _chapterPreviewAuthorized;
+        public bool IsTitleInputReady => EndrollAndFlowTransitionPolicy.IsTitleInteractionReady(
+            TitleVisible, Time.unscaledTime - _titleShownAt);
         public bool FragmentChapterVisible => _fragmentChapterVisible;
         public bool FragmentListVisible => _fragmentListVisible;
         public bool TipsChapterVisible => _tipsChapterVisible;
@@ -174,17 +180,63 @@ namespace Higurashi.IOS.Runtime.Buriko
             }
 
             EndrollVisible = active;
+            _endrollLayerShown = false;
             if (active)
             {
                 CreditsVisible = false;
                 TitleVisible = false;
                 ChapterPreviewVisible = false;
+                _chapterPreviewAuthorized = false;
                 GameplayUiVisible = false;
                 SavingEnabled = false;
                 InterfaceEnabled = false;
                 HistoryVisible = false;
                 Choices.Clear();
                 SetWindowVisibilityImmediate(false);
+            }
+        }
+
+        public void ClearChapterPreviewAuthorization()
+        {
+            _chapterPreviewAuthorized = false;
+            ChapterPreviewVisible = false;
+        }
+
+        public void GetEndrollLayerState(
+            out bool endrollLayerShown,
+            out bool hasVisibleTargetEndrollLayer,
+            out int remainingEndrollTransitionMilliseconds)
+        {
+            endrollLayerShown = _endrollLayerShown;
+            hasVisibleTargetEndrollLayer = false;
+            remainingEndrollTransitionMilliseconds = 0;
+
+            var now = Time.unscaledTime;
+            foreach (var pair in _layers)
+            {
+                var layer = pair.Value;
+                if (layer == null || !PresentationAspectPolicy.IsEndrollTexture(layer.TextureName))
+                {
+                    continue;
+                }
+
+                endrollLayerShown = true;
+                if (layer.Alpha > 0.01f)
+                {
+                    hasVisibleTargetEndrollLayer = true;
+                }
+                if (layer.TransitionDuration > 0f)
+                {
+                    var remainingSeconds = layer.TransitionStartedAt + layer.TransitionDuration - now;
+                    if (remainingSeconds > 0f)
+                    {
+                        var remainingMs = Mathf.CeilToInt(remainingSeconds * 1000f);
+                        if (remainingMs > remainingEndrollTransitionMilliseconds)
+                        {
+                            remainingEndrollTransitionMilliseconds = remainingMs;
+                        }
+                    }
+                }
             }
         }
         public int DialogueSerial { get; private set; }
@@ -761,16 +813,19 @@ namespace Higurashi.IOS.Runtime.Buriko
                         Int(invocation, 1, memory) / 128f);
                     return BurikoHostResponse.Continue;
                 case 28:
-                    _audio.StopBgm(Int(invocation, 0, memory));
+                    _audio.FadeOutBgm(Int(invocation, 0, memory), Int(invocation, 1, memory) / 1000f);
                     return BurikoHostResponse.Continue;
                 case 29:
+                {
+                    var duration = Int(invocation, 2, memory) / 1000f;
                     for (var channel = Int(invocation, 0, memory);
                          channel <= Int(invocation, 1, memory);
                          channel++)
                     {
-                        _audio.StopBgm(channel);
+                        _audio.FadeOutBgm(channel, duration);
                     }
                     return BurikoHostResponse.Continue;
+                }
                 case 30:
                     _audio.PlaySe(
                         Int(invocation, 0, memory),
@@ -922,16 +977,26 @@ namespace Higurashi.IOS.Runtime.Buriko
                     return AnimationResponse(Int(invocation, 6, memory) / 1000f,
                         invocation.Arguments[7].AsBool(memory));
                 case 64:
-                    FadeLayer(Int(invocation, 0, memory), Int(invocation, 1, memory) / 1000f);
-                    _sceneLayerBatch.Discard(Int(invocation, 0, memory));
-                    return AnimationResponse(Int(invocation, 1, memory) / 1000f,
-                        invocation.Arguments[2].AsBool(memory));
+                {
+                    var layerId = Int(invocation, 0, memory);
+                    var duration = Int(invocation, 1, memory) / 1000f;
+                    var faded = FadeLayer(layerId, duration);
+                    _sceneLayerBatch.Discard(layerId);
+                    return faded
+                        ? AnimationResponse(duration, invocation.Arguments[2].AsBool(memory))
+                        : BurikoHostResponse.Continue;
+                }
                 case 65:
-                    FadeLayerWithMask(Int(invocation, 0, memory), Text(invocation, 1, memory),
-                        Int(invocation, 2, memory), Int(invocation, 3, memory) / 1000f, memory);
-                    _sceneLayerBatch.Discard(Int(invocation, 0, memory));
-                    return AnimationResponse(Int(invocation, 3, memory) / 1000f,
-                        invocation.Arguments[4].AsBool(memory));
+                {
+                    var layerId = Int(invocation, 0, memory);
+                    var duration = Int(invocation, 3, memory) / 1000f;
+                    var faded = FadeLayerWithMask(layerId, Text(invocation, 1, memory),
+                        Int(invocation, 2, memory), duration, memory);
+                    _sceneLayerBatch.Discard(layerId);
+                    return faded
+                        ? AnimationResponse(duration, invocation.Arguments[4].AsBool(memory))
+                        : BurikoHostResponse.Continue;
+                }
                 case 58:
                     DrawAnimatedLayer(invocation, memory, true, 0, 1, 4, 5, 10, 6, 7, 8, 9, 12, 13,
                         guardConsoleCg: false);
@@ -1125,8 +1190,11 @@ namespace Higurashi.IOS.Runtime.Buriko
                         return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
                     }
                     TitleVisible = true;
+                    _titleShownAt = Time.unscaledTime;
                     EndrollVisible = false;
+                    _endrollLayerShown = false;
                     ChapterPreviewVisible = false;
+                    _chapterPreviewAuthorized = false;
                     _fragmentChapterVisible = false;
                     _fragmentListVisible = false;
                     _tipsChapterVisible = false;
@@ -1209,7 +1277,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 143:
                     if (memory.GetGlobalFlag("GAltBGMflow") == Int(invocation, 3, memory))
                     {
-                        _audio.StopBgm(Int(invocation, 0, memory));
+                        _audio.FadeOutBgm(Int(invocation, 0, memory), Int(invocation, 1, memory) / 1000f);
                     }
                     return BurikoHostResponse.Continue;
                 case 144:
@@ -1233,7 +1301,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             }
         }
 
-        public bool StartFromTitle(BurikoMemory memory)
+        public bool StartFromTitle(BurikoMemory memory, bool allowChapterPreview = true)
         {
             if (!TitleVisible)
             {
@@ -1244,6 +1312,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             CommitPendingPresentation();
             TitleVisible = false;
             ChapterPreviewVisible = false;
+            _chapterPreviewAuthorized = allowChapterPreview;
+            _endrollLayerShown = false;
             _fragmentChapterVisible = false;
             _fragmentListVisible = false;
             _tipsChapterVisible = false;
@@ -1263,6 +1333,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             CreditsVisible = false;
             CreditsPage = 0;
             ChapterPreviewVisible = false;
+            _chapterPreviewAuthorized = false;
+            _endrollLayerShown = false;
             _fragmentChapterVisible = false;
             _fragmentListVisible = false;
             _tipsChapterVisible = false;
@@ -1295,6 +1367,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             _layers.Clear();
             TitleVisible = false;
             ChapterPreviewVisible = false;
+            _chapterPreviewAuthorized = false;
+            _endrollLayerShown = false;
             _fragmentChapterVisible = false;
             _fragmentListVisible = false;
             _tipsChapterVisible = false;
@@ -2613,6 +2687,12 @@ namespace Higurashi.IOS.Runtime.Buriko
 
             CreditsVisible = false;
             CreditsPage = 0;
+            _chapterPreviewAuthorized = false;
+            _endrollLayerShown = false;
+            if (TitleVisible)
+            {
+                _titleShownAt = Time.unscaledTime;
+            }
             if (!hasPersistedUiState)
             {
                 ChapterPreviewVisible = false;
@@ -2715,7 +2795,13 @@ namespace Higurashi.IOS.Runtime.Buriko
             _dialogueRevealForced = true;
             SetWindowVisibilityImmediate(snapshot.WindowVisible);
             TitleVisible = snapshot.TitleVisible;
+            if (TitleVisible)
+            {
+                _titleShownAt = Time.unscaledTime;
+            }
             ChapterPreviewVisible = snapshot.ChapterPreviewVisible;
+            _chapterPreviewAuthorized = false;
+            _endrollLayerShown = false;
             GameplayUiVisible = snapshot.GameplayUiVisible;
             _chapterPreviewAccepted = snapshot.ChapterPreviewAccepted;
             _fragmentChapterVisible = snapshot.FragmentChapterVisible;
@@ -2878,6 +2964,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 _dialogueRevealStartedAt = Time.unscaledTime;
             }
             _dialogueRevealForced = false;
+            _chapterPreviewAuthorized = false;
             _appendNext = textMode != 0;
             DialogueSerial++;
             // OpeningQuestion immediately follows this prompt with Select. Keeping
@@ -3170,6 +3257,11 @@ namespace Higurashi.IOS.Runtime.Buriko
                 ? layerFilter.Clone()
                 : PresentationLayerFilter.Identity();
 
+            if (PresentationAspectPolicy.IsEndrollTexture(textureName))
+            {
+                _endrollLayerShown = true;
+            }
+
             _layers[id] = new PresentationLayer
             {
                 Id = id,
@@ -3385,27 +3477,29 @@ namespace Higurashi.IOS.Runtime.Buriko
             }
         }
 
-        private void FadeLayer(int id, float duration)
+        private bool FadeLayer(int id, float duration)
         {
             if (!_layers.TryGetValue(id, out var layer))
             {
-                return;
+                return false;
             }
             layer.BeginTransition(layer.X, layer.Y, layer.Z, 0f, duration, 13);
             layer.LipSyncBaseName = null;
+            return true;
         }
 
-        private void FadeLayerWithMask(int id, string maskName, int style, float duration,
+        private bool FadeLayerWithMask(int id, string maskName, int style, float duration,
             BurikoMemory memory)
         {
             if (!_layers.TryGetValue(id, out var layer))
             {
-                return;
+                return false;
             }
 
             layer.BeginTransition(layer.X, layer.Y, layer.Z, 0f, duration, 13);
             SetLayerMask(id, maskName, style, true, memory);
             layer.LipSyncBaseName = null;
+            return true;
         }
 
         private void SetLayerMask(int id, string maskName, int style, bool reverse,
@@ -5203,6 +5297,67 @@ namespace Higurashi.IOS.Runtime.Buriko
         {
             _bgmState.Remove(channel);
             Stop(RuntimeAudioKind.Bgm, channel);
+        }
+
+        public void FadeOutBgm(int channel, float durationSeconds)
+        {
+            if (durationSeconds <= 0.01f)
+            {
+                StopBgm(channel);
+                return;
+            }
+
+            _bgmState.Remove(channel);
+            var key = Key(RuntimeAudioKind.Bgm, channel);
+            if (_pendingGenerations.ContainsKey(key) ||
+                !_sources.TryGetValue(key, out var source) ||
+                source == null || !source.isPlaying)
+            {
+                Stop(RuntimeAudioKind.Bgm, channel);
+                return;
+            }
+
+            var generation = NextGeneration(key);
+            var startBaseVolume = _bgmMasterVolume > 0.0001f
+                ? source.volume / _bgmMasterVolume
+                : 0f;
+            StartCoroutine(FadeOutAndStop(key, generation, source, startBaseVolume, durationSeconds));
+        }
+
+        private IEnumerator FadeOutAndStop(
+            string key,
+            int generation,
+            AudioSource source,
+            float startBaseVolume,
+            float durationSeconds)
+        {
+            var elapsed = 0f;
+            while (elapsed < durationSeconds)
+            {
+                if (!_generations.TryGetValue(key, out var currentGeneration) ||
+                    currentGeneration != generation || source == null || !source.isPlaying)
+                {
+                    yield break;
+                }
+
+                elapsed += Mathf.Max(0f, Time.unscaledDeltaTime);
+                var progress = Mathf.Clamp01(elapsed / durationSeconds);
+                source.volume = Mathf.Clamp01(Mathf.Lerp(startBaseVolume, 0f, progress) * _bgmMasterVolume);
+                yield return null;
+            }
+
+            if (!_generations.TryGetValue(key, out var finalGeneration) ||
+                finalGeneration != generation || source == null)
+            {
+                yield break;
+            }
+
+            source.Stop();
+            if (source.clip != null)
+            {
+                Destroy(source.clip);
+                source.clip = null;
+            }
         }
         public void StopSe(int channel) => Stop(RuntimeAudioKind.Se, channel);
 

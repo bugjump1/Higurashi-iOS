@@ -1138,7 +1138,7 @@ namespace Higurashi.IOS.Runtime
         private void StartChapterJump(string section)
         {
             if (_runtime == null || _host == null || string.IsNullOrWhiteSpace(section) ||
-                !_host.StartFromTitle(_runtime.Memory))
+                !_host.StartFromTitle(_runtime.Memory, allowChapterPreview: false))
             {
                 return;
             }
@@ -1748,24 +1748,26 @@ namespace Higurashi.IOS.Runtime
             var copyrightY = safe.yMax - 43f * scale;
             var portY = copyrightY - 66f * scale;
             var y = Mathf.Min(safe.y + safe.height * 0.52f, portY - groupHeight - 10f * scale);
-            if (PcButton(new Rect(x, y, width, buttonHeight), "开始游戏"))
+            var titleReady = _host.IsTitleInputReady;
+            if (PcButton(new Rect(x, y, width, buttonHeight), "开始游戏") && titleReady)
             {
                 StartGame();
             }
             y += buttonHeight + gap;
-            if (PcButton(new Rect(x, y, width, buttonHeight), "继续游戏"))
+            if (PcButton(new Rect(x, y, width, buttonHeight), "继续游戏") && titleReady)
             {
                 _saveLoadVisible = true;
                 SuppressInput();
             }
             y += buttonHeight + gap;
-            if (PcButton(new Rect(x, y, width, buttonHeight), "系统设置"))
+            if (PcButton(new Rect(x, y, width, buttonHeight), "系统设置") && titleReady)
             {
                 _settingsVisible = true;
                 SuppressInput();
             }
             y += buttonHeight + gap;
-            if (IsTipsMenuUnlocked && PcButton(new Rect(x, y, width, buttonHeight), "追加内容"))
+            if (IsTipsMenuUnlocked &&
+                PcButton(new Rect(x, y, width, buttonHeight), "追加内容") && titleReady)
             {
                 RefreshUnlockProgressFromSaves();
                 _extrasVisible = true;
@@ -1775,7 +1777,7 @@ namespace Higurashi.IOS.Runtime
             {
                 y += buttonHeight + gap;
             }
-            if (PcButton(new Rect(x, y, width, buttonHeight), "操作说明"))
+            if (PcButton(new Rect(x, y, width, buttonHeight), "操作说明") && titleReady)
             {
                 _helpVisible = true;
                 SuppressInput();
