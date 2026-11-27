@@ -23,6 +23,7 @@ namespace Higurashi.IOS.Runtime
         private const string OpeningPreferenceKey = "higurashi-ios-opening-preference-v1";
         private const string TipsMenuUnlockedKeyPrefix = "higurashi-ios-tips-menu-unlocked-ep";
         private const string TipsUnlockedChapterKeyPrefix = "higurashi-ios-tips-unlocked-chapter-ep";
+        private const string TipsGlobalProgressKeyPrefix = "higurashi-ios-tips-global-progress-ep";
         private const string ChapterJumpUnlockedKeyPrefix = "higurashi-ios-chapter-jump-unlocked-ep";
         private const string BonusContentUnlockedKeyPrefix = "higurashi-ios-bonus-unlocked-ep";
         private const int SaveFileMagic = 0x31534748; // HGS1
@@ -75,6 +76,7 @@ namespace Higurashi.IOS.Runtime
         private string _lastStoryChoiceRefusalKey = string.Empty;
         private bool _badEndingMissingCheckpointLogged;
         private int _activeFragmentId = -1;
+        private int _cachedPersistedGlobalTipsProgress = -1;
         private bool _fragment51ContinuationNoticeVisible;
         private Vector2 _historyScroll;
         private bool _historyAutoScrollPending;
@@ -164,6 +166,12 @@ namespace Higurashi.IOS.Runtime
 
         private string TipsUnlockedChapterKey => TipsUnlockedChapterKeyPrefix +
             HigurashiActiveChapter.Profile.EpisodeNumber.ToString("00");
+
+        private string TipsGlobalProgressKey => TipsGlobalProgressKeyPrefix +
+            HigurashiActiveChapter.Profile.EpisodeNumber.ToString("00");
+
+        private string TipsGlobalProgressPath => Path.Combine(Application.persistentDataPath,
+            "tips-global-progress-ep" + HigurashiActiveChapter.Profile.EpisodeNumber.ToString("00") + ".txt");
 
         private void Awake()
         {
@@ -300,6 +308,7 @@ namespace Higurashi.IOS.Runtime
 
             UpdateChapterJumpUnlockProgress();
             UpdateBonusContentUnlockProgress();
+            PersistGlobalTipsProgressFromMemoryIfAdvanced();
             CaptureStoryChoiceCheckpointIfNeeded();
             UpdateBadEndingDecision();
             if (_host != null && _host.TitleVisible &&
@@ -363,6 +372,7 @@ namespace Higurashi.IOS.Runtime
                 {
                     _runtime.Memory.SetGlobalFlag("GVideoOpening", openingPreference);
                 }
+                SyncGlobalTipsProgressWithMemory();
                 DriveRuntime(false);
 
                 if (_runtime.BlockReason == BurikoBlockReason.Faulted)
@@ -619,7 +629,7 @@ namespace Higurashi.IOS.Runtime
             if (!advanced && _fastTraversal.IsActive &&
                 _runtime.BlockReason != BurikoBlockReason.Completed &&
                 _runtime.BlockReason != BurikoBlockReason.Faulted &&
-                !_host.TitleVisible && !_host.ChoiceVisible &&
+                !_host.TitleVisible && !_host.CreditsVisible && !_host.ChoiceVisible &&
                 !_host.FragmentChapterVisible && !_host.FragmentListVisible &&
                 !_host.TipsChapterVisible && !_host.TipsListVisible)
             {
@@ -1006,6 +1016,7 @@ namespace Higurashi.IOS.Runtime
                 _host.StopTransientAudio();
                 _runtime.ReadPersistentState(runtimeState);
                 RestoreLegacyEpisodeEightFragmentState();
+                SyncGlobalTipsProgressWithMemory();
                 _host.ApplySettings(_runtime.Memory);
                 _host.ReadPersistentState(presentationState, _runtime.Memory);
             }
@@ -1231,26 +1242,40 @@ namespace Higurashi.IOS.Runtime
                 return;
             }
 
+            var episode = HigurashiActiveChapter.Profile.EpisodeNumber;
+            var globalFlagName = TipsVisibilityPolicy.GlobalProgressFlagName(episode);
             var highestJump = Mathf.Clamp(
                 PlayerPrefs.GetInt(ChapterJumpUnlockedKey, 0), 0, sectionCount);
             var highestTips = Mathf.Clamp(
                 PlayerPrefs.GetInt(TipsUnlockedChapterKey, 0), 0, sectionCount);
+            var highestSavedGlobalTips = 0;
+            var anySavedGameClear = false;
             var saveDirectory = Path.Combine(Application.persistentDataPath, "Saves");
             if (Directory.Exists(saveDirectory))
             {
                 var paths = Directory.GetFiles(saveDirectory, "slot-*.hgs");
                 for (var i = 0; i < paths.Length; i++)
                 {
-                    if (!TryReadSavedChapter(paths[i], out var chapter))
+                    if (!TryReadSavedProgress(paths[i], globalFlagName,
+                            out var chapter, out var hasChapter,
+                            out var savedGlobalTips, out var savedGameClear))
                     {
                         continue;
                     }
 
-                    chapter = ChapterProgressCount(chapter);
-                    highestJump = Math.Max(highestJump,
-                        Mathf.Clamp(chapter + 1, 0, sectionCount));
-                    highestTips = Math.Max(highestTips,
-                        Mathf.Clamp(chapter, 0, sectionCount));
+                    if (hasChapter)
+                    {
+                        chapter = ChapterProgressCount(chapter);
+                        highestJump = Math.Max(highestJump,
+                            Mathf.Clamp(chapter + 1, 0, sectionCount));
+                        highestTips = Math.Max(highestTips,
+                            Mathf.Clamp(chapter, 0, sectionCount));
+                    }
+                    highestSavedGlobalTips = Math.Max(highestSavedGlobalTips, savedGlobalTips);
+                    if (savedGameClear)
+                    {
+                        anySavedGameClear = true;
+                    }
                 }
             }
 
@@ -1274,11 +1299,25 @@ namespace Higurashi.IOS.Runtime
             {
                 PlayerPrefs.Save();
             }
+            if (highestSavedGlobalTips > 0)
+            {
+                PersistGlobalTipsProgress(highestSavedGlobalTips);
+            }
+            SyncGlobalTipsProgressWithMemory(anySavedGameClear);
         }
 
-        private static bool TryReadSavedChapter(string path, out int chapter)
+        private static bool TryReadSavedProgress(
+            string path,
+            string globalTipsFlagName,
+            out int chapter,
+            out bool hasChapter,
+            out int globalTipsProgress,
+            out bool gameClear)
         {
             chapter = 0;
+            hasChapter = false;
+            globalTipsProgress = 0;
+            gameClear = false;
             try
             {
                 using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
@@ -1286,13 +1325,136 @@ namespace Higurashi.IOS.Runtime
                 using (var reader = new BinaryReader(stream, System.Text.Encoding.UTF8, true))
                 {
                     ReadSaveHeader(reader);
-                    return BurikoRuntime.TryReadPersistentLocalFlag(
-                        stream, "ChapterNumber", out chapter);
+                    return BurikoRuntime.TryReadPersistentProgressFlags(
+                        stream, globalTipsFlagName,
+                        out chapter, out hasChapter,
+                        out globalTipsProgress, out gameClear);
                 }
             }
             catch
             {
                 return false;
+            }
+        }
+
+        private int ReadPersistedGlobalTipsProgress()
+        {
+            if (_cachedPersistedGlobalTipsProgress >= 0)
+            {
+                return _cachedPersistedGlobalTipsProgress;
+            }
+
+            var best = 0;
+            try
+            {
+                if (File.Exists(TipsGlobalProgressPath) &&
+                    int.TryParse(File.ReadAllText(TipsGlobalProgressPath).Trim(),
+                        System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out var fileValue) &&
+                    fileValue > 0)
+                {
+                    best = fileValue;
+                }
+            }
+            catch
+            {
+                // Ignore corrupted/unreadable marker; PlayerPrefs or save scan will recover.
+            }
+
+            if (best == 0 && (IsTipsMenuUnlocked || IsBonusContentUnlocked))
+            {
+                best = Math.Max(0, PlayerPrefs.GetInt(TipsGlobalProgressKey, 0));
+            }
+
+            _cachedPersistedGlobalTipsProgress = best;
+            return best;
+        }
+
+        private void PersistGlobalTipsProgress(int value)
+        {
+            if (value <= 0)
+            {
+                return;
+            }
+
+            var current = ReadPersistedGlobalTipsProgress();
+            if (value <= current)
+            {
+                return;
+            }
+
+            _cachedPersistedGlobalTipsProgress = value;
+            try
+            {
+                File.WriteAllText(TipsGlobalProgressPath,
+                    value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+            catch (Exception exception)
+            {
+                Debug.LogWarning("Unable to write TIPS global progress marker: " + exception.Message);
+            }
+
+            PlayerPrefs.SetInt(TipsGlobalProgressKey, value);
+            PlayerPrefs.Save();
+            if (!IsTipsMenuUnlocked)
+            {
+                UnlockTipsMenu();
+            }
+        }
+
+        private void PersistGlobalTipsProgressFromMemoryIfAdvanced()
+        {
+            if (_runtime == null)
+            {
+                return;
+            }
+
+            var episode = HigurashiActiveChapter.Profile.EpisodeNumber;
+            var flagName = TipsVisibilityPolicy.GlobalProgressFlagName(episode);
+            var memoryValue = Math.Max(0, _runtime.Memory.GetGlobalFlag(flagName));
+            var memoryClear = _runtime.Memory.GetGlobalFlag("GFlag_GameClear") != 0;
+            if (memoryClear)
+            {
+                memoryValue = Math.Max(memoryValue, TipsVisibilityPolicy.FullGlobalProgress(episode));
+            }
+            if (memoryValue > ReadPersistedGlobalTipsProgress())
+            {
+                PersistGlobalTipsProgress(memoryValue);
+            }
+        }
+
+        private void SyncGlobalTipsProgressWithMemory(bool savedGameClear = false)
+        {
+            if (_runtime == null)
+            {
+                return;
+            }
+
+            var episode = HigurashiActiveChapter.Profile.EpisodeNumber;
+            var flagName = TipsVisibilityPolicy.GlobalProgressFlagName(episode);
+            var memory = _runtime.Memory;
+            var memoryValue = Math.Max(0, memory.GetGlobalFlag(flagName));
+            var memoryClear = memory.GetGlobalFlag("GFlag_GameClear") != 0;
+            var persisted = ReadPersistedGlobalTipsProgress();
+            var cleared = memoryClear || savedGameClear || IsBonusContentUnlocked;
+            var legacyUnlockedChapter = persisted == 0 && IsTipsMenuUnlocked
+                ? GetTipsUnlockedChapter()
+                : 0;
+            var merged = TipsVisibilityPolicy.MergeGlobalProgress(
+                episode, memoryValue, persisted, legacyUnlockedChapter, cleared);
+
+            if (merged > memoryValue)
+            {
+                memory.SetGlobalFlag(flagName, merged);
+            }
+            if (cleared && !memoryClear)
+            {
+                memory.SetGlobalFlag("GFlag_GameClear", 1);
+            }
+            if (merged > persisted)
+            {
+                PersistGlobalTipsProgress(merged);
             }
         }
 
@@ -1355,6 +1517,9 @@ namespace Higurashi.IOS.Runtime
             PlayerPrefs.SetInt(BonusContentUnlockedKey, 1);
             PlayerPrefs.Save();
             UnlockTipsMenu();
+            PersistGlobalTipsProgress(TipsVisibilityPolicy.FullGlobalProgress(
+                HigurashiActiveChapter.Profile.EpisodeNumber));
+            SyncGlobalTipsProgressWithMemory(savedGameClear: true);
             if (showToast)
             {
                 ShowToast("已解锁追加内容：" + BonusContentName);
@@ -1444,9 +1609,9 @@ namespace Higurashi.IOS.Runtime
         }
 
         /// <summary>
-        /// 隐藏解锁的 TIPS 部分同步写 PC 原生旗标：EP1-4 抬 G&lt;篇名&gt;Day（图鉴
-        /// 全局口径，PC TipsData 实证），EP5-8 抬 GTotalTips（累计制口径，按
-        /// 章节跳转档位折算）。不写 L/窗口旗标——那是存档本地状态，与 PC 一致。
+        /// 隐藏解锁的 TIPS 部分同步写 PC 原生全局旗标并持久化：EP1-4 抬
+        /// G&lt;篇名&gt;Day（flow.mg 实测 ChapterNumber），EP5-8 抬 GTotalTips
+        /// （全局 ID 域累计值）。不写 L/窗口旗标——那是存档本地状态，与 PC 一致。
         /// </summary>
         private void UnlockTipsForChapterInMemory(int tipsChapter, IReadOnlyList<string> sections)
         {
@@ -1455,26 +1620,18 @@ namespace Higurashi.IOS.Runtime
                 return;
             }
             var episode = HigurashiActiveChapter.Profile.EpisodeNumber;
+            var progress = TipsVisibilityPolicy.GlobalProgressThroughChapter(episode, tipsChapter);
+            if (progress <= 0)
+            {
+                return;
+            }
+            var flag = TipsVisibilityPolicy.GlobalProgressFlagName(episode);
             var memory = _runtime.Memory;
-            if (TipsVisibilityPolicy.UsesCountModel(episode))
+            if (progress > memory.GetGlobalFlag(flag))
             {
-                var total = TipsVisibilityPolicy.TipsThroughChapter(episode, tipsChapter);
-                if (total > memory.GetGlobalFlag("GTotalTips"))
-                {
-                    memory.SetGlobalFlag("GTotalTips", total);
-                }
-                return;
+                memory.SetGlobalFlag(flag, progress);
             }
-            if (tipsChapter < 1 || tipsChapter > sections.Count)
-            {
-                return;
-            }
-            var day = TipsVisibilityPolicy.DayNumberFromToken(sections[tipsChapter - 1]);
-            var flag = TipsVisibilityPolicy.GlobalDayFlagName(episode);
-            if (day > 0 && day > memory.GetGlobalFlag(flag))
-            {
-                memory.SetGlobalFlag(flag, day);
-            }
+            PersistGlobalTipsProgress(progress);
         }
 
         private void StartBonusContent()
@@ -2098,6 +2255,7 @@ namespace Higurashi.IOS.Runtime
                 _runtime.ReadPersistentState(stream);
                 RestoreLegacyEpisodeEightFragmentState();
                 RestoreActiveEpisodeEightFragment();
+                SyncGlobalTipsProgressWithMemory();
                 // Art/audio choices are app-wide preferences. An older save
                 // restores story flags, but must not override Settings.
                 _host.ApplySettings(_runtime.Memory);
@@ -2742,6 +2900,7 @@ namespace Higurashi.IOS.Runtime
             }
             builder.AppendLine("Unlocks: chapterJump=" + PlayerPrefs.GetInt(ChapterJumpUnlockedKey, 0) +
                                " tips=" + PlayerPrefs.GetInt(TipsUnlockedChapterKey, 0) +
+                               " tipsGlobal=" + ReadPersistedGlobalTipsProgress() +
                                " tipsMenu=" + IsTipsMenuUnlocked +
                                " bonus=" + IsBonusContentUnlocked +
                                " gameClear=" + (_runtime != null

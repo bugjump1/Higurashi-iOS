@@ -26,9 +26,26 @@ namespace Higurashi.IOS.Compatibility
         public const int ScopeNewOnly = 1;
         public const int ScopeGlobal = 2;
 
+        // PC ChapterButton.cs: ViewAllTips writes TipsMode=3, NewTips writes
+        // TipsMode=4; flow.mg then calls ShowTips(TipsMode - 3), mapping
+        // 3 -> 0 (ScopeCumulative) and 4 -> 1 (ScopeNewOnly).
+        public const int ChapterScreenTipsModeAll = 3;
+        public const int ChapterScreenTipsModeNew = 4;
+
+        public static int TipsModeForChapterScreen(bool allUnlocked)
+        {
+            return allUnlocked ? ChapterScreenTipsModeAll : ChapterScreenTipsModeNew;
+        }
+
         public static bool UsesCountModel(int episode)
         {
             return episode >= 5;
+        }
+
+        /// <summary>该章在 PC 图鉴（ScopeGlobal）中读取的全局进度旗标名。</summary>
+        public static string GlobalProgressFlagName(int episode)
+        {
+            return UsesCountModel(episode) ? "GTotalTips" : GlobalDayFlagName(episode);
         }
 
         /// <summary>EP1-04 当前进度的本地旗标名（PC 窗口模式读取）。</summary>
@@ -118,9 +135,31 @@ namespace Higurashi.IOS.Compatibility
                 : -1;
         }
 
-        // EP05-08 每个章节跳转档位完成时的累计 TIPS 数（= GTotalTips 应达到的值）。
-        // 由 flow.mg 的 NewTipsStart/Count 配对（章号刻度）与 EpisodeChapterJumpMap
-        // 的 s_jump 档位推导，末位=目录总数（含尾声 TIPS）。
+        // EP01-04 每个章节跳转档位（1 起）完成时 flow.mg 写入 SetDay 的 ChapterNumber
+        //（即 G<篇名>Day 应达到的值，由八章数据包 flow.mg 字节码实测提取）。
+        private static readonly int[] Episode01FlowDayThroughChapter =
+        {
+            1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 13, 15
+        };
+
+        private static readonly int[] Episode02FlowDayThroughChapter =
+        {
+            1, 2, 3, 4, 5, 7, 8, 10, 12, 14, 16, 20
+        };
+
+        private static readonly int[] Episode03FlowDayThroughChapter =
+        {
+            1, 2, 3, 4, 5, 6, 8, 11, 13, 16, 17, 19, 21
+        };
+
+        private static readonly int[] Episode04FlowDayThroughChapter =
+        {
+            1, 3, 4, 7, 9, 9
+        };
+
+        // EP05-08 每个章节跳转档位（1 起）完成时 GTotalTips 应达到的全局 ID 上界
+        //（严格位于 PC flow.mg 的全局域：EP05=1..23、EP06=25..38、EP07=39..51、
+        // EP08=通关 52，与 WindowBasis / CountModelGlobalIncludes 同域比较）。
         private static readonly int[] Episode05TipsThroughChapter =
         {
             1, 2, 3, 5, 6, 7, 9, 12, 15, 17, 18, 20, 21, 23
@@ -128,18 +167,43 @@ namespace Higurashi.IOS.Compatibility
 
         private static readonly int[] Episode06TipsThroughChapter =
         {
-            1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
+            25, 26, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38
         };
 
         private static readonly int[] Episode07TipsThroughChapter =
         {
-            1, 2, 3, 4, 5, 7, 9, 10, 10, 11, 12, 13
+            39, 40, 41, 42, 43, 45, 47, 48, 48, 49, 50, 51
         };
 
         /// <summary>
-        /// 章节跳转档位（1 起）完成时的累计 TIPS 数，超出末位返回目录总数；
-        /// 未知档位返回 0。EP8 仅 1 条 TIPS（Id 51），任一档位即按通关值 52 计
-        /// （PC：Id &lt; GTotalTips）。
+        /// EP01-04 章节跳转档位（1 起）完成时的 flow ChapterNumber（G&lt;篇名&gt;Day）。
+        /// EP05-08 或无效档位返回 0。
+        /// </summary>
+        public static int FlowDayThroughChapter(int episode, int logicalChapter)
+        {
+            if (logicalChapter <= 0)
+            {
+                return 0;
+            }
+            switch (episode)
+            {
+                case 1:
+                    return ValueOrLast(Episode01FlowDayThroughChapter, logicalChapter);
+                case 2:
+                    return ValueOrLast(Episode02FlowDayThroughChapter, logicalChapter);
+                case 3:
+                    return ValueOrLast(Episode03FlowDayThroughChapter, logicalChapter);
+                case 4:
+                    return ValueOrLast(Episode04FlowDayThroughChapter, logicalChapter);
+                default:
+                    return 0;
+            }
+        }
+
+        /// <summary>
+        /// EP05-08 章节跳转档位（1 起）完成时的全局 GTotalTips 值；超出末位返回
+        /// 通关值，未知档位返回 0。EP08 仅 1 条通关 TIPS（Id 51），前 9 档返回 0，
+        /// 末档（第 10 档）起返回通关值 52（PC：Id &lt; GTotalTips）。
         /// </summary>
         public static int TipsThroughChapter(int episode, int logicalChapter)
         {
@@ -156,10 +220,62 @@ namespace Higurashi.IOS.Compatibility
                 case 7:
                     return ValueOrLast(Episode07TipsThroughChapter, logicalChapter);
                 case 8:
-                    return 52;
+                    return logicalChapter >= EpisodeEightChapterMap.Count ? 52 : 0;
                 default:
                     return 0;
             }
+        }
+
+        /// <summary>
+        /// 全八章统一入口：章节跳转档位（1 起）完成时应达到的全局 TIPS 旗标值
+        /// （EP01-04 为 G&lt;篇名&gt;Day，EP05-08 为 GTotalTips）。
+        /// </summary>
+        public static int GlobalProgressThroughChapter(int episode, int logicalChapter)
+        {
+            return UsesCountModel(episode)
+                ? TipsThroughChapter(episode, logicalChapter)
+                : FlowDayThroughChapter(episode, logicalChapter);
+        }
+
+        /// <summary>通关 / 全解锁时该章全局 TIPS 旗标应达到的完整值。</summary>
+        public static int FullGlobalProgress(int episode)
+        {
+            switch (episode)
+            {
+                case 1: return Episode01FlowDayThroughChapter[Episode01FlowDayThroughChapter.Length - 1];
+                case 2: return Episode02FlowDayThroughChapter[Episode02FlowDayThroughChapter.Length - 1];
+                case 3: return Episode03FlowDayThroughChapter[Episode03FlowDayThroughChapter.Length - 1];
+                case 4: return Episode04FlowDayThroughChapter[Episode04FlowDayThroughChapter.Length - 1];
+                case 5: return Episode05TipsThroughChapter[Episode05TipsThroughChapter.Length - 1];
+                case 6: return Episode06TipsThroughChapter[Episode06TipsThroughChapter.Length - 1];
+                case 7: return Episode07TipsThroughChapter[Episode07TipsThroughChapter.Length - 1];
+                case 8: return 52;
+                default: return 0;
+            }
+        }
+
+        /// <summary>
+        /// 单调合并内存、持久化文件、旧版解锁档位与通关状态的全局 TIPS 进度，
+        /// 保证重启、返回标题或读取早期存档后图鉴进度永不回退。
+        /// </summary>
+        public static int MergeGlobalProgress(
+            int episode,
+            int memoryValue,
+            int persistedValue,
+            int legacyUnlockedChapter,
+            bool gameCleared)
+        {
+            var merged = Math.Max(0, Math.Max(memoryValue, persistedValue));
+            if (gameCleared)
+            {
+                merged = Math.Max(merged, FullGlobalProgress(episode));
+            }
+            if (merged == 0 && legacyUnlockedChapter > 0)
+            {
+                merged = Math.Max(merged,
+                    GlobalProgressThroughChapter(episode, legacyUnlockedChapter));
+            }
+            return merged;
         }
 
         private static int ValueOrLast(int[] table, int logicalChapter)

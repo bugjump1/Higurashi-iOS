@@ -82,6 +82,7 @@ internal static class Program
             BurikoRuntimePersistentStateRoundTrips,
             FragmentProgressPersistentStateRoundTrips,
             BurikoPersistentStateMetadataReadsChapter,
+            BurikoPersistentStateMetadataReadsGlobalTipsProgress,
             BurikoRuntimeHandlesModCrossScriptSectionCall,
             BurikoRuntimeHandlesEpisode04ReturnOperation,
             BurikoMemoryInitializesTextColorToWhite,
@@ -700,9 +701,17 @@ internal static class Program
     private static void TipsVisibilityMatchesPcTipsData()
     {
         // PC TipsManager.Show: 0=cumulative, 1=new-only, 2=global.
+        // PC ChapterButton.cs: ViewAllTips -> TipsMode=3 (3-3=0 cumulative),
+        // NewTips -> TipsMode=4 (4-3=1 new-only).
         Equal(0, TipsVisibilityPolicy.ScopeCumulative);
         Equal(1, TipsVisibilityPolicy.ScopeNewOnly);
         Equal(2, TipsVisibilityPolicy.ScopeGlobal);
+        Equal(3, TipsVisibilityPolicy.TipsModeForChapterScreen(allUnlocked: true));
+        Equal(4, TipsVisibilityPolicy.TipsModeForChapterScreen(allUnlocked: false));
+        Equal(TipsVisibilityPolicy.ScopeCumulative,
+            TipsVisibilityPolicy.TipsModeForChapterScreen(allUnlocked: true) - 3);
+        Equal(TipsVisibilityPolicy.ScopeNewOnly,
+            TipsVisibilityPolicy.TipsModeForChapterScreen(allUnlocked: false) - 3);
 
         // EP1-4 chapter model (PC TipsData EP01-04): == for new, <= otherwise,
         // global compares against the max-progress day flag.
@@ -749,25 +758,71 @@ internal static class Program
         Equal(-1, TipsVisibilityPolicy.DayNumberFromToken("EP05_CHAPTER_03"));
         Equal(-1, TipsVisibilityPolicy.DayNumberFromToken(null));
 
-        // Cheat support: cumulative tips per jump chapter, derived from the
-        // flow NewTipsStart/Count pairing. Monotonic, ends at the catalog total.
+        // Cheat & persistence support: exact flow.mg ChapterNumber (EP1-4) and
+        // global-domain GTotalTips (EP5-8) per 1-based jump chapter.
+        Equal(0, TipsVisibilityPolicy.FlowDayThroughChapter(1, 0));
+        Equal(7, TipsVisibilityPolicy.FlowDayThroughChapter(1, 6));
+        Equal(15, TipsVisibilityPolicy.FlowDayThroughChapter(1, 12));
+        Equal(16, TipsVisibilityPolicy.FlowDayThroughChapter(2, 11));
+        Equal(20, TipsVisibilityPolicy.FlowDayThroughChapter(2, 12));
+        Equal(6, TipsVisibilityPolicy.FlowDayThroughChapter(3, 6));
+        Equal(19, TipsVisibilityPolicy.FlowDayThroughChapter(3, 12));
+        Equal(21, TipsVisibilityPolicy.FlowDayThroughChapter(3, 13));
+        Equal(3, TipsVisibilityPolicy.FlowDayThroughChapter(4, 2));
+        Equal(9, TipsVisibilityPolicy.FlowDayThroughChapter(4, 5));
+        Equal(0, TipsVisibilityPolicy.FlowDayThroughChapter(5, 1));
+
         Equal(0, TipsVisibilityPolicy.TipsThroughChapter(5, 0));
         Equal(1, TipsVisibilityPolicy.TipsThroughChapter(5, 1));
         Equal(5, TipsVisibilityPolicy.TipsThroughChapter(5, 4));
         Equal(23, TipsVisibilityPolicy.TipsThroughChapter(5, 14));
         Equal(23, TipsVisibilityPolicy.TipsThroughChapter(5, 99));
-        Equal(4, TipsVisibilityPolicy.TipsThroughChapter(6, 3));
-        Equal(14, TipsVisibilityPolicy.TipsThroughChapter(6, 13));
-        Equal(7, TipsVisibilityPolicy.TipsThroughChapter(7, 6));
-        Equal(13, TipsVisibilityPolicy.TipsThroughChapter(7, 12));
-        Equal(52, TipsVisibilityPolicy.TipsThroughChapter(8, 1));
+        // EP06 uses global IDs 24..37 (GTotalTips 25..38).
+        Equal(25, TipsVisibilityPolicy.TipsThroughChapter(6, 1));
+        Equal(28, TipsVisibilityPolicy.TipsThroughChapter(6, 3));
+        Equal(38, TipsVisibilityPolicy.TipsThroughChapter(6, 13));
+        True(TipsVisibilityPolicy.CountModelGlobalIncludes(
+            TipsVisibilityPolicy.WindowBasis(6, 24),
+            TipsVisibilityPolicy.TipsThroughChapter(6, 1), false));
+        Equal(false, TipsVisibilityPolicy.CountModelGlobalIncludes(
+            TipsVisibilityPolicy.WindowBasis(6, 25),
+            TipsVisibilityPolicy.TipsThroughChapter(6, 1), false));
+        // EP07 uses global IDs 38..50 (GTotalTips 39..51); chapter 9 adds 0 new tips.
+        Equal(39, TipsVisibilityPolicy.TipsThroughChapter(7, 1));
+        Equal(45, TipsVisibilityPolicy.TipsThroughChapter(7, 6));
+        Equal(48, TipsVisibilityPolicy.TipsThroughChapter(7, 8));
+        Equal(48, TipsVisibilityPolicy.TipsThroughChapter(7, 9));
+        Equal(51, TipsVisibilityPolicy.TipsThroughChapter(7, 12));
+        True(TipsVisibilityPolicy.CountModelGlobalIncludes(
+            TipsVisibilityPolicy.WindowBasis(7, 38),
+            TipsVisibilityPolicy.TipsThroughChapter(7, 1), false));
+        // EP08 tip 51 unlocks only at the final chapter (10) or game clear.
+        Equal(0, TipsVisibilityPolicy.TipsThroughChapter(8, 1));
+        Equal(0, TipsVisibilityPolicy.TipsThroughChapter(8, 9));
+        Equal(52, TipsVisibilityPolicy.TipsThroughChapter(8, 10));
         Equal(0, TipsVisibilityPolicy.TipsThroughChapter(1, 3));
-        var ep5 = new[] { 5, 12 };
-        for (var chapter = ep5[0]; chapter <= ep5[1]; chapter++)
+
+        // Monotonic merge across restarts / ReturnToTitle / older saves.
+        Equal("GOnikakushiDay", TipsVisibilityPolicy.GlobalProgressFlagName(1));
+        Equal("GTotalTips", TipsVisibilityPolicy.GlobalProgressFlagName(6));
+        Equal(28, TipsVisibilityPolicy.MergeGlobalProgress(6, 0, 28, 1, false));
+        Equal(38, TipsVisibilityPolicy.MergeGlobalProgress(6, 0, 0, 0, true));
+        Equal(28, TipsVisibilityPolicy.MergeGlobalProgress(6, 0, 0, 3, false));
+        Equal(19, TipsVisibilityPolicy.MergeGlobalProgress(3, 0, 19, 0, false));
+        Equal(21, TipsVisibilityPolicy.MergeGlobalProgress(3, 0, 0, 0, true));
+        Equal(52, TipsVisibilityPolicy.MergeGlobalProgress(8, 0, 0, 0, true));
+        Equal(0, TipsVisibilityPolicy.MergeGlobalProgress(8, 0, 0, 3, false));
+
+        for (var ep = 1; ep <= 8; ep++)
         {
-            True(TipsVisibilityPolicy.TipsThroughChapter(5, chapter) >=
-                 TipsVisibilityPolicy.TipsThroughChapter(5, chapter - 1),
-                "cumulative tips must never decrease");
+            var previous = 0;
+            for (var chapter = 1; chapter <= 15; chapter++)
+            {
+                var current = TipsVisibilityPolicy.GlobalProgressThroughChapter(ep, chapter);
+                True(current >= previous, "global TIPS progress must never decrease");
+                previous = current;
+            }
+            Equal(TipsVisibilityPolicy.FullGlobalProgress(ep), previous);
         }
     }
 
@@ -1900,6 +1955,35 @@ internal static class Program
         Equal(4, chapter);
         Equal(BurikoBlockReason.WaitForInput, runtime.BlockReason);
         Equal(4, runtime.Memory.GetLocalFlag("ChapterNumber"));
+    }
+
+    private static void BurikoPersistentStateMetadataReadsGlobalTipsProgress()
+    {
+        var data = BuildBytecode(writer =>
+        {
+            WriteOperation(writer, 11, null);
+            writer.Write((short)0);
+        });
+        var runtime = new BurikoRuntime(
+            new DictionaryScriptRepository(("init", WrapScript(data))),
+            new CapturingHost());
+        runtime.Start();
+        runtime.Memory.SetLocalFlag("ChapterNumber", 11);
+        runtime.Memory.SetGlobalFlag("GTotalTips", 32);
+        runtime.Memory.SetGlobalFlag("GFlag_GameClear", 1);
+        Equal(BurikoBlockReason.WaitForInput, runtime.RunUntilBlocked());
+
+        using var state = new MemoryStream();
+        runtime.WritePersistentState(state);
+        state.Position = 0;
+        Equal(true, BurikoRuntime.TryReadPersistentProgressFlags(
+            state, "GTotalTips",
+            out var chapter, out var hasChapter,
+            out var globalTips, out var gameClear));
+        Equal(true, hasChapter);
+        Equal(11, chapter);
+        Equal(32, globalTips);
+        Equal(true, gameClear);
     }
 
     private static void FragmentProgressPersistentStateRoundTrips()

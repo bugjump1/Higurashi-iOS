@@ -27,7 +27,7 @@ Each episode is built as an independent app with its own name, icon, bundle iden
 
 ### Hidden gesture
 
-Tap the "iOS版移植" port credit line at the bottom of the title screen five times in a row to unlock the next chapter jump together with its TIPS; once everything is unlocked, further taps reveal the episode's extra content.
+Tap the "iOS版移植" port credit line at the bottom of the title screen five times in a row to unlock the next chapter jump together with its TIPS; once everything is unlocked, five more taps reveal the episode's extra content.
 
 ## Requirements
 

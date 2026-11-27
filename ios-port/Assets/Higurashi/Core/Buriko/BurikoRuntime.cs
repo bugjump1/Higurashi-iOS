@@ -166,7 +166,49 @@ namespace Higurashi.IOS.Buriko
             out int value)
         {
             value = 0;
-            if (input == null || string.IsNullOrWhiteSpace(flagName))
+            if (string.IsNullOrWhiteSpace(flagName) ||
+                !TryReadPersistentMemory(input, out var memory))
+            {
+                return false;
+            }
+
+            return memory.LocalFlags.TryGetValue(flagName, out value);
+        }
+
+        public static bool TryReadPersistentProgressFlags(
+            Stream input,
+            string globalTipsFlagName,
+            out int chapterNumber,
+            out bool hasChapterNumber,
+            out int globalTipsProgress,
+            out bool gameClear)
+        {
+            chapterNumber = 0;
+            hasChapterNumber = false;
+            globalTipsProgress = 0;
+            gameClear = false;
+            if (!TryReadPersistentMemory(input, out var memory))
+            {
+                return false;
+            }
+
+            hasChapterNumber = memory.LocalFlags.TryGetValue("ChapterNumber", out chapterNumber);
+            if (!string.IsNullOrWhiteSpace(globalTipsFlagName) &&
+                memory.GlobalFlags.TryGetValue(globalTipsFlagName, out var progress))
+            {
+                globalTipsProgress = Math.Max(0, progress);
+            }
+            gameClear = memory.GlobalFlags.TryGetValue("GFlag_GameClear", out var cleared) &&
+                        cleared != 0;
+            return true;
+        }
+
+        private static bool TryReadPersistentMemory(
+            Stream input,
+            out BurikoMemory.BurikoMemorySnapshot memory)
+        {
+            memory = null;
+            if (input == null)
             {
                 return false;
             }
@@ -188,8 +230,8 @@ namespace Higurashi.IOS.Buriko
                     ReadFrame(reader);
                 }
 
-                var memory = new BurikoMemory().ReadPersistentState(reader);
-                return memory.LocalFlags.TryGetValue(flagName, out value);
+                memory = new BurikoMemory().ReadPersistentState(reader);
+                return true;
             }
         }
 

@@ -1177,7 +1177,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                     _tipsChapterVisible = true;
                     _tipsListVisible = false;
                     _tipsLibraryStandalone = false;
-                    _tipsScope = 0;
+                    _tipsScope = TipsVisibilityPolicy.ScopeNewOnly;
                     _tipsPage = 0;
                     _selectedTipId = -1;
                     GameplayUiVisible = false;
@@ -1424,7 +1424,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                 return false;
             }
 
-            memory.SetLocalFlag("TipsMode", allUnlocked ? 4 : 3);
+            memory.SetLocalFlag("TipsMode",
+                TipsVisibilityPolicy.TipsModeForChapterScreen(allUnlocked));
             memory.SetLocalFlag("LOCALWORK_NO_RESULT", 1);
             _tipsChapterVisible = false;
             _selectedTipId = -1;
@@ -1492,6 +1493,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 // four-button chapter screen. Clearing TipsMode here would
                 // resume flow.txt and accidentally enter the next chapter.
                 _tipsChapterVisible = true;
+                _tipsScope = TipsVisibilityPolicy.ScopeNewOnly;
                 _tipReading = false;
                 SavingEnabled = true;
                 _tipsVisibleChapterOverride = -1;
@@ -1597,15 +1599,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             {
                 return false;
             }
-            var episode = HigurashiActiveChapter.Profile.EpisodeNumber;
-            if (TipsVisibilityPolicy.UsesCountModel(episode))
-            {
-                // EP5-8：章节跳转档位（1 起）对应的累计 TIPS 数（PC 累计制无章号，
-                // 用档位推导表折算）。
-                return TipsVisibilityPolicy.TipsThroughChapter(
-                    episode, Math.Max(0, unlockedChapter)) > 0;
-            }
-            return _tipsCatalog.HasVisibleThrough(Math.Max(0, unlockedChapter));
+            return _tipsCatalog.GetVisible(memory, TipsVisibilityPolicy.ScopeGlobal,
+                       unlockedChapter).Count > 0;
         }
 
         internal bool HasTipsForChapter(int chapter)
@@ -1617,15 +1612,11 @@ namespace Higurashi.IOS.Runtime.Buriko
                 return total > 0 && total > TipsVisibilityPolicy.TipsThroughChapter(
                     episode, chapter - 1);
             }
-            // EP1-4：档位名内嵌 flow 章号（"Day9_2"→9），tips.json 的
-            // UnlockChapter 与 flow 同刻度。
-            var sections = GetChapterJumpSections();
-            if (chapter < 1 || chapter > sections.Count)
-            {
-                return false;
-            }
-            var day = TipsVisibilityPolicy.DayNumberFromToken(sections[chapter - 1]);
-            return day > 0 && _tipsCatalog.HasEntryAtChapter(day);
+            // EP1-4：按 flow.mg 实测 ChapterNumber 区间核查该档位是否新增 TIPS。
+            var flowDay = TipsVisibilityPolicy.FlowDayThroughChapter(episode, chapter);
+            var previousFlowDay = TipsVisibilityPolicy.FlowDayThroughChapter(episode, chapter - 1);
+            return flowDay > previousFlowDay &&
+                   _tipsCatalog.HasEntryInChapterRange(previousFlowDay + 1, flowDay);
         }
 
         internal HigurashiTipDefinition GetSelectedTip()
@@ -4893,6 +4884,23 @@ namespace Higurashi.IOS.Runtime.Buriko
             for (var i = 0; i < _entries.Count; i++)
             {
                 if (_entries[i].UnlockChapter == chapter)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public bool HasEntryInChapterRange(int minChapterInclusive, int maxChapterInclusive)
+        {
+            if (maxChapterInclusive < minChapterInclusive)
+            {
+                return false;
+            }
+            for (var i = 0; i < _entries.Count; i++)
+            {
+                var unlock = _entries[i].UnlockChapter;
+                if (unlock >= minChapterInclusive && unlock <= maxChapterInclusive)
                 {
                     return true;
                 }
