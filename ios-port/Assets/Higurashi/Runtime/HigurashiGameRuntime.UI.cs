@@ -2202,6 +2202,7 @@ namespace Higurashi.IOS.Runtime
             {
                 _settings.audioPresetIndex = Next(_settings.audioPresetIndex, _host.AudioSets.Count);
                 _host.ApplySettings(_runtime.Memory);
+                SaveSettings();
             }
             y += buttonHeight + 9f * scale;
             if (SupportsChapterChoiceMode())
@@ -2220,12 +2221,14 @@ namespace Higurashi.IOS.Runtime
             {
                 _settings.lipSync = !_settings.lipSync;
                 _host.ApplySettings(_runtime.Memory);
+                SaveSettings();
             }
             y += buttonHeight + 9f * scale;
             if (FittedPcButton(new Rect(x, y, width, buttonHeight),
                     "自动保存：" + (_settings.autoSave ? "开" : "关"), 13))
             {
                 _settings.autoSave = !_settings.autoSave;
+                SaveSettings();
             }
             y += buttonHeight + 9f * scale;
             if (FittedPcButton(new Rect(x, y, width, buttonHeight), "导出系统日志", 13))

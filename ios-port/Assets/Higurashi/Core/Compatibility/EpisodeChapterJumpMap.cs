@@ -7,21 +7,21 @@ namespace Higurashi.IOS.Compatibility
     {
         private static readonly string[] Episode01Sections =
         {
-            "Day1", "Day2", "Day3", "Day4", "Day5", "Day9_2",
-            "Day10", "Day11", "Day12", "Day13", "Day14_2", "Day15"
+            "Game", "Day2", "Day3", "Day4", "Day5", "Day9",
+            "Day10", "Day11", "Day12", "Day13", "Day14", "Day15"
         };
 
         private static readonly string[] Episode02Sections =
         {
-            "Day1", "Day2", "Day3", "Day4", "Day5", "Day7",
-            "Day8", "Day9_2", "Day10_2", "Day10_4", "Day11_2", "Day12"
+            "Day1", "Day2", "Day3", "Day4", "Day5", "Day6",
+            "Day8", "Day9", "Day10", "Day10_3", "Day11", "Day12"
         };
 
         private static readonly string[] Episode03Sections =
         {
             "Day1", "Day2", "Day3", "Day4", "Day5", "Day8",
-            "Day9", "Day10_2", "Day10_4", "Day11_3", "Day12",
-            "Day13_2", "Day14"
+            "Day8_2", "Day9_2", "Day10_3", "Day11", "Day12",
+            "Day13", "Day14"
         };
 
         private static readonly string[] Episode04Sections =
@@ -37,12 +37,12 @@ namespace Higurashi.IOS.Compatibility
 
         private static readonly int[] Episode06JumpValues =
         {
-            1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24
+            0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24
         };
 
         private static readonly int[] Episode07JumpValues =
         {
-            1, 2, 3, 6, 9, 11, 13, 15, 17, 19, 21, 25
+            0, 2, 3, 6, 9, 11, 13, 15, 17, 19, 21, 25
         };
 
         public static int Count(int episode)

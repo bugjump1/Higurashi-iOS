@@ -410,10 +410,37 @@ internal static class Program
             }
         }
 
-        Equal("Day1", EpisodeChapterJumpMap.Token(1, 0));
+        Equal("Game", EpisodeChapterJumpMap.Token(1, 0));
+        Equal("Day9", EpisodeChapterJumpMap.Token(1, 5));
+        Equal("Day14", EpisodeChapterJumpMap.Token(1, 10));
         Equal("Day15", EpisodeChapterJumpMap.Token(1, 11));
+        Equal(false, ContainsToken(1, "Day9_2"));
+        Equal(false, ContainsToken(1, "Day14_2"));
+
+        Equal("Day6", EpisodeChapterJumpMap.Token(2, 5));
+        Equal("Day9", EpisodeChapterJumpMap.Token(2, 7));
+        Equal("Day10", EpisodeChapterJumpMap.Token(2, 8));
+        Equal("Day10_3", EpisodeChapterJumpMap.Token(2, 9));
+        Equal("Day11", EpisodeChapterJumpMap.Token(2, 10));
         Equal("Day12", EpisodeChapterJumpMap.Token(2, 11));
+        Equal(false, ContainsToken(2, "Day7"));
+        Equal(false, ContainsToken(2, "Day9_2"));
+        Equal(false, ContainsToken(2, "Day10_2"));
+        Equal(false, ContainsToken(2, "Day10_4"));
+        Equal(false, ContainsToken(2, "Day11_2"));
+
+        Equal("Day8_2", EpisodeChapterJumpMap.Token(3, 6));
+        Equal("Day9_2", EpisodeChapterJumpMap.Token(3, 7));
+        Equal("Day10_3", EpisodeChapterJumpMap.Token(3, 8));
+        Equal("Day11", EpisodeChapterJumpMap.Token(3, 9));
+        Equal("Day13", EpisodeChapterJumpMap.Token(3, 11));
         Equal("Day14", EpisodeChapterJumpMap.Token(3, 12));
+        Equal(false, ContainsToken(3, "Day9"));
+        Equal(false, ContainsToken(3, "Day10_2"));
+        Equal(false, ContainsToken(3, "Day10_4"));
+        Equal(false, ContainsToken(3, "Day11_3"));
+        Equal(false, ContainsToken(3, "Day13_2"));
+
         Equal("Day4", EpisodeChapterJumpMap.Token(4, 5));
         Equal("Day3", EpisodeChapterJumpMap.Token(4, 3));
         Equal("Day3_4", EpisodeChapterJumpMap.Token(4, 4));
@@ -423,8 +450,8 @@ internal static class Program
         Equal(false, ContainsToken(4, "Day3_5"));
 
         AssertFlowJumpValues(5, new[] { 1, 2, 4, 6, 8, 10, 12, 14, 15, 17, 19, 21, 23, 25 });
-        AssertFlowJumpValues(6, new[] { 1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24 });
-        AssertFlowJumpValues(7, new[] { 1, 2, 3, 6, 9, 11, 13, 15, 17, 19, 21, 25 });
+        AssertFlowJumpValues(6, new[] { 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24 });
+        AssertFlowJumpValues(7, new[] { 0, 2, 3, 6, 9, 11, 13, 15, 17, 19, 21, 25 });
     }
 
     private static bool ContainsToken(int episode, string token)

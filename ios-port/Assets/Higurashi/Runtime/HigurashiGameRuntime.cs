@@ -447,6 +447,7 @@ namespace Higurashi.IOS.Runtime
 
             if (_host.TitleVisible || _host.ChapterPreviewVisible ||
                 _host.FragmentChapterVisible || _host.FragmentListVisible ||
+                _host.TipsChapterVisible || _host.TipsListVisible ||
                 IsModalVisible || _host.ChoiceVisible)
             {
                 return;
@@ -592,8 +593,13 @@ namespace Higurashi.IOS.Runtime
         public bool StepForward()
         {
             if (_runtime == null || _runtime.BlockReason == BurikoBlockReason.Faulted ||
-                _host.TitleVisible || _host.ChoiceVisible)
+                _host.TitleVisible || _host.ChoiceVisible ||
+                _host.CreditsVisible || _host.ChapterPreviewVisible ||
+                _host.FragmentChapterVisible || _host.FragmentListVisible ||
+                _host.TipsChapterVisible || _host.TipsListVisible)
             {
+                _fastTraversal.Stop();
+                _autoMode = false;
                 return false;
             }
 

@@ -742,6 +742,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 18:
                     Speaker = string.Empty;
                     Dialogue = string.Empty;
+                    _appendNext = false;
                     return BurikoHostResponse.Continue;
                 case 21:
                     StartWindowTransition(false, 0.5f);
@@ -1387,17 +1388,28 @@ namespace Higurashi.IOS.Runtime.Buriko
             TitleVisible = false;
             CreditsVisible = false;
             CreditsPage = 0;
+            EndrollVisible = false;
+            _hasEndrollSavedUiState = false;
             ChapterPreviewVisible = false;
             _chapterPreviewAuthorized = false;
             _endrollLayerShown = false;
             _fragmentChapterVisible = false;
             _fragmentListVisible = false;
+            _fragmentTexture = null;
+            _fragmentTextureName = string.Empty;
+            _fragmentStyle = string.Empty;
+            _fragmentTransitionDuration = 0f;
+            _fragmentTransitionFrom = 0f;
+            _fragmentTransitionTo = 0f;
             _tipsChapterVisible = false;
             _tipsListVisible = false;
             _tipsLibraryStandalone = false;
             _tipReading = false;
             _selectedFragmentId = -1;
             _selectedTipId = -1;
+            Speaker = string.Empty;
+            Dialogue = string.Empty;
+            _appendNext = false;
             Choices.Clear();
             HistoryVisible = false;
             GameplayUiVisible = true;
@@ -1413,6 +1425,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             // scene. Do not let the title background or its transition state
             // remain visible until the first background command is executed.
             _backgroundName = string.Empty;
+            _lastSafeBackgroundName = string.Empty;
             _backgroundTexture = null;
             _previousBackgroundTexture = null;
             _backgroundTransitionMask = null;
@@ -1422,17 +1435,30 @@ namespace Higurashi.IOS.Runtime.Buriko
             _layers.Clear();
             ResetTransientVisualEffects(clearLayerFilters: true);
             TitleVisible = false;
+            CreditsVisible = false;
+            CreditsPage = 0;
+            EndrollVisible = false;
+            _hasEndrollSavedUiState = false;
             ChapterPreviewVisible = false;
             _chapterPreviewAuthorized = false;
             _endrollLayerShown = false;
             _fragmentChapterVisible = false;
             _fragmentListVisible = false;
+            _fragmentTexture = null;
+            _fragmentTextureName = string.Empty;
+            _fragmentStyle = string.Empty;
+            _fragmentTransitionDuration = 0f;
+            _fragmentTransitionFrom = 0f;
+            _fragmentTransitionTo = 0f;
             _tipsChapterVisible = false;
             _tipsListVisible = false;
             _tipsLibraryStandalone = false;
             _tipReading = false;
             _selectedFragmentId = -1;
             _selectedTipId = -1;
+            Speaker = string.Empty;
+            Dialogue = string.Empty;
+            _appendNext = false;
             Choices.Clear();
             HistoryVisible = false;
             GameplayUiVisible = true;
