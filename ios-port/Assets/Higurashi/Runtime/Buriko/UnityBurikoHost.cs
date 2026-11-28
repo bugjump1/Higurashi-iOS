@@ -3950,10 +3950,12 @@ namespace Higurashi.IOS.Runtime.Buriko
 
                 // 守卫顺序与加载顺序一致（第 5 轮审核）：先守卫并加载候选帧；
                 // 仅当候选帧缺失、即将改用回退帧时，再守卫并加载回退帧——
-                // 回退名命中不得阻断本应显示的候选帧。
+                // 回退名命中不得阻断本应显示的候选帧。命中时同步记录 LipSyncFrame
+                // 以免同帧持续查盘并刷日志。
                 var textureName = layer.LipSyncBaseName + targetFrame;
                 if (layer.GuardConsoleCg && ShouldSkipConsoleCg(textureName, _memory))
                 {
+                    layer.LipSyncFrame = targetFrame;
                     continue;
                 }
 
@@ -3963,6 +3965,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                     textureName = layer.LipSyncBaseName + "0";
                     if (layer.GuardConsoleCg && ShouldSkipConsoleCg(textureName, _memory))
                     {
+                        layer.LipSyncFrame = targetFrame;
                         continue;
                     }
                     texture = LoadSpriteTexture(textureName, _memory);
@@ -3982,6 +3985,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             {
                 return;
             }
+            var lipSyncEnabled = _settings != null && _settings.lipSync;
             foreach (var pair in _layers)
             {
                 var layer = pair.Value;
@@ -3989,10 +3993,18 @@ namespace Higurashi.IOS.Runtime.Buriko
                 {
                     continue;
                 }
-                var textureName = layer.LipSyncBaseName + "0";
+                var textureName = lipSyncEnabled || string.IsNullOrEmpty(layer.LipSyncRestName)
+                    ? layer.LipSyncBaseName + "0"
+                    : layer.LipSyncRestName;
+                if (layer.LipSyncFrame == 0 &&
+                    string.Equals(layer.TextureName, textureName, StringComparison.Ordinal))
+                {
+                    continue;
+                }
                 // 对待加载名本身执行守卫：被隐藏图层的口型基础帧不得复活纹理。
                 if (layer.GuardConsoleCg && ShouldSkipConsoleCg(textureName, _memory))
                 {
+                    layer.LipSyncFrame = 0;
                     continue;
                 }
                 var texture = LoadSpriteTexture(textureName, _memory);
