@@ -643,6 +643,28 @@ internal static class Program
             PresentationAspectPolicy.AspectForSceneTextures(null, 0, 0, null, 0, 0));
         Equal(853f / 480f,
             PresentationAspectPolicy.AspectForSceneTextures("haikei", 0, 0, "g1", 853, 480));
+        // Consecutive black/white fills, duration-0 black fills, and skipped
+        // transitions where PreviousBackgroundTexture is null/black keep the
+        // last real background aspect instead of snapping back to 16:9.
+        Equal(4f / 3f,
+            PresentationAspectPolicy.AspectForSceneTextures(
+                "black", 8, 8, null, 0, 0, 4f / 3f, 16f / 9f));
+        Equal(4f / 3f,
+            PresentationAspectPolicy.AspectForSceneTextures(
+                "white", 8, 8, "black", 8, 8, 4f / 3f, 16f / 9f));
+        Equal(853f / 480f,
+            PresentationAspectPolicy.AspectForSceneTextures(
+                "black", 8, 8, null, 0, 0, 853f / 480f, 4f / 3f));
+        // Without any real background yet, fall back to the active style aspect.
+        Equal(4f / 3f,
+            PresentationAspectPolicy.AspectForSceneTextures(
+                "black", 8, 8, null, 0, 0, 0f, 4f / 3f));
+        // A real current texture always wins over the cached aspect.
+        Equal(16f / 9f,
+            PresentationAspectPolicy.AspectForSceneTextures(
+                "bg_console", 1920, 1080, null, 0, 0, 4f / 3f, 4f / 3f));
+        Equal(4f / 3f, PresentationAspectPolicy.RealTextureAspectFor("haikei", 640, 480));
+        Equal(0f, PresentationAspectPolicy.RealTextureAspectFor("black", 8, 8));
 
         True(PresentationAspectPolicy.IsFullFrameSceneName("black"));
         True(PresentationAspectPolicy.IsFullFrameSceneName("WHITE.png"));

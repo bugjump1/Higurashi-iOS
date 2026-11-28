@@ -66,6 +66,24 @@ namespace Higurashi.IOS.Compatibility
             string currentName, int currentWidth, int currentHeight,
             string previousName, int previousWidth, int previousHeight)
         {
+            return AspectForSceneTextures(
+                currentName, currentWidth, currentHeight,
+                previousName, previousWidth, previousHeight,
+                0f, 16f / 9f);
+        }
+
+        /// <summary>
+        /// Canvas aspect for the active scene, preserving the last real
+        /// background's aspect across duration-0 fills, consecutive black/white
+        /// scenes, skipped transitions and save restores before falling back to
+        /// the style-derived aspect.
+        /// </summary>
+        public static float AspectForSceneTextures(
+            string currentName, int currentWidth, int currentHeight,
+            string previousName, int previousWidth, int previousHeight,
+            float lastRealBackgroundAspect,
+            float fallbackAspect = 16f / 9f)
+        {
             var aspect = RealTextureAspect(currentName, currentWidth, currentHeight);
             if (aspect > 0f)
             {
@@ -78,7 +96,21 @@ namespace Higurashi.IOS.Compatibility
                 return aspect;
             }
 
-            return 16f / 9f;
+            if (lastRealBackgroundAspect > 0f)
+            {
+                return lastRealBackgroundAspect;
+            }
+
+            return fallbackAspect > 0f ? fallbackAspect : 16f / 9f;
+        }
+
+        /// <summary>
+        /// Returns the texture's real aspect ratio when it is a non-black/white
+        /// background texture with valid dimensions; otherwise returns 0.
+        /// </summary>
+        public static float RealTextureAspectFor(string name, int width, int height)
+        {
+            return RealTextureAspect(name, width, height);
         }
 
         /// <summary>

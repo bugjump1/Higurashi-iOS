@@ -31,6 +31,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         private const int PersistentFilmFaceStateMagic = 0x32464848; // HHF2
         private const int PersistentGHideCgStateMagic = 0x33474848; // HHG3
         private const int PersistentTipReadingStateMagic = 0x31525448; // HTR1
+        private const int PersistentPresentationLayoutTailMagic = 0x34504848; // HHP4
         private readonly List<RuntimePathCascade> _artSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _spriteSets = new List<RuntimePathCascade>();
         private readonly List<RuntimePathCascade> _backgroundSets = new List<RuntimePathCascade>();
@@ -57,6 +58,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         // 最近一张"任何 GHideCG 取值下都不会被隐藏"的背景名（PC"沿用上一张背景"
         // 语义的落点）：恢复/切风格命中守卫时优先回到它，而不是黑屏。
         private string _lastSafeBackgroundName;
+        private float _lastRealBackgroundAspect;
         private Texture2D _previousBackgroundTexture;
         private Texture2D _backgroundTransitionMask;
         private float _backgroundTransitionStartedAt;
@@ -242,6 +244,7 @@ namespace Higurashi.IOS.Runtime.Buriko
         public int DialogueSerial { get; private set; }
         public Texture2D BackgroundTexture => _backgroundTexture;
         public Texture2D PreviousBackgroundTexture => _previousBackgroundTexture;
+        public float LastRealBackgroundAspect => _lastRealBackgroundAspect;
         public Texture2D BackgroundTransitionMask => _backgroundTransitionMask;
         public float BackgroundTransitionProgress
         {
@@ -2262,6 +2265,28 @@ namespace Higurashi.IOS.Runtime.Buriko
                         writer.Write(pair.Key);
                     }
                 }
+                // Optional tail: last real background aspect (for black/white
+                // stability) + ModDrawCharacter raw X positions (for mid-scene
+                // style switch / cross-style save load). Old saves end before it.
+                writer.Write(PersistentPresentationLayoutTailMagic);
+                writer.Write(_lastRealBackgroundAspect);
+                var remappedLayerCount = 0;
+                foreach (var pair in _layers)
+                {
+                    if (pair.Value.UsesRyukishiXRemap)
+                    {
+                        remappedLayerCount++;
+                    }
+                }
+                writer.Write(remappedLayerCount);
+                foreach (var pair in _layers)
+                {
+                    if (pair.Value.UsesRyukishiXRemap)
+                    {
+                        writer.Write(pair.Key);
+                        writer.Write(pair.Value.UnremappedX);
+                    }
+                }
             }
         }
 
@@ -2282,8 +2307,10 @@ namespace Higurashi.IOS.Runtime.Buriko
             var hasPersistedFilmFaceState = false;
             var persistedFilmAppliesToFace = true;
             var hasPersistedGHideCgState = false;
+            var persistedLastRealBackgroundAspect = 0f;
             var persistedBgmState = Array.Empty<RuntimeBgmState>();
             _lastSafeBackgroundName = string.Empty;
+            _lastRealBackgroundAspect = 0f;
             _fragmentTextureName = string.Empty;
             _fragmentStyle = string.Empty;
             _windowBackgroundName = string.Empty;
@@ -2674,6 +2701,35 @@ namespace Higurashi.IOS.Runtime.Buriko
                         "Legacy presentation state without CG provenance; " +
                         "guarded scene/ layers stay visible until redrawn");
                 }
+
+                if (input.CanSeek && input.Length - input.Position >= sizeof(int) * 2 + sizeof(float))
+                {
+                    var layoutTailPosition = input.Position;
+                    if (reader.ReadInt32() == PersistentPresentationLayoutTailMagic)
+                    {
+                        var savedAspect = reader.ReadSingle();
+                        if (!float.IsNaN(savedAspect) && !float.IsInfinity(savedAspect) &&
+                            savedAspect > 0f)
+                        {
+                            persistedLastRealBackgroundAspect = savedAspect;
+                        }
+                        var remappedCount = ReadCount(reader, 10000, "remapped sprite layer");
+                        for (var i = 0; i < remappedCount; i++)
+                        {
+                            var remappedId = reader.ReadInt32();
+                            var rawX = reader.ReadInt32();
+                            if (_layers.TryGetValue(remappedId, out var remappedLayer))
+                            {
+                                remappedLayer.UsesRyukishiXRemap = true;
+                                remappedLayer.UnremappedX = rawX;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        input.Position = layoutTailPosition;
+                    }
+                }
             }
 
             CreditsVisible = false;
@@ -2698,13 +2754,17 @@ namespace Higurashi.IOS.Runtime.Buriko
             }
             HistoryVisible = false;
             MovieVisible = false;
-            // 图层纹理延后至此加载：守卫来源旗标已在尾部块中读出。
+            // 图层纹理延后至此加载：守卫来源与原版 X 换算元数据已在尾部块中读出。
+            var restoredBackgroundSet = memory.GetGlobalFlag("GBackgroundSet");
             foreach (var pair in _layers)
             {
+                ReapplyRyukishiSpriteX(pair.Value, restoredBackgroundSet);
                 pair.Value.Texture = LoadLayerTextureRestored(pair.Value, memory);
             }
             _backgroundTexture = LoadRestoredBackgroundTexture(_backgroundName, memory);
             _previousBackgroundTexture = null;
+            _lastRealBackgroundAspect = persistedLastRealBackgroundAspect;
+            UpdateLastRealBackgroundAspect(_backgroundTexture, memory);
             _backgroundTransitionMask = null;
             _backgroundTransitionDuration = 0f;
             // 碎片图与窗口皮肤不是场景绘制入口的资源，不受 GHideCG 守卫。
@@ -2818,6 +2878,8 @@ namespace Higurashi.IOS.Runtime.Buriko
             _lastSafeBackgroundName = snapshot.LastSafeBackgroundName ?? string.Empty;
             _backgroundTexture = LoadRestoredBackgroundTexture(_backgroundName, memory);
             _previousBackgroundTexture = null;
+            _lastRealBackgroundAspect = 0f;
+            UpdateLastRealBackgroundAspect(_backgroundTexture, memory);
             _backgroundTransitionMask = null;
             _backgroundTransitionDuration = 0f;
             _blockingAnimationUntil = 0f;
@@ -2860,9 +2922,11 @@ namespace Higurashi.IOS.Runtime.Buriko
             CommitPendingPresentation();
             _layers.Clear();
             _layerFilters.Clear();
+            var snapshotBackgroundSet = memory == null ? 0 : memory.GetGlobalFlag("GBackgroundSet");
             for (var i = 0; i < snapshot.Layers.Length; i++)
             {
                 var layer = snapshot.Layers[i].CloneWithoutTexture();
+                ReapplyRyukishiSpriteX(layer, snapshotBackgroundSet);
                 layer.Texture = LoadLayerTextureRestored(layer, memory);
                 _layers[layer.Id] = layer;
                 if (layer.Filter != null && !layer.Filter.IsIdentity)
@@ -2876,6 +2940,8 @@ namespace Higurashi.IOS.Runtime.Buriko
         {
             _backgroundTexture = LoadRestoredBackgroundTexture(_backgroundName, memory);
             _previousBackgroundTexture = null;
+            _lastRealBackgroundAspect = 0f;
+            UpdateLastRealBackgroundAspect(_backgroundTexture, memory);
             _backgroundTransitionDuration = 0f;
             _fragmentTexture = string.IsNullOrWhiteSpace(_fragmentTextureName)
                 ? null
@@ -2887,11 +2953,57 @@ namespace Higurashi.IOS.Runtime.Buriko
             // A style change is an immediate presentation replacement. Do not
             // keep a previous-style transition texture or scene-layer snapshot.
             _previousSceneLayers.Clear();
+            var backgroundSet = memory == null ? 0 : memory.GetGlobalFlag("GBackgroundSet");
             foreach (var pair in _layers)
             {
                 pair.Value.CompleteTransition();
+                ReapplyRyukishiSpriteX(pair.Value, backgroundSet);
                 pair.Value.Texture = LoadLayerTextureRestored(pair.Value, memory);
             }
+        }
+
+        private void UpdateLastRealBackgroundAspect(Texture texture, BurikoMemory memory)
+        {
+            if (texture != null)
+            {
+                var aspect = PresentationAspectPolicy.RealTextureAspectFor(
+                    texture.name, texture.width, texture.height);
+                if (aspect > 0f)
+                {
+                    _lastRealBackgroundAspect = aspect;
+                    return;
+                }
+            }
+
+            if (_lastRealBackgroundAspect <= 0f &&
+                memory != null &&
+                !string.IsNullOrWhiteSpace(_lastSafeBackgroundName) &&
+                !PresentationAspectPolicy.IsFullFrameSceneName(_lastSafeBackgroundName))
+            {
+                var safeTexture = LoadBackgroundTexture(_lastSafeBackgroundName, memory);
+                if (safeTexture != null)
+                {
+                    var safeAspect = PresentationAspectPolicy.RealTextureAspectFor(
+                        safeTexture.name, safeTexture.width, safeTexture.height);
+                    if (safeAspect > 0f)
+                    {
+                        _lastRealBackgroundAspect = safeAspect;
+                    }
+                }
+            }
+        }
+
+        private static void ReapplyRyukishiSpriteX(PresentationLayer layer, int backgroundSet)
+        {
+            if (layer == null || !layer.UsesRyukishiXRemap)
+            {
+                return;
+            }
+
+            var remappedX = RyukishiSpritePlacementPolicy.RemapSpriteX(
+                backgroundSet, layer.TextureName, layer.UnremappedX);
+            layer.X = remappedX;
+            layer.FromX = remappedX;
         }
 
         internal IReadOnlyList<string> CurrentBgmFolders(BurikoMemory memory)
@@ -3154,6 +3266,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                 _lastSafeBackgroundName = textureName;
             }
             _backgroundTexture = nextTexture;
+            UpdateLastRealBackgroundAspect(nextTexture, memory);
             _backgroundTransitionStartedAt = Time.unscaledTime;
             _backgroundTransitionDuration = Mathf.Max(0f, duration);
             if (clearLayers)
@@ -3534,10 +3647,11 @@ namespace Higurashi.IOS.Runtime.Buriko
             var priorityIndex = filtered ? 14 : 15;
             // PC MODRyukishiRevertSpritePosition：原版背景下把主机版排布的 ±240/±320
             // 立绘 x 向内收一档（本移植无拉伸背景模式，等价于 PC 的不拉伸分支）。
-            // 只换算最终 x；move 起点沿用脚本原值，与 PC 一致。
+            // 只换算最终 x；move 起点沿用脚本原值，与 PC 一致。保留 rawX 供中途
+            // 切换背景风格与跨风格读档时重算。
+            var rawX = Int(invocation, xIndex, memory);
             var x = RyukishiSpritePlacementPolicy.RemapSpriteX(
-                memory.GetGlobalFlag("GBackgroundSet"), texture,
-                Int(invocation, xIndex, memory));
+                memory.GetGlobalFlag("GBackgroundSet"), texture, rawX);
             DrawLayer(
                 Int(invocation, 0, memory),
                 renderedTexture,
@@ -3553,6 +3667,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                 0,
                 guardConsoleCg: !filtered);
             var layer = _layers[Int(invocation, 0, memory)];
+            layer.UsesRyukishiXRemap = RyukishiSpritePlacementPolicy.IsSpriteOrPortraitPath(texture);
+            layer.UnremappedX = rawX;
             layer.CharacterId = Int(invocation, 1, memory);
             layer.LipSyncBaseName = texture;
             layer.LipSyncRestName = renderedTexture;
@@ -4115,13 +4231,17 @@ namespace Higurashi.IOS.Runtime.Buriko
         {
             var current = BackgroundTexture;
             var previous = PreviousBackgroundTexture;
+            var fallback = PresentationAspectPolicy.AspectForBackgroundStyle(
+                _settings == null ? 0 : _settings.backgroundStyleIndex);
             return PresentationAspectPolicy.AspectForSceneTextures(
                 current == null ? null : current.name,
                 current == null ? 0 : current.width,
                 current == null ? 0 : current.height,
                 previous == null ? null : previous.name,
                 previous == null ? 0 : previous.width,
-                previous == null ? 0 : previous.height);
+                previous == null ? 0 : previous.height,
+                _lastRealBackgroundAspect,
+                fallback);
         }
 
         private void StartEnlargeScreen(int x, int y, int width, int height, float duration)
@@ -4335,6 +4455,10 @@ namespace Higurashi.IOS.Runtime.Buriko
         // DrawBustshotWithFiltering/ModDrawCharacterWithFiltering/DrawFace/ChangeBustshot
         // 等 PC 不守卫的入口为 false）。恢复/重载仅对 true 的图层应用守卫。
         public bool GuardConsoleCg;
+        // ModDrawCharacter / ModDrawCharacterWithFiltering 绘制的立绘记录脚本原始 x，
+        // 供中途切换背景风格或跨风格读档时重算 RyukishiSpritePlacementPolicy.RemapSpriteX。
+        public bool UsesRyukishiXRemap;
+        public int UnremappedX;
 
         public float TransitionProgress
         {
@@ -4353,6 +4477,10 @@ namespace Higurashi.IOS.Runtime.Buriko
             int easeType = 0)
         {
             GetRenderState(out FromX, out FromY, out FromZ, out FromAlpha);
+            if (x != X)
+            {
+                UsesRyukishiXRemap = false;
+            }
             X = x;
             Y = y;
             Z = z;
@@ -4450,6 +4578,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                 LipSyncRestName = LipSyncRestName,
                 LipSyncFrame = LipSyncFrame,
                 GuardConsoleCg = GuardConsoleCg,
+                UsesRyukishiXRemap = UsesRyukishiXRemap,
+                UnremappedX = UnremappedX,
                 MaskName = MaskName,
                 MaskFuzziness = MaskFuzziness,
                 MaskReverse = MaskReverse,

@@ -274,10 +274,13 @@ namespace Higurashi.IOS.Runtime
                     }
                     else
                     {
+                        var previousIsCharacterSprite =
+                            RyukishiSpritePlacementPolicy.IsSpriteOrPortraitPath(
+                                layer.PreviousTexture.name);
                         var previousLayerContent = layer.PreviousIsBustshot
                             ? previousSceneContent
                             : content;
-                        var previousLayerScale = isCharacterSprite
+                        var previousLayerScale = previousIsCharacterSprite
                             ? GetCharacterSpriteScale(previousLayerContent)
                             : layer.PreviousIsBustshot
                                 ? previousSceneScale
@@ -288,7 +291,7 @@ namespace Higurashi.IOS.Runtime
                             layer.PreviousIsCentered, previousLayerScale, false,
                             layer.PreviousOverrideWidth, layer.PreviousOverrideHeight,
                             layer.PreviousFilter, layer.Id != 1000 || _host.FilmAppliesToFace,
-                            bottomAnchor: isCharacterSprite,
+                            bottomAnchor: previousIsCharacterSprite,
                             requestedName: layer.PreviousTexture.name);
                     }
                 }
@@ -462,7 +465,7 @@ namespace Higurashi.IOS.Runtime
                 x = content.center.x + layerX * screenScale;
                 y = content.center.y + layerY * screenScale;
             }
-            if (bottomAnchor && height <= content.height)
+            if (centered && bottomAnchor && height <= content.height)
             {
                 // 立绘锚定脚底：PC 满幅立绘 quad 高=画布高，居中与贴底等价；
                 // 立绘缩放改锚 16:9 参考比例后小于帧高，须贴帧底保持脚着地。
@@ -532,7 +535,7 @@ namespace Higurashi.IOS.Runtime
             var x = centered
                 ? content.center.x + layerX * screenScale - width * 0.5f + decorationOffsetX
                 : content.center.x + layerX * screenScale;
-            var y = bottomAnchor && height <= content.height
+            var y = centered && bottomAnchor && height <= content.height
                 ? content.yMax - height + layerY * screenScale
                 : centered
                     ? content.center.y + layerY * screenScale - height * 0.5f + decorationOffsetY
@@ -1166,6 +1169,7 @@ namespace Higurashi.IOS.Runtime
                 _fastTraversal.Stop();
                 _autoMode = false;
                 _timeline.Clear();
+                ResetStoryChoiceState();
                 _runtime.JumpToSectionFromUi(runtimeSection);
                 HigurashiDiagnosticLog.Info("ChapterJump",
                     "Started section=" + runtimeSection + " token=" + section +
@@ -3223,13 +3227,17 @@ namespace Higurashi.IOS.Runtime
         {
             var current = _host.BackgroundTexture;
             var previous = _host.PreviousBackgroundTexture;
+            var fallback = PresentationAspectPolicy.AspectForBackgroundStyle(
+                _settings == null ? 0 : _settings.backgroundStyleIndex);
             return PresentationAspectPolicy.AspectForSceneTextures(
                 current == null ? null : current.name,
                 current == null ? 0 : current.width,
                 current == null ? 0 : current.height,
                 previous == null ? null : previous.name,
                 previous == null ? 0 : previous.width,
-                previous == null ? 0 : previous.height);
+                previous == null ? 0 : previous.height,
+                _host.LastRealBackgroundAspect,
+                fallback);
         }
 
         private void EnsureStyles()

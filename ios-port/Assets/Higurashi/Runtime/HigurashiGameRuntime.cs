@@ -1657,6 +1657,7 @@ namespace Higurashi.IOS.Runtime
                 _fastTraversal.Stop();
                 _autoMode = false;
                 _timeline.Clear();
+                ResetStoryChoiceState();
                 _runtime.CallScriptFromUi(BonusContentScript);
                 CloseAllModals();
                 _suppressInputUntilFrame = Time.frameCount + 2;
