@@ -483,19 +483,19 @@ namespace Higurashi.IOS.Runtime
             if (ClipTextureToBounds(content, ref destination, ref source))
             {
                 var wasClipped = !ApproximatelyEqual(originalDestination, destination);
-                var negativeStrength = _host == null ? 0f : _host.NegativeFilmStrength;
                 var filmStrength = applyFilm && _host != null ? _host.FilmEffectStrength : 0f;
+                var negativeStrength = applyFilm && _host != null ? _host.NegativeFilmStrength : 0f;
                 if (filmStrength > 0.0001f)
                 {
                     DrawTextureWithFilm(destination, texture, source, alpha, filmStrength);
                 }
-                else if (filter != null && !filter.IsIdentity)
-                {
-                    DrawTextureWithLayerFilter(destination, texture, source, alpha, filter);
-                }
                 else if (negativeStrength > 0.0001f)
                 {
                     DrawTextureWithNegative(destination, texture, source, alpha, negativeStrength);
+                }
+                else if (filter != null && !filter.IsIdentity)
+                {
+                    DrawTextureWithLayerFilter(destination, texture, source, alpha, filter);
                 }
                 else if (!cropTransparentEdges && !wasClipped)
                 {
@@ -736,10 +736,11 @@ namespace Higurashi.IOS.Runtime
             _maskedTransitionMaterial.SetFloat("_Progress", Mathf.Clamp01(progress));
             _maskedTransitionMaterial.SetFloat("_Fuzziness", Mathf.Max(0.001f, fuzziness));
             var filmStrength = applyFilm && _host != null ? _host.FilmEffectStrength : 0f;
-            var filterEnabled = filmStrength <= 0.0001f && filter != null && !filter.IsIdentity;
-            var negativeStrength = filmStrength <= 0.0001f && !filterEnabled && _host != null
+            var negativeStrength = applyFilm && filmStrength <= 0.0001f && _host != null
                 ? _host.NegativeFilmStrength
                 : 0f;
+            var filterEnabled = filmStrength <= 0.0001f && negativeStrength <= 0.0001f &&
+                filter != null && !filter.IsIdentity;
             _maskedTransitionMaterial.SetFloat("_FilmType", _host == null ? 0f : _host.FilmEffectType);
             _maskedTransitionMaterial.SetColor("_FilmColor",
                 _host == null ? Color.white : _host.FilmEffectColor);
@@ -2408,7 +2409,11 @@ namespace Higurashi.IOS.Runtime
                 fontSize = Mathf.RoundToInt(Mathf.Clamp(content.height * 0.030f * textScale, 18f, 48f)),
                 padding = new RectOffset(6, 6, 2, 2)
             };
-            var hitPadding = Mathf.Max(14f, content.height / 480f * 16f);
+            var maxNonOverlappingPadding = Mathf.Max(0f,
+                (normalizedBands[1].y - normalizedBands[0].yMax) * layerRect.height * 0.5f - 1f);
+            var hitPadding = Mathf.Min(
+                Mathf.Max(14f, content.height / 480f * 16f),
+                maxNonOverlappingPadding);
             for (var i = 0; i < normalizedBands.Length; i++)
             {
                 var band = normalizedBands[i];
@@ -2484,7 +2489,11 @@ namespace Higurashi.IOS.Runtime
                 fontSize = Mathf.RoundToInt(Mathf.Clamp(content.height * 0.034f * textScale, 20f, 52f)),
                 padding = new RectOffset(6, 6, 2, 2)
             };
-            var hitPadding = Mathf.Max(12f, content.height / 480f * 14f);
+            var maxNonOverlappingPadding = Mathf.Max(0f,
+                (normalizedBands[1].y - normalizedBands[0].yMax) * layerRect.height * 0.5f - 1f);
+            var hitPadding = Mathf.Min(
+                Mathf.Max(12f, content.height / 480f * 14f),
+                maxNonOverlappingPadding);
             for (var i = 0; i < normalizedBands.Length; i++)
             {
                 var band = normalizedBands[i];

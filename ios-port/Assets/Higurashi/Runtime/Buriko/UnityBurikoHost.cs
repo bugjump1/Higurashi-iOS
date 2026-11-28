@@ -1141,6 +1141,8 @@ namespace Higurashi.IOS.Runtime.Buriko
                     var color = new Color(Int(invocation, 1, memory) / 255f,
                         Int(invocation, 2, memory) / 255f,
                         Int(invocation, 3, memory) / 255f);
+                    // Matches PC FilmEffector: DrawFilm and Negative share one effector.
+                    StartFilmTransitionFrom(0f, 0f, 0f);
                     StartFilmEffect(Int(invocation, 0, memory), color,
                         Int(invocation, 5, memory), Int(invocation, 4, memory), duration);
                     return AnimationResponse(duration, invocation.Arguments[7].AsBool(memory));
@@ -1162,6 +1164,11 @@ namespace Higurashi.IOS.Runtime.Buriko
                 case 82:
                 {
                     var duration = Int(invocation, 0, memory) / 1000f;
+                    // Matches PC FilmEffector: Negative replaces any active DrawFilm.
+                    _filmEffectType = -1;
+                    _filmEffectStrength = 0f;
+                    _filmEffectTargetStrength = 0f;
+                    _filmEffectDuration = 0f;
                     StartFilmTransition(255f / 256f, duration);
                     return AnimationResponse(duration, invocation.Arguments[1].AsBool(memory));
                 }
@@ -4406,6 +4413,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             _filmEffectTargetStrength = 0f;
             _filmEffectDuration = 0f;
             _filmAppliesToFace = true;
+            _messageSpeedOverride = -1;
             ResetEnlargeImmediate();
             _shakeDuration = 0f;
             _windowShakeDuration = 0f;
