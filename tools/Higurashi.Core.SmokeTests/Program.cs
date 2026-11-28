@@ -1501,10 +1501,22 @@ internal static class Program
         Equal(3, RichTextReveal.CountVisible("<size=-2>abc"));
         // 连续标签
         Equal(2, RichTextReveal.CountVisible("<size=-2><color=#fff>ab</color></size>"));
-        // 未闭合标签（异常容错：标签内字符不计，其余正常）
-        Equal(2, RichTextReveal.CountVisible("ab<size=-2"));
-        // 孤立 < 后无 > 也当 tag 起始（容错；现实对话数据标签均合法闭合，不会出现）
-        Equal(1, RichTextReveal.CountVisible("a<b"));
+        Equal(2, RichTextReveal.CountVisible("<b><i>ab</i></b>"));
+        // 非富文本尖括号正文（EP02/EP03 TIPS 标题，如 <关于御社神大人的报应>）按可见字符计数
+        var tipHeading = "<关于御社神大人的报应>";
+        Equal(tipHeading.Length, RichTextReveal.CountVisible(tipHeading));
+        Equal("<", RichTextReveal.VisibleSubstring(tipHeading, 1));
+        Equal(tipHeading, RichTextReveal.VisibleSubstring(tipHeading, tipHeading.Length));
+        // 富文本标签包裹非富文本尖括号正文
+        Equal(5, RichTextReveal.CountVisible("<size=-2><公由家></size>"));
+        Equal("<size=-2><", RichTextReveal.VisibleSubstring("<size=-2><公由家></size>", 1));
+        Equal("<size=-2><公由家></size>", RichTextReveal.VisibleSubstring("<size=-2><公由家></size>", 5));
+        // 未闭合 '<' 与前导孤立 '<' 按 IMGUI 字面正文计为可见字符，但后续合法标签仍被跳过
+        Equal(10, RichTextReveal.CountVisible("ab<size=-2"));
+        Equal(3, RichTextReveal.CountVisible("a<b"));
+        Equal(4, RichTextReveal.CountVisible("<a <color=#fff>b</color>"));
+        Equal("<a <color=#fff>b</color>",
+            RichTextReveal.VisibleSubstring("<a <color=#fff>b</color>", 4));
     }
 
     private static void RichTextRevealNeverSplitsTag()

@@ -2753,6 +2753,10 @@ namespace Higurashi.IOS.Runtime.Buriko
                 InterfaceEnabled = true;
             }
             HistoryVisible = false;
+            if (MovieVisible && _videoPlayer != null)
+            {
+                _videoPlayer.Stop();
+            }
             MovieVisible = false;
             // 图层纹理延后至此加载：守卫来源与原版 X 换算元数据已在尾部块中读出。
             var restoredBackgroundSet = memory.GetGlobalFlag("GBackgroundSet");
@@ -2844,6 +2848,11 @@ namespace Higurashi.IOS.Runtime.Buriko
             Speaker = snapshot.Speaker;
             Dialogue = snapshot.Dialogue;
             _dialogueRevealForced = true;
+            if (MovieVisible && _videoPlayer != null)
+            {
+                _videoPlayer.Stop();
+            }
+            MovieVisible = false;
             SetWindowVisibilityImmediate(snapshot.WindowVisible);
             TitleVisible = snapshot.TitleVisible;
             if (TitleVisible)
