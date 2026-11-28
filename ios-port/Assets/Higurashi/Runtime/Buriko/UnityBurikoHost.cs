@@ -3819,7 +3819,9 @@ namespace Higurashi.IOS.Runtime.Buriko
             out string resolvedFolder)
         {
             resolvedFolder = null;
-            if (string.IsNullOrWhiteSpace(textureName) || _assets == null || memory == null)
+            if (string.IsNullOrWhiteSpace(textureName) ||
+                !textureName.StartsWith(HideConsoleCgPolicy.ScenePrefix, StringComparison.Ordinal) ||
+                _assets == null || memory == null)
             {
                 return false;
             }
