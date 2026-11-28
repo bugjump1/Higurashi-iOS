@@ -593,6 +593,16 @@ internal static class Program
         var original = "<size=-2>哎</size>";
         RichTextSizeNormalize.Normalize(original, 29);
         Equal("<size=-2>哎</size>", original);
+
+        // 描边层仅剥 <color> 标签，保留 <size>/<b>/<i>，确保描边与前景字号、换行完全重合。
+        Equal("<i><size=27>好</size></i>",
+            RichTextSizeNormalize.StripColorTags("<color=#ff3333><i><size=27>好</size></i></color>"));
+        Equal("<size=33>大字</size>普通",
+            RichTextSizeNormalize.StripColorTags("<size=33>大字</size><COLOR=red>普通</COLOR>"));
+        Equal("<size=27>无颜色",
+            RichTextSizeNormalize.StripColorTags("<size=27>无颜色"));
+        Equal("纯文本", RichTextSizeNormalize.StripColorTags("纯文本"));
+        Equal(string.Empty, RichTextSizeNormalize.StripColorTags(null));
     }
 
     private static void PresentationAspectUsesDeclaredCanvasBeforeBackground()

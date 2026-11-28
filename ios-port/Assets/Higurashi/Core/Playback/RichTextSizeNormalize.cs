@@ -138,5 +138,56 @@ namespace Higurashi.IOS.Playback
             absolute = Math.Max(1, effective + value);
             return true;
         }
+
+        /// <summary>
+        /// 仅剥离 &lt;color=...&gt; 与 &lt;/color&gt; 标签，保留 &lt;size=...&gt;、&lt;b&gt;、&lt;i&gt; 等
+        /// 排版标签。供对话描边/阴影层使用，保证黑色描边与前景彩色/变字号文本的
+        /// 字宽和换行位置严格重合。无 color 标签时零分配直通。
+        /// </summary>
+        public static string StripColorTags(string text)
+        {
+            if (string.IsNullOrEmpty(text) ||
+                (text.IndexOf("<color", StringComparison.OrdinalIgnoreCase) < 0 &&
+                 text.IndexOf("</color", StringComparison.OrdinalIgnoreCase) < 0))
+            {
+                return text ?? string.Empty;
+            }
+
+            var result = new StringBuilder(text.Length);
+            var index = 0;
+            while (index < text.Length)
+            {
+                var ch = text[index];
+                if (ch != '<')
+                {
+                    result.Append(ch);
+                    index++;
+                    continue;
+                }
+
+                var close = text.IndexOf('>', index + 1);
+                if (close < 0)
+                {
+                    result.Append(text, index, text.Length - index);
+                    break;
+                }
+
+                var inner = text.Substring(index + 1, close - index - 1);
+                if (!IsColorTag(inner))
+                {
+                    AppendOriginal(result, text, index, close);
+                }
+
+                index = close + 1;
+            }
+
+            return result.ToString();
+        }
+
+        private static bool IsColorTag(string inner)
+        {
+            return inner.StartsWith("color=", StringComparison.OrdinalIgnoreCase) ||
+                   inner.Equals("/color", StringComparison.OrdinalIgnoreCase);
+        }
     }
 }

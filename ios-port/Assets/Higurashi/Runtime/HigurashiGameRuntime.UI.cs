@@ -2554,8 +2554,9 @@ namespace Higurashi.IOS.Runtime
             var contentHeight = 16f * scale;
             for (var i = 0; i < _host.History.Count; i++)
             {
+                var entryText = NormalizeSizeTagsForDraw(_host.History[i], _historyStyle);
                 contentHeight += Mathf.Max(36f * scale,
-                    _historyStyle.CalcHeight(new GUIContent(_host.History[i]), entryWidth)) + 12f * scale;
+                    _historyStyle.CalcHeight(new GUIContent(entryText), entryWidth)) + 12f * scale;
             }
             contentHeight = Mathf.Max(viewport.height, contentHeight);
             var maxScroll = Mathf.Max(0f, contentHeight - viewport.height);
@@ -2572,15 +2573,16 @@ namespace Higurashi.IOS.Runtime
             var y = 8f * scale;
             for (var i = 0; i < _host.History.Count; i++)
             {
+                var entryText = NormalizeSizeTagsForDraw(_host.History[i], _historyStyle);
                 var entryHeight = Mathf.Max(36f * scale,
-                    _historyStyle.CalcHeight(new GUIContent(_host.History[i]), entryWidth));
+                    _historyStyle.CalcHeight(new GUIContent(entryText), entryWidth));
                 var entryRect = new Rect(10f * scale, y, entryWidth, entryHeight);
                 if (GUI.Button(entryRect, GUIContent.none, GUIStyle.none) &&
                     _host.ReplayHistoryVoice(i))
                 {
                     ShowToast("正在重播该句语音");
                 }
-                GUI.Label(entryRect, _host.History[i], _historyStyle);
+                GUI.Label(entryRect, entryText, _historyStyle);
                 y += entryHeight + 12f * scale;
             }
             GUI.EndScrollView();
@@ -3109,15 +3111,18 @@ namespace Higurashi.IOS.Runtime
             bool stripRichTextForOutline = false)
         {
             var original = style.normal.textColor;
-            var originalRichText = style.richText;
             var outlineDistance = Mathf.Max(1f,
                 (stripRichTextForOutline ? 1.65f : 1.2f) * UiScale);
             var shadowDistance = Mathf.Max(1f,
                 (stripRichTextForOutline ? 2.2f : 1.8f) * UiScale);
-            var outlineText = stripRichTextForOutline ? StripRichTextTags(text) : text;
+            // Only strip <color> tags for the black shadow/outline so <size>,
+            // <b> and <i> keep exact glyph metrics and line wraps aligned with
+            // the foreground fill text.
+            var outlineText = stripRichTextForOutline
+                ? Higurashi.IOS.Playback.RichTextSizeNormalize.StripColorTags(text)
+                : text;
 
             // Keep the script-selected fill color, but separate it from bright backgrounds.
-            style.richText = false;
             style.normal.textColor = new Color(0f, 0f, 0f, original.a * 0.45f);
             GUI.Label(new Rect(rect.x + shadowDistance, rect.y + shadowDistance,
                 rect.width, rect.height), outlineText, style);
@@ -3141,39 +3146,8 @@ namespace Higurashi.IOS.Runtime
                 }
             }
 
-            style.richText = originalRichText;
             style.normal.textColor = original;
             GUI.Label(rect, text, style);
-        }
-
-        private static string StripRichTextTags(string text)
-        {
-            if (string.IsNullOrEmpty(text))
-            {
-                return text ?? string.Empty;
-            }
-
-            var result = new System.Text.StringBuilder(text.Length);
-            var insideTag = false;
-            for (var i = 0; i < text.Length; i++)
-            {
-                var character = text[i];
-                if (character == '<')
-                {
-                    insideTag = true;
-                    continue;
-                }
-                if (insideTag)
-                {
-                    if (character == '>')
-                    {
-                        insideTag = false;
-                    }
-                    continue;
-                }
-                result.Append(character);
-            }
-            return result.ToString();
         }
 
         private void DrawOutlinedLabel(Rect rect, string text, GUIStyle style)

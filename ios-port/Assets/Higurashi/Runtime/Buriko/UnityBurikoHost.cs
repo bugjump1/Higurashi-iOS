@@ -4227,49 +4227,20 @@ namespace Higurashi.IOS.Runtime.Buriko
             _windowShakeStartedAt = Time.unscaledTime;
         }
 
-        private float CurrentPresentationAspect()
-        {
-            var current = BackgroundTexture;
-            var previous = PreviousBackgroundTexture;
-            var fallback = PresentationAspectPolicy.AspectForBackgroundStyle(
-                _settings == null ? 0 : _settings.backgroundStyleIndex);
-            return PresentationAspectPolicy.AspectForSceneTextures(
-                current == null ? null : current.name,
-                current == null ? 0 : current.width,
-                current == null ? 0 : current.height,
-                previous == null ? null : previous.name,
-                previous == null ? 0 : previous.width,
-                previous == null ? 0 : previous.height,
-                _lastRealBackgroundAspect,
-                fallback);
-        }
-
         private void StartEnlargeScreen(int x, int y, int width, int height, float duration)
         {
             var targetWidth = Mathf.Max(1f, width);
             var targetHeight = Mathf.Max(1f, height);
-            var canvasWidth = 480f * CurrentPresentationAspect();
-            var canvasHeight = 480f;
-            var canvasAspect = canvasWidth / canvasHeight;
-            var targetAspect = targetWidth / targetHeight;
-            if (Mathf.Abs(targetAspect - canvasAspect) > 0.01f)
-            {
-                targetHeight = targetWidth / canvasAspect;
-                if (targetHeight > canvasHeight)
-                {
-                    targetHeight = canvasHeight;
-                    targetWidth = targetHeight * canvasAspect;
-                }
-
-                x = Mathf.RoundToInt((canvasWidth - targetWidth) * 0.5f);
-                y = Mathf.RoundToInt((canvasHeight - targetHeight) * 0.5f);
-            }
+            // PC EnlargeScreen targets are expressed in the canonical 640x480
+            // space. Use uniform zoom so 16:9 canvases never over-zoom by 33%
+            // and preserve the script's (x, y) focal point instead of recentering.
+            var zoom = Mathf.Max(640f / targetWidth, 480f / targetHeight);
+            var offsetX = 320f - (x + targetWidth * 0.5f);
+            var offsetY = 240f - (y + targetHeight * 0.5f);
             _enlargeFromScale = PresentationScale;
             _enlargeFromTranslation = PresentationTranslation;
-            _enlargeTargetScale = new Vector2(canvasWidth / targetWidth, canvasHeight / targetHeight);
-            _enlargeTargetTranslation = new Vector2(
-                (canvasWidth * 0.5f - (x + targetWidth * 0.5f)) * _enlargeTargetScale.x,
-                (canvasHeight * 0.5f - (y + targetHeight * 0.5f)) * _enlargeTargetScale.y);
+            _enlargeTargetScale = new Vector2(zoom, zoom);
+            _enlargeTargetTranslation = new Vector2(offsetX * zoom, offsetY * zoom);
             _enlargeStartedAt = Time.unscaledTime;
             _enlargeDuration = Mathf.Max(0f, duration);
             if (_enlargeDuration <= 0f)
@@ -4281,8 +4252,17 @@ namespace Higurashi.IOS.Runtime.Buriko
 
         private void ResetEnlargeScreen(float duration)
         {
-            var canvasWidth = Mathf.RoundToInt(480f * CurrentPresentationAspect());
-            StartEnlargeScreen(0, 0, canvasWidth, 480, duration);
+            _enlargeFromScale = PresentationScale;
+            _enlargeFromTranslation = PresentationTranslation;
+            _enlargeTargetScale = Vector2.one;
+            _enlargeTargetTranslation = Vector2.zero;
+            _enlargeStartedAt = Time.unscaledTime;
+            _enlargeDuration = Mathf.Max(0f, duration);
+            if (_enlargeDuration <= 0f)
+            {
+                _enlargeFromScale = _enlargeTargetScale;
+                _enlargeFromTranslation = _enlargeTargetTranslation;
+            }
         }
 
         private static float ShakeDuration(float speed, int loopCount)
