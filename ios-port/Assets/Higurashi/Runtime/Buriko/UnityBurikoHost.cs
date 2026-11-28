@@ -1234,6 +1234,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                     // to title after clearing (e.g. EP08) never leaks FragmentRead/
                     // LFragmentMiss/ChapterNumber into a subsequent run or jump.
                     memory.ResetLocalFlags();
+                    ResetTransientVisualEffects(clearLayerFilters: true);
                     TitleVisible = true;
                     _titleShownAt = Time.unscaledTime;
                     EndrollVisible = false;
@@ -1375,6 +1376,7 @@ namespace Higurashi.IOS.Runtime.Buriko
 
         public void PrepareStoryContinuation()
         {
+            ResetTransientVisualEffects(clearLayerFilters: true);
             TitleVisible = false;
             CreditsVisible = false;
             CreditsPage = 0;
@@ -1411,6 +1413,7 @@ namespace Higurashi.IOS.Runtime.Buriko
             _backgroundTransitionDuration = 0f;
             _previousSceneLayers.Clear();
             _layers.Clear();
+            ResetTransientVisualEffects(clearLayerFilters: true);
             TitleVisible = false;
             ChapterPreviewVisible = false;
             _chapterPreviewAuthorized = false;
@@ -2644,12 +2647,12 @@ namespace Higurashi.IOS.Runtime.Buriko
                     }
                 }
 
+                _layerFilters.Clear();
                 if (input.CanSeek && input.Length - input.Position >= sizeof(int) * 2)
                 {
                     var layerFilterTailPosition = input.Position;
                     if (reader.ReadInt32() == PersistentLayerFilterStateMagic)
                     {
-                        _layerFilters.Clear();
                         var filterCount = ReadCount(reader, 10000, "layer filter");
                         for (var i = 0; i < filterCount; i++)
                         {
@@ -2828,6 +2831,9 @@ namespace Higurashi.IOS.Runtime.Buriko
             _fragmentTransitionFrom = _fragmentTexture != null ? 1f : 0f;
             _fragmentTransitionTo = _fragmentTransitionFrom;
             _blockingAnimationUntil = 0f;
+            ResetEnlargeImmediate();
+            _shakeDuration = 0f;
+            _windowShakeDuration = 0f;
             StartFilmTransitionFrom(
                 hasPersistedFilmState ? persistedFilmStrength : 0f,
                 hasPersistedFilmState ? persistedFilmStrength : 0f,
@@ -2939,6 +2945,9 @@ namespace Higurashi.IOS.Runtime.Buriko
             _backgroundTransitionMask = null;
             _backgroundTransitionDuration = 0f;
             _blockingAnimationUntil = 0f;
+            ResetEnlargeImmediate();
+            _shakeDuration = 0f;
+            _windowShakeDuration = 0f;
             StartFilmTransitionFrom(snapshot.NegativeFilmStrength,
                 snapshot.NegativeFilmStrength, 0f);
             _messageSpeedOverride = snapshot.MessageSpeedOverride;
@@ -4374,6 +4383,34 @@ namespace Higurashi.IOS.Runtime.Buriko
             }
         }
 
+        private void ResetEnlargeImmediate()
+        {
+            _enlargeDuration = 0f;
+            _enlargeFromScale = Vector2.one;
+            _enlargeTargetScale = Vector2.one;
+            _enlargeFromTranslation = Vector2.zero;
+            _enlargeTargetTranslation = Vector2.zero;
+        }
+
+        private void ResetTransientVisualEffects(bool clearLayerFilters)
+        {
+            if (clearLayerFilters)
+            {
+                _layerFilters.Clear();
+            }
+            StartFilmTransitionFrom(0f, 0f, 0f);
+            _filmEffectType = -1;
+            _filmEffectStyle = 0;
+            _filmEffectColor = Color.white;
+            _filmEffectStrength = 0f;
+            _filmEffectTargetStrength = 0f;
+            _filmEffectDuration = 0f;
+            _filmAppliesToFace = true;
+            ResetEnlargeImmediate();
+            _shakeDuration = 0f;
+            _windowShakeDuration = 0f;
+        }
+
         private void CompletePresentationAnimations()
         {
             _backgroundTransitionStartedAt = Time.unscaledTime - _backgroundTransitionDuration;
@@ -4383,10 +4420,16 @@ namespace Higurashi.IOS.Runtime.Buriko
             _shakeDuration = 0f;
             _windowShakeDuration = 0f;
             _enlargeDuration = 0f;
-            _enlargeFromScale = Vector2.one;
-            _enlargeTargetScale = Vector2.one;
-            _enlargeFromTranslation = Vector2.zero;
-            _enlargeTargetTranslation = Vector2.zero;
+            _enlargeFromScale = _enlargeTargetScale;
+            _enlargeFromTranslation = _enlargeTargetTranslation;
+            _filmTransitionDuration = 0f;
+            _filmStrength = _filmTargetStrength;
+            _filmEffectDuration = 0f;
+            _filmEffectStrength = _filmEffectTargetStrength;
+            if (_filmEffectTargetStrength <= 0f)
+            {
+                _filmEffectType = -1;
+            }
             _windowTransitionDuration = 0f;
             _windowTransitionFrom = _windowTransitionTo;
             WindowVisible = _windowTransitionTo > 0f;

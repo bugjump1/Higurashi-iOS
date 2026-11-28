@@ -83,12 +83,12 @@ Shader "Higurashi/MaskedTransition"
                 {
                     if (_FilmType < 1.5)
                     {
-                        color.rgb = lerp(color.rgb, _FilmColor.rgb, saturate(_FilmStrength));
+                        color.rgb = saturate(color.rgb + _FilmColor.rgb * saturate(_FilmStrength));
                     }
                     else if (_FilmType < 2.5)
                     {
-                        float luminance = dot(color.rgb, float3(0.299, 0.587, 0.114));
-                        color.rgb = lerp(color.rgb, luminance.xxx, saturate(_FilmStrength));
+                        float gray = (color.r + color.g + color.b) / 3.0;
+                        color.rgb = lerp(color.rgb, gray.xxx * _FilmColor.rgb, saturate(_FilmStrength));
                     }
                     else if (_FilmType < 3.5)
                     {
