@@ -1975,7 +1975,9 @@ namespace Higurashi.IOS.Runtime
         private void SelectChoice(int index)
         {
             var openingChoice = _host.IsOpeningChoice;
-            var badEndingChoice = !openingChoice && BadEndingChoicePolicy.IsBadEndingChoice(
+            var consoleChoiceMenu = _host.IsConsoleChoiceMenu;
+            var badEndingChoice = !openingChoice && !consoleChoiceMenu &&
+                                  BadEndingChoicePolicy.IsBadEndingChoice(
                 HigurashiActiveChapter.Profile.EpisodeNumber, _runtime.CurrentScriptName, index);
             if (!_host.Choose(index, _runtime.Memory))
             {
@@ -1995,6 +1997,11 @@ namespace Higurashi.IOS.Runtime
             if (openingChoice)
             {
                 SaveOpeningPreference();
+            }
+            if (consoleChoiceMenu && SupportsChapterChoiceMode())
+            {
+                _settings.choiceMode = (MobileChoiceMode)Mathf.Clamp(index, 0, 2);
+                SaveSettings();
             }
             CaptureDialogueCheckpoint();
         }

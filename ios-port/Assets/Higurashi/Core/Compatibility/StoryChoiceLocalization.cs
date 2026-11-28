@@ -6,7 +6,7 @@ namespace Higurashi.IOS.Compatibility
     {
         public static string Localize(string value)
         {
-            var text = (value ?? string.Empty).Trim();
+            var text = (value ?? string.Empty).Replace('\u3000', ' ').Trim();
             switch (text)
             {
                 case "Open the red box":
