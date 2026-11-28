@@ -425,6 +425,26 @@ namespace Higurashi.IOS.Runtime
                 return;
             }
 
+            if (_host.EndrollVisible)
+            {
+                if (action == NovelInputAction.Advance)
+                {
+                    _autoMode = false;
+                    StepForward();
+                }
+                else if (action == NovelInputAction.StartFastForward)
+                {
+                    _autoMode = false;
+                    _autoAdvanceScheduler.Reset();
+                    _fastTraversal.StartForward();
+                }
+                else if (action == NovelInputAction.StopFastTraversal)
+                {
+                    _fastTraversal.Stop();
+                }
+                return;
+            }
+
             if (_host.TitleVisible || _host.ChapterPreviewVisible ||
                 _host.FragmentChapterVisible || _host.FragmentListVisible ||
                 IsModalVisible || _host.ChoiceVisible)

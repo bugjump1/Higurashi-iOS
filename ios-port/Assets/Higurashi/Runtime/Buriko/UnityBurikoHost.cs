@@ -129,6 +129,10 @@ namespace Higurashi.IOS.Runtime.Buriko
         private float _fragmentTransitionFrom;
         private float _fragmentTransitionTo;
         private bool _appendNext;
+        private bool _hasEndrollSavedUiState;
+        private bool _gameplayUiBeforeEndroll;
+        private bool _savingBeforeEndroll;
+        private bool _interfaceBeforeEndroll;
         private int _currentVoiceCharacter = -1;
         private int _lastVoiceChannel = -1;
         private int _lastVoiceCharacter = -1;
@@ -185,6 +189,10 @@ namespace Higurashi.IOS.Runtime.Buriko
             _endrollLayerShown = false;
             if (active)
             {
+                _gameplayUiBeforeEndroll = GameplayUiVisible;
+                _savingBeforeEndroll = SavingEnabled;
+                _interfaceBeforeEndroll = InterfaceEnabled;
+                _hasEndrollSavedUiState = true;
                 CreditsVisible = false;
                 TitleVisible = false;
                 ChapterPreviewVisible = false;
@@ -195,6 +203,22 @@ namespace Higurashi.IOS.Runtime.Buriko
                 HistoryVisible = false;
                 Choices.Clear();
                 SetWindowVisibilityImmediate(false);
+                return;
+            }
+
+            // Restore pre-endroll HUD/saving flags when an endroll returns into
+            // a follow-up story script (e.g. EP07 &endroll_staff7 -> _mina_ep).
+            if (_hasEndrollSavedUiState)
+            {
+                _hasEndrollSavedUiState = false;
+                if (!TitleVisible && !CreditsVisible && !ChapterPreviewVisible &&
+                    !_fragmentChapterVisible && !_fragmentListVisible &&
+                    !_tipsChapterVisible && !_tipsListVisible)
+                {
+                    GameplayUiVisible = _gameplayUiBeforeEndroll;
+                    SavingEnabled = _savingBeforeEndroll;
+                    InterfaceEnabled = _interfaceBeforeEndroll;
+                }
             }
         }
 
@@ -1214,6 +1238,7 @@ namespace Higurashi.IOS.Runtime.Buriko
                     _titleShownAt = Time.unscaledTime;
                     EndrollVisible = false;
                     _endrollLayerShown = false;
+                    _hasEndrollSavedUiState = false;
                     ChapterPreviewVisible = false;
                     _chapterPreviewAuthorized = false;
                     _fragmentChapterVisible = false;
@@ -2753,7 +2778,9 @@ namespace Higurashi.IOS.Runtime.Buriko
             CreditsVisible = false;
             CreditsPage = 0;
             _chapterPreviewAuthorized = false;
+            EndrollVisible = false;
             _endrollLayerShown = false;
+            _hasEndrollSavedUiState = false;
             if (TitleVisible)
             {
                 _titleShownAt = Time.unscaledTime;
@@ -2879,7 +2906,9 @@ namespace Higurashi.IOS.Runtime.Buriko
             }
             ChapterPreviewVisible = snapshot.ChapterPreviewVisible;
             _chapterPreviewAuthorized = false;
+            EndrollVisible = false;
             _endrollLayerShown = false;
+            _hasEndrollSavedUiState = false;
             GameplayUiVisible = snapshot.GameplayUiVisible;
             _chapterPreviewAccepted = snapshot.ChapterPreviewAccepted;
             _fragmentChapterVisible = snapshot.FragmentChapterVisible;
