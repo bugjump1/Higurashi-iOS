@@ -25,6 +25,15 @@ namespace Higurashi.IOS.Buriko
         public void SetGlobalFlag(string name, int value) => _globalFlags[name] = value;
         public void SetLocalFlag(string name, int value) => _localFlags[name] = value;
 
+        // Matches PC StateTitle -> BurikoMemory.ResetFlags(): clears all per-run
+        // local flags while preserving global flags (e.g. GFlag_GameClear, TIPS,
+        // visual/audio preferences) so new runs and chapter jumps start clean.
+        public void ResetLocalFlags()
+        {
+            _localFlags.Clear();
+            SetLocalFlag("LTextColor", 0xFFFFFF);
+        }
+
         // The original engine mirrors a choice into both names. Different
         // scripts use different names when reading the selected option.
         public void SetChoiceResult(int index)

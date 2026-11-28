@@ -76,6 +76,7 @@ namespace Higurashi.IOS.Runtime
         private string _lastStoryChoiceRefusalKey = string.Empty;
         private bool _badEndingMissingCheckpointLogged;
         private int _activeFragmentId = -1;
+        private bool _pendingFragment50ContinuationAutoSave;
         private int _cachedPersistedGlobalTipsProgress = -1;
         private bool _fragment51ContinuationNoticeVisible;
         private Vector2 _historyScroll;
@@ -753,14 +754,18 @@ namespace Higurashi.IOS.Runtime
                     }
                 }
 
-                if (EpisodeEightFragmentContinuationPolicy.HasReachedStoryContinuation(
+                if ((_pendingFragment50ContinuationAutoSave &&
+                     string.Equals(_runtime.CurrentScriptName, "_mats_009",
+                         StringComparison.OrdinalIgnoreCase)) ||
+                    EpisodeEightFragmentContinuationPolicy.HasReachedStoryContinuation(
                         HigurashiActiveChapter.Profile.EpisodeNumber,
-                        completedFragmentId,
+                        _activeFragmentId,
                         _runtime.Memory.GetLocalFlag("LFragmentLoop"),
                         _runtime.CurrentScriptName))
                 {
-                    AutoSaveFragmentProgress("fragment-complete-50-story-continuation");
+                    _pendingFragment50ContinuationAutoSave = false;
                     _activeFragmentId = -1;
+                    AutoSaveFragmentProgress("fragment-complete-50-story-continuation");
                     HigurashiDiagnosticLog.Info("Fragment",
                         "Fragment 50 continued into _mats_009 " + RuntimeLocation());
                 }
@@ -768,6 +773,12 @@ namespace Higurashi.IOS.Runtime
                 if (TryRecoverEpisodeEightFragmentContinuation())
                 {
                     continue;
+                }
+
+                if (_host.TitleVisible)
+                {
+                    _activeFragmentId = -1;
+                    _pendingFragment50ContinuationAutoSave = false;
                 }
 
                 if (_tipsLibraryReturnCheckpoint != null &&
@@ -843,7 +854,16 @@ namespace Higurashi.IOS.Runtime
             _fastTraversal.Stop();
             _autoMode = false;
             _activeFragmentId = -1;
+            _pendingFragment50ContinuationAutoSave = true;
             _runtime.Memory.SetLocalFlag("TipsMode", 0);
+            _runtime.Memory.SetLocalFlag("ChapterNumber",
+                EpisodeEightFragmentContinuationPolicy.CompletedFragmentChapterNumber);
+            if (_runtime.Memory.GetGlobalFlag("GHighestChapter") <
+                EpisodeEightFragmentContinuationPolicy.CompletedFragmentChapterNumber)
+            {
+                _runtime.Memory.SetGlobalFlag("GHighestChapter",
+                    EpisodeEightFragmentContinuationPolicy.CompletedFragmentChapterNumber);
+            }
             _runtime.Memory.SetLocalFlag("s_jump",
                 EpisodeEightFragmentContinuationPolicy.ResumeStoryJumpValue);
             _host.PrepareStoryContinuation();
@@ -871,7 +891,16 @@ namespace Higurashi.IOS.Runtime
             _fastTraversal.Stop();
             _autoMode = false;
             _activeFragmentId = -1;
+            _pendingFragment50ContinuationAutoSave = true;
             _runtime.Memory.SetLocalFlag("TipsMode", 0);
+            _runtime.Memory.SetLocalFlag("ChapterNumber",
+                EpisodeEightFragmentContinuationPolicy.CompletedFragmentChapterNumber);
+            if (_runtime.Memory.GetGlobalFlag("GHighestChapter") <
+                EpisodeEightFragmentContinuationPolicy.CompletedFragmentChapterNumber)
+            {
+                _runtime.Memory.SetGlobalFlag("GHighestChapter",
+                    EpisodeEightFragmentContinuationPolicy.CompletedFragmentChapterNumber);
+            }
             _runtime.Memory.SetLocalFlag("s_jump",
                 EpisodeEightFragmentContinuationPolicy.ResumeStoryJumpValue);
             _host.PrepareStoryContinuation();
@@ -1016,6 +1045,7 @@ namespace Higurashi.IOS.Runtime
                 _host.StopTransientAudio();
                 _runtime.ReadPersistentState(runtimeState);
                 RestoreLegacyEpisodeEightFragmentState();
+                RestoreActiveEpisodeEightFragment();
                 SyncGlobalTipsProgressWithMemory();
                 _host.ApplySettings(_runtime.Memory);
                 _host.ReadPersistentState(presentationState, _runtime.Memory);
@@ -1656,6 +1686,8 @@ namespace Higurashi.IOS.Runtime
                 _bonusContentReturnCallDepth = _runtime.CallDepth;
                 _fastTraversal.Stop();
                 _autoMode = false;
+                _activeFragmentId = -1;
+                _pendingFragment50ContinuationAutoSave = false;
                 _timeline.Clear();
                 ResetStoryChoiceState();
                 _runtime.CallScriptFromUi(BonusContentScript);
@@ -1689,6 +1721,8 @@ namespace Higurashi.IOS.Runtime
                 return;
             }
 
+            _activeFragmentId = -1;
+            _pendingFragment50ContinuationAutoSave = false;
             ResetStoryChoiceState();
             _runtime.ResumeInput();
             _suppressInputUntilFrame = Time.frameCount + 2;
@@ -1774,17 +1808,16 @@ namespace Higurashi.IOS.Runtime
 
             _fastTraversal.Stop();
             _autoMode = false;
-            // The PC fragment browser owns BGM channel 1. Do not let that loop
-            // continue underneath the BGM started by the selected fragment.
-            _host.StopBgmChannel(1);
-            _host.StopVoices();
+            // Clear the fragment browser BGM and any lingering SE/voice channels
+            // so the selected fragment script starts with a clean audio slate.
+            _host.StopAllAudio();
             _runtime.CallScriptFromUi(scriptName);
             _suppressInputUntilFrame = Time.frameCount + 2;
             HigurashiDiagnosticLog.Info("Fragment",
                 "Started script=" + scriptName + " read=" +
                 _runtime.Memory.GetLocalFlag("LFragmentRead") + " page=" +
                 _runtime.Memory.GetLocalFlag("LFragmentPage") +
-                " stoppedListBgmChannel=1 " + RuntimeLocation());
+                " clearedFragmentAudio=true " + RuntimeLocation());
             DriveRuntime(false);
             CaptureDialogueCheckpoint();
         }
@@ -2286,20 +2319,19 @@ namespace Higurashi.IOS.Runtime
         private void RestoreActiveEpisodeEightFragment()
         {
             _activeFragmentId = -1;
-            if (_runtime == null || HigurashiActiveChapter.Profile.EpisodeNumber != 8 ||
-                _runtime.Memory.GetLocalFlag("FragmentRead51") == 0)
+            _pendingFragment50ContinuationAutoSave = false;
+            if (_runtime == null || HigurashiActiveChapter.Profile.EpisodeNumber != 8)
             {
                 return;
             }
 
-            if (string.Equals(_runtime.CurrentScriptName, "_kakera50",
-                    StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(_runtime.CurrentScriptName, "_kakera50_02",
-                    StringComparison.OrdinalIgnoreCase))
+            var fragmentId = EpisodeEightFragmentContinuationPolicy.TryParseFragmentIdFromScript(
+                _runtime.CurrentScriptName);
+            if (fragmentId > 0)
             {
-                _activeFragmentId = 50;
+                _activeFragmentId = fragmentId;
                 HigurashiDiagnosticLog.Info("Load",
-                    "Restored active fragment 50 continuation " + RuntimeLocation());
+                    "Restored active fragment " + fragmentId + " " + RuntimeLocation());
             }
         }
 
@@ -2772,6 +2804,8 @@ namespace Higurashi.IOS.Runtime
             _autoMode = false;
             _showHelpWhenGameplayStarts = false;
             _fastTraversal.Stop();
+            _activeFragmentId = -1;
+            _pendingFragment50ContinuationAutoSave = false;
             _timeline.Clear();
             ResetStoryChoiceState();
             _tipsLibraryReturnCheckpoint = null;

@@ -1148,6 +1148,7 @@ namespace Higurashi.IOS.Runtime
 
             try
             {
+                _runtime.Memory.ResetLocalFlags();
                 _runtime.Memory.SetLocalFlag("TipsMode", 0);
                 _runtime.Memory.SetLocalFlag("LOCALWORK_NO_RESULT", 0);
                 var chapterIndex = _chapterJumpSections.IndexOf(section);
@@ -1168,6 +1169,8 @@ namespace Higurashi.IOS.Runtime
                 _host.PrepareForChapterJump();
                 _fastTraversal.Stop();
                 _autoMode = false;
+                _activeFragmentId = -1;
+                _pendingFragment50ContinuationAutoSave = false;
                 _timeline.Clear();
                 ResetStoryChoiceState();
                 _runtime.JumpToSectionFromUi(runtimeSection);
@@ -1375,7 +1378,7 @@ namespace Higurashi.IOS.Runtime
                 "\n" + (entry.Title ?? string.Empty);
             if (GUI.Button(Inset(rect, Mathf.Max(2f, 2f * UiScale)), label, _pcSmallButtonStyle))
             {
-                if (selected)
+                if (selected && available)
                 {
                     StartSelectedFragment();
                 }
@@ -1415,10 +1418,16 @@ namespace Higurashi.IOS.Runtime
 
             var actionRect = new Rect(rect.xMax - actionWidth - 18f * scale,
                 rect.yMax - 52f * scale, actionWidth, 38f * scale);
-            var action = available ? "阅读此碎片" : "查看未解锁提示";
-            if (PcButton(actionRect, action, true))
+            if (available)
             {
-                StartSelectedFragment();
+                if (PcButton(actionRect, "阅读此碎片", true))
+                {
+                    StartSelectedFragment();
+                }
+            }
+            else
+            {
+                DrawDisabledPcButton(actionRect, "未满足前置条件", true);
             }
         }
 
@@ -1485,7 +1494,7 @@ namespace Higurashi.IOS.Runtime
                 case HigurashiFragmentViewState.Viewed:
                     return "已读";
                 case HigurashiFragmentViewState.BrokenButFixable:
-                    return "可读";
+                    return "待重读";
                 case HigurashiFragmentViewState.Broken:
                     return "未解锁";
                 default:

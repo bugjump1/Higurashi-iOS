@@ -6,6 +6,36 @@ namespace Higurashi.IOS.Compatibility
     {
         // flow.Game resumes at _mats_009 after the fragment loop has returned.
         public const int ResumeStoryJumpValue = 9;
+        // flow.Game writes ChapterNumber = 8 right after StartFragmentLoop returns.
+        public const int CompletedFragmentChapterNumber = 8;
+
+        public static int TryParseFragmentIdFromScript(string scriptName)
+        {
+            if (string.IsNullOrWhiteSpace(scriptName))
+            {
+                return -1;
+            }
+
+            var name = scriptName.Trim();
+            const string prefix = "_kakera";
+            if (!name.StartsWith(prefix, System.StringComparison.OrdinalIgnoreCase))
+            {
+                return -1;
+            }
+
+            var suffix = name.Substring(prefix.Length);
+            var underscore = suffix.IndexOf('_');
+            if (underscore >= 0)
+            {
+                suffix = suffix.Substring(0, underscore);
+            }
+
+            return int.TryParse(suffix, System.Globalization.NumberStyles.None,
+                       System.Globalization.CultureInfo.InvariantCulture, out var id) &&
+                   id >= 1 && id <= 52
+                ? id
+                : -1;
+        }
 
         public static bool ShouldContinueStoryAfterFragment50(
             int episodeNumber,

@@ -481,6 +481,30 @@ internal static class Program
             8, 50, 0, "_mats_010"));
         Equal(false, EpisodeEightFragmentContinuationPolicy.HasReachedStoryContinuation(
             8, 50, 1, "_mats_009"));
+
+        Equal(8, EpisodeEightFragmentContinuationPolicy.CompletedFragmentChapterNumber);
+        Equal(1, EpisodeEightFragmentContinuationPolicy.TryParseFragmentIdFromScript("_kakera01"));
+        Equal(50, EpisodeEightFragmentContinuationPolicy.TryParseFragmentIdFromScript("_kakera50"));
+        Equal(50, EpisodeEightFragmentContinuationPolicy.TryParseFragmentIdFromScript("_kakera50_02"));
+        Equal(51, EpisodeEightFragmentContinuationPolicy.TryParseFragmentIdFromScript("_kakera51"));
+        Equal(52, EpisodeEightFragmentContinuationPolicy.TryParseFragmentIdFromScript("_kakera52"));
+        Equal(-1, EpisodeEightFragmentContinuationPolicy.TryParseFragmentIdFromScript("kakera_miss"));
+        Equal(-1, EpisodeEightFragmentContinuationPolicy.TryParseFragmentIdFromScript("_mats_009"));
+        Equal(-1, EpisodeEightFragmentContinuationPolicy.TryParseFragmentIdFromScript("_kakera53"));
+
+        // ResetLocalFlags clears per-run fragment/story flags while preserving globals.
+        var memory = new BurikoMemory();
+        memory.SetGlobalFlag("GFlag_GameClear", 1);
+        memory.SetLocalFlag("LFragmentMiss", 1);
+        memory.SetLocalFlag("LFragmentRead", 51);
+        memory.SetLocalFlag("FragmentRead51", 1);
+        memory.SetLocalFlag("LTextColor", 0x123456);
+        memory.ResetLocalFlags();
+        Equal(1, memory.GetGlobalFlag("GFlag_GameClear"));
+        Equal(0, memory.GetLocalFlag("LFragmentMiss"));
+        Equal(0, memory.GetLocalFlag("LFragmentRead"));
+        Equal(0, memory.GetLocalFlag("FragmentRead51"));
+        Equal(0xFFFFFF, memory.GetLocalFlag("LTextColor"));
     }
 
     private static void EpisodeEightLegacyFragmentSaveRestoresMissingGlobals()

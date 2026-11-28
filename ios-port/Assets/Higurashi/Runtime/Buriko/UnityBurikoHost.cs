@@ -786,6 +786,13 @@ namespace Higurashi.IOS.Runtime.Buriko
                     _selectedFragmentId = -1;
                     GameplayUiVisible = false;
                     SetWindowVisibilityImmediate(false);
+                    // Matches PC OperationFragmentViewChapterScreen: clear stale
+                    // channels and play it_move2 on BGM channel 0.
+                    _audio?.StopNonBgm();
+                    _audio?.FadeOutBgm(1, 0.5f);
+                    _audio?.FadeOutBgm(2, 0.5f);
+                    _audio?.FadeOutBgm(3, 0.5f);
+                    _audio?.PlayBgm(0, "it_move2.ogg", 0.8f, memory);
                     return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
                 case 164:
                     _fragmentChapterVisible = false;
@@ -794,6 +801,13 @@ namespace Higurashi.IOS.Runtime.Buriko
                     _selectedFragmentId = -1;
                     GameplayUiVisible = false;
                     SetWindowVisibilityImmediate(false);
+                    // flow.txt starts the progressive fragment-list BGM on channel 1
+                    // right before FragmentListScreen; clear any lingering BGM 0/2/3
+                    // and SE/voice channels left over from a fragment script.
+                    _audio?.StopNonBgm();
+                    _audio?.FadeOutBgm(0, 0.5f);
+                    _audio?.FadeOutBgm(2, 0.5f);
+                    _audio?.FadeOutBgm(3, 0.5f);
                     return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
                 case 165:
                     _windowBackgroundName = Text(invocation, 0, memory);
@@ -1192,6 +1206,10 @@ namespace Higurashi.IOS.Runtime.Buriko
                         _tipReturnRequested = true;
                         return new BurikoHostResponse(BurikoValue.Null, BurikoBlockReason.Host);
                     }
+                    // Matches PC StateTitle: clear per-run local flags so returning
+                    // to title after clearing (e.g. EP08) never leaks FragmentRead/
+                    // LFragmentMiss/ChapterNumber into a subsequent run or jump.
+                    memory.ResetLocalFlags();
                     TitleVisible = true;
                     _titleShownAt = Time.unscaledTime;
                     EndrollVisible = false;
@@ -1841,21 +1859,21 @@ namespace Higurashi.IOS.Runtime.Buriko
             }
 
             var available = _fragmentCatalog.ArePrerequisitesMet(entry, memory);
-            if (available)
+            if (!available)
             {
-                if (memory.GetLocalFlag(HigurashiFragmentCatalog.FragmentReadFlag(entry.Id)) == 0)
-                {
-                    memory.SetLocalFlag("LFragmentRead", memory.GetLocalFlag("LFragmentRead") + 1);
-                }
-                memory.SetLocalFlag(HigurashiFragmentCatalog.FragmentReadFlag(entry.Id), 1);
-                memory.SetLocalFlag(HigurashiFragmentCatalog.FragmentStatusFlag(entry.Id), 1);
-                scriptName = entry.Script;
+                // Mobile anti-misclick policy: locked fragments display their exact
+                // prerequisites in the detail panel and cannot trigger kakera_miss
+                // (which would set LFragmentMiss=1 and lock out hidden fragment 52).
+                return false;
             }
-            else
+
+            if (memory.GetLocalFlag(HigurashiFragmentCatalog.FragmentReadFlag(entry.Id)) == 0)
             {
-                memory.SetLocalFlag(HigurashiFragmentCatalog.FragmentStatusFlag(entry.Id), 2);
-                scriptName = "kakera_miss";
+                memory.SetLocalFlag("LFragmentRead", memory.GetLocalFlag("LFragmentRead") + 1);
             }
+            memory.SetLocalFlag(HigurashiFragmentCatalog.FragmentReadFlag(entry.Id), 1);
+            memory.SetLocalFlag(HigurashiFragmentCatalog.FragmentStatusFlag(entry.Id), 1);
+            scriptName = entry.Script;
 
             memory.SetLocalFlag("LFragmentPage", _fragmentPage);
             _fragmentListVisible = false;
